@@ -768,17 +768,19 @@ function processJsonMessage(msg) {
     });
   } else if (msg.type === 'nodeinfo' && msg.payload) {
     const p = msg.payload;
-    const displayName = p.longname ?? p.long_name ?? p.shortname ?? p.short_name ?? fromHex;
+    const actualNodeId = p.id != null ? (typeof p.id === 'number' ? nodeIdHex(p.id) : p.id) : fromHex;
+    const displayName = p.longname ?? p.long_name ?? p.shortname ?? p.short_name ?? actualNodeId;
     logger.log('mqtt', 'info', `nodeinfo from '${displayName}' on JSON`);
-    handleNodeInfo({ nodeId: fromHex,
+    handleNodeInfo({ nodeId: actualNodeId,
       longName:  p.longname  ?? p.long_name  ?? null,
       shortName: p.shortname ?? p.short_name ?? null,
       hwModel: p.hardware, timestamp: ts });
   } else if (msg.type === 'map_report' && msg.payload) {
     const p = msg.payload;
-    const displayName = p.longname ?? p.long_name ?? p.shortname ?? p.short_name ?? fromHex;
+    const actualNodeId = p.id != null ? (typeof p.id === 'number' ? nodeIdHex(p.id) : p.id) : fromHex;
+    const displayName = p.longname ?? p.long_name ?? p.shortname ?? p.short_name ?? actualNodeId;
     logger.log('mqtt', 'info', `nodeinfo from '${displayName}' on JSON`);
-    handleNodeInfo({ nodeId: fromHex,
+    handleNodeInfo({ nodeId: actualNodeId,
       longName:  p.longname  ?? p.long_name  ?? null,
       shortName: p.shortname ?? p.short_name ?? null,
       hwModel: p.hardware ?? p.hw_model, timestamp: ts });
