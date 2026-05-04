@@ -744,8 +744,18 @@ function processJsonMessage(msg) {
 
   if (msg.type === 'position' && msg.payload) {
     const p = msg.payload;
+    // For relayed packets, payload.id contains the actual tracker node ID
+    const actualNodeId = p.id || fromHex;
+    // Get names from registry for better logging
+    const trackerReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(actualNodeId);
+    const feederReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(fromHex);
+    const trackerName = trackerReg ? (trackerReg.long_name || trackerReg.short_name || actualNodeId) : actualNodeId;
+    const feederName = feederReg ? (feederReg.long_name || feederReg.short_name || fromHex) : fromHex;
+    // Log with tracker name and feeder indication
+    const viaText = actualNodeId !== fromHex ? ` via ${feederName}` : '';
+    logger.log('mqtt', 'info', `position from '${trackerName}'${viaText} on JSON`);
     handlePosition({
-      nodeId: fromHex,
+      nodeId: actualNodeId,
       lat: (p.latitude_i ?? p.latitude ?? 0) / (p.latitude_i !== undefined ? 1e7 : 1),
       lon: (p.longitude_i ?? p.longitude ?? 0) / (p.longitude_i !== undefined ? 1e7 : 1),
       altitude: p.altitude,
@@ -786,7 +796,11 @@ async function processProtoData(data, fromNode, snr, rssi) {
   if (data.portnum === PORTNUM.POSITION) {
     const Position = root.lookupType('meshtastic.Position');
     const pos = Position.decode(data.payload);
-    logger.log('mqtt', 'info', `position from ${fromHex}`);
+    // For protobuf packets, fromHex should already be the original sender
+    const actualNodeId = fromHex;
+    const trackerReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(actualNodeId);
+    const trackerName = trackerReg ? (trackerReg.long_name || trackerReg.short_name || actualNodeId) : actualNodeId;
+    logger.log('mqtt', 'info', `position from '${trackerName}' on protobuf`);
     handlePosition({
       nodeId: fromHex,
       lat: pos.latitudeI / 1e7,
