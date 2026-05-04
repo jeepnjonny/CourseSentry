@@ -980,13 +980,14 @@ function sendNodeInfo(tacticalCallsign, nodeId) {
   const topic = `msh/${currentConfig.region}/2/json/${currentConfig.channel}/${nodeIdHex(from)}`;
   const ts    = Math.floor(Date.now() / 1000);
   const packet = JSON.stringify({
-    from,
-    to:        0xffffffff,
-    id:        (Date.now() & 0x7fffffff) >>> 0,
-    type:      'nodeinfo',
     channel:   parseInt(currentConfig.channel) || 0,
-    payload:   { id: nodeIdHex(from), longname: tacticalCallsign, shortname: 'NC'},
+    from,
+    id:        (Date.now() & 0x7fffffff) >>> 0,
+    sender:    nodeIdHex(from),
     timestamp: ts,
+    to:        0xffffffff,
+    type:      'nodeinfo',
+    payload:   { id: nodeIdHex(from), longname: tacticalCallsign, shortname: 'NC'}
   });
   try {
     mqttClient.publish(topic, packet);
