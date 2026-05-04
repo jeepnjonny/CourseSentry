@@ -927,15 +927,6 @@ function connect(config) {
       } else {
         const msg = JSON.parse(payload.toString());
         processJsonMessage(msg);
-        if (msg.type === 'position' || msg.type === 'nodeinfo') {
-          // Get the actual node ID for logging (payload.id for relayed packets)
-          const actualNodeId = (msg.type === 'nodeinfo' && msg.payload?.id) ? msg.payload.id : 
-                              (msg.type === 'position' && msg.payload?.id) ? msg.payload.id : 
-                              (typeof msg.from === 'number' ? nodeIdHex(msg.from) : (msg.sender || msg.from || ''));
-          const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(actualNodeId);
-          const displayName = reg ? (reg.long_name || reg.short_name || actualNodeId) : actualNodeId;
-          mqttLog('info', `${msg.type} from '${displayName}' on JSON`);
-        }
       }
       broadcast('mqtt_raw', { topic, ts: Date.now() });
     } catch (e) {
