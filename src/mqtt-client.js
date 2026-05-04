@@ -176,9 +176,14 @@ function handleNodeInfo({ nodeId, longName, shortName, hwModel, timestamp }) {
 
   const changed = longName || shortName;
   if (changed) {
-    logger.log('mqtt', 'info', `node info: ${nodeId} → long="${longName}" short="${shortName}"`);
+    logger.log('mqtt', 'debug', `node info: ${nodeId} → long="${longName}" short="${shortName}"`);
     broadcast('tracker_info', { nodeId, longName, shortName, timestamp });
   }
+}
+
+function getDisplayName(nodeId) {
+  const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(nodeId);
+  return reg ? (reg.long_name || reg.short_name || nodeId) : nodeId;
 }
 
 function handleTextMessage({ fromNodeId, toNodeId, text, timestamp }) {
@@ -744,14 +749,9 @@ function processJsonMessage(msg) {
 
   if (msg.type === 'position' && msg.payload) {
     const p = msg.payload;
-    // For relayed packets, payload.id contains the actual tracker node ID
-    const actualNodeId = p.id || fromHex;
-    // Get names from registry for better logging
-    const trackerReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(actualNodeId);
-    const feederReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(fromHex);
-    const trackerName = trackerReg ? (trackerReg.long_name || trackerReg.short_name || actualNodeId) : actualNodeId;
-    const feederName = feederReg ? (feederReg.long_name || feederReg.short_name || fromHex) : fromHex;
-    // Log with tracker name and feeder indication
+    const actualNodeId = p.id != null ? (typeof p.id === 'number' ? nodeIdHex(p.id) : p.id) : fromHex;
+    const trackerName = getDisplayName(actualNodeId);
+    const feederName = getDisplayName(fromHex);
     const viaText = actualNodeId !== fromHex ? ` via ${feederName}` : '';
     logger.log('mqtt', 'info', `position from '${trackerName}'${viaText} on JSON`);
     handlePosition({
@@ -766,21 +766,25 @@ function processJsonMessage(msg) {
       rssi: msg.rssi,
       timestamp: ts,
     });
-  } else if (msg.type === 'telemetry' && msg.payload) {
-    const p = msg.payload;
-    handleTelemetry({ nodeId: fromHex, battery: p.battery_level, voltage: p.voltage, timestamp: ts });
   } else if (msg.type === 'nodeinfo' && msg.payload) {
     const p = msg.payload;
+    const displayName = p.longname ?? p.long_name ?? p.shortname ?? p.short_name ?? fromHex;
+    logger.log('mqtt', 'info', `nodeinfo from '${displayName}' on JSON`);
     handleNodeInfo({ nodeId: fromHex,
       longName:  p.longname  ?? p.long_name  ?? null,
       shortName: p.shortname ?? p.short_name ?? null,
       hwModel: p.hardware, timestamp: ts });
   } else if (msg.type === 'map_report' && msg.payload) {
     const p = msg.payload;
+    const displayName = p.longname ?? p.long_name ?? p.shortname ?? p.short_name ?? fromHex;
+    logger.log('mqtt', 'info', `nodeinfo from '${displayName}' on JSON`);
     handleNodeInfo({ nodeId: fromHex,
       longName:  p.longname  ?? p.long_name  ?? null,
       shortName: p.shortname ?? p.short_name ?? null,
       hwModel: p.hardware ?? p.hw_model, timestamp: ts });
+  } else if (msg.type === 'telemetry' && msg.payload) {
+    const p = msg.payload;
+    handleTelemetry({ nodeId: fromHex, battery: p.battery_level, voltage: p.voltage, timestamp: ts });
   } else if (msg.type === 'text') {
     const toHex = typeof msg.to === 'number' ? nodeIdHex(msg.to) : (msg.to || '');
     handleTextMessage({ fromNodeId: fromHex, toNodeId: toHex, text: msg.payload, timestamp: ts });
