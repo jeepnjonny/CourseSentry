@@ -985,7 +985,7 @@ function sendNodeInfo(tacticalCallsign, nodeId) {
     id:        (Date.now() & 0x7fffffff) >>> 0,
     type:      'nodeinfo',
     channel:   parseInt(currentConfig.channel) || 0,
-    payload:   { id: nodeIdHex(from), longName: tacticalCallsign, shortName: 'NC' },
+    payload:   { id: nodeIdHex(from), longname: tacticalCallsign, shortname: 'NC'},
     timestamp: ts,
   });
   try {
