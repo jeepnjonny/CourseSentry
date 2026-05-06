@@ -835,18 +835,17 @@ function processJsonMessage(msg) {
 }
 
 // Process decoded protobuf Data object
-async function processProtoData(data, fromNode, snr, rssi) {
+async function processProtoData(data, fromNode, toNode, snr, rssi) {
   const root = await loadProto();
   const ts = Math.floor(Date.now() / 1000);
   const fromHex = nodeIdHex(fromNode);
+  const toHex   = (toNode && toNode !== 0xffffffff) ? nodeIdHex(toNode) : '';
 
   if (data.portnum === PORTNUM.POSITION) {
     const Position = root.lookupType('meshtastic.Position');
     const pos = Position.decode(data.payload);
-    // For protobuf packets, fromHex should already be the original sender
-    const actualNodeId = fromHex;
-    const trackerReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(actualNodeId);
-    const trackerName = trackerReg ? (trackerReg.long_name || trackerReg.short_name || actualNodeId) : actualNodeId;
+    const trackerReg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(fromHex);
+    const trackerName = trackerReg ? (trackerReg.long_name || trackerReg.short_name || fromHex) : fromHex;
     logger.log('mqtt', 'info', `position from '${trackerName}' on protobuf`);
     handlePosition({
       nodeId: fromHex,
@@ -871,7 +870,7 @@ async function processProtoData(data, fromNode, snr, rssi) {
     logger.log('mqtt', 'info', `nodeinfo from '${trackerName}' on protobuf`);
     handleNodeInfo({ nodeId: fromHex, longName: user.longName, shortName: user.shortName, hwModel: user.hwModel, timestamp: ts });
   } else if (data.portnum === PORTNUM.TEXT) {
-    handleTextMessage({ fromNodeId: fromHex, toNodeId: '', text: data.payload.toString('utf8'), timestamp: ts });
+    handleTextMessage({ fromNodeId: fromHex, toNodeId: toHex, text: data.payload.toString('utf8'), timestamp: ts });
   }
 }
 
@@ -884,6 +883,9 @@ async function handleProtoMessage(payload, psk) {
     const packet = envelope.packet;
     if (!packet) return;
 
+    // Skip our own echoed transmissions — broker reflects them back on the same topic
+    if (_gatewayNodeId && (packet.from >>> 0) === (_gatewayNodeId >>> 0)) return;
+
     let data;
     if (packet.decoded) {
       data = packet.decoded;
@@ -893,7 +895,7 @@ async function handleProtoMessage(payload, psk) {
       try { data = Data.decode(decrypted); } catch { return; }
     } else return;
 
-    await processProtoData(data, packet.from, packet.rxSnr, packet.rxRssi);
+    await processProtoData(data, packet.from, packet.to, packet.rxSnr, packet.rxRssi);
   } catch (e) {
     // silently ignore malformed packets
   }
