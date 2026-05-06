@@ -123,11 +123,13 @@ async function buildEnvelope(from, to, portnum, payloadBytes, opts = {}) {
   const dataMsg  = Data.create({ portnum, payload: payloadBytes });
   const encrypted = encryptPayload(Buffer.from(Data.encode(dataMsg).finish()), packetId, from);
 
+  const hopLimit = opts.hopLimit ?? 3;
   const packet = MeshPacket.create({
     from, to, id: packetId,
     ...(encrypted ? { encrypted } : { decoded: dataMsg }),
-    wantAck:  opts.wantAck  ?? false,
-    hopLimit: opts.hopLimit ?? 3,
+    wantAck:  opts.wantAck ?? false,
+    hopLimit,
+    hopStart: hopLimit,   // must equal hopLimit for fresh packets; 0 makes firmware think it's already been relayed
     viaMqtt:  true,
   });
   const envelope = ServiceEnvelope.create({
