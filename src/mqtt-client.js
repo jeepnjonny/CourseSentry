@@ -1131,7 +1131,6 @@ async function publishMessage(toNodeId, text, messageId) {
     const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: false, packetId });
     mqttClient.publish(topic, buf);
     logger.log('mqtt', 'info', `MSG→${toNodeId} (broadcast) pkt=${packetId}: ${text}`);
-    if (messageId != null) trackMqttMessage(packetId, messageId);
     return true;
   } catch (e) {
     logger.log('mqtt', 'error', `publishMessage failed: ${e.message}`);

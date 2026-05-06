@@ -33,8 +33,21 @@ router.get('/', requireAuth, (req, res) => {
   let sql = 'SELECT * FROM messages WHERE race_id=?';
   const args = [req.params.raceId];
   if (node_id) {
-    sql += ' AND (from_node_id=? OR to_node_id=?)';
-    args.push(node_id, node_id);
+    // Resolve longname/shortname → hex node_id so messages stored as '!f6f90b74'
+    // match participants whose tracker_id is set to a name like 'RaceFeeder01'
+    const reg = db.prepare(
+      `SELECT node_id FROM tracker_registry
+       WHERE node_id=? OR upper(long_name)=upper(?) OR upper(short_name)=upper(?)`
+    ).get(node_id, node_id, node_id);
+    const hexId = reg?.node_id;
+    const ids = hexId && hexId !== node_id ? [node_id, hexId] : [node_id];
+    if (ids.length === 1) {
+      sql += ' AND (from_node_id=? OR to_node_id=?)';
+      args.push(ids[0], ids[0]);
+    } else {
+      sql += ' AND (from_node_id IN (?,?) OR to_node_id IN (?,?))';
+      args.push(ids[0], ids[1], ids[0], ids[1]);
+    }
   }
   sql += ' ORDER BY timestamp DESC';
   if (limit) { sql += ' LIMIT ?'; args.push(parseInt(limit)); }
@@ -79,7 +92,7 @@ router.post('/', requireRole('admin', 'operator'), async (req, res) => {
     sent = aprsClient.sendMessage(to_node_id.trim(), text, messageId) !== false;
   } else {
     sent = await mqttClient.publishMessage(resolvedToNodeId, text, messageId);
-    if (sent) db.prepare("UPDATE messages SET status='enroute' WHERE id=?").run(messageId);
+    if (sent) db.prepare("UPDATE messages SET status='sent' WHERE id=?").run(messageId);
   }
 
   const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
