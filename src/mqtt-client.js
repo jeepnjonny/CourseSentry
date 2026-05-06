@@ -884,29 +884,50 @@ async function processProtoData(data, fromNode, toNode, snr, rssi) {
 }
 
 async function handleProtoMessage(payload, psk) {
+  const diag = currentConfig?.diagnostic;
   try {
     const root = await loadProto();
     const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
     const Data = root.lookupType('meshtastic.Data');
     const envelope = ServiceEnvelope.decode(payload);
     const packet = envelope.packet;
-    if (!packet) return;
+    if (!packet) {
+      if (diag) logger.log('mqtt', 'warn', 'proto: no packet in envelope');
+      return;
+    }
+
+    const fromHex = nodeIdHex(packet.from >>> 0);
+    if (diag) logger.log('mqtt', 'debug',
+      `proto pkt from=${fromHex} id=${packet.id} decoded=${!!packet.decoded} encLen=${packet.encrypted?.length ?? 0}`);
 
     // Skip our own echoed transmissions — broker reflects them back on the same topic
     if (_gatewayNodeId && (packet.from >>> 0) === (_gatewayNodeId >>> 0)) return;
 
     let data;
-    if (packet.decoded) {
+    // decoded is a message field → null when absent; encrypted is bytes → Uint8Array(0) when absent
+    if (packet.decoded && packet.decoded.portnum != null) {
       data = packet.decoded;
-    } else if (packet.encrypted) {
+    } else if (packet.encrypted && packet.encrypted.length > 0) {
       const decrypted = decryptPayload(Buffer.from(packet.encrypted), packet.id, packet.from, psk);
-      if (!decrypted) return;
-      try { data = Data.decode(decrypted); } catch { return; }
-    } else return;
+      if (!decrypted) {
+        if (diag) logger.log('mqtt', 'warn', `proto: decrypt failed from=${fromHex} id=${packet.id} psk=${psk}`);
+        return;
+      }
+      try {
+        data = Data.decode(decrypted);
+      } catch (e) {
+        if (diag) logger.log('mqtt', 'warn', `proto: Data.decode failed from=${fromHex}: ${e.message}`);
+        return;
+      }
+    } else {
+      if (diag) logger.log('mqtt', 'warn', `proto: packet has neither decoded nor encrypted from=${fromHex}`);
+      return;
+    }
 
+    if (diag) logger.log('mqtt', 'debug', `proto: portnum=${data.portnum} payloadLen=${data.payload?.length ?? 0} from=${fromHex}`);
     await processProtoData(data, packet.from, packet.to, packet.rxSnr, packet.rxRssi);
   } catch (e) {
-    // silently ignore malformed packets
+    if (diag) logger.log('mqtt', 'warn', `proto: unhandled error: ${e.message}`);
   }
 }
 
