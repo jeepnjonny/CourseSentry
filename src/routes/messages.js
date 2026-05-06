@@ -9,6 +9,25 @@ const router = express.Router({ mergeParams: true });
 
 const APRS_CALL_RE = /^[A-Z0-9]{1,6}(-(?:1[0-5]|[0-9]))?$/i;
 
+function resolveMeshtasticNodeId(rawId) {
+  if (!rawId) return null;
+  const value = String(rawId).trim();
+  if (!value) return null;
+  const candidate = value.startsWith('!') ? value.toLowerCase() : `!${value.toLowerCase()}`;
+
+  if (/^![0-9a-f]{8}$/.test(candidate)) return candidate;
+
+  const row = db.prepare(
+    `SELECT node_id FROM tracker_registry
+     WHERE node_id = ?
+       OR upper(long_name) = upper(?)
+       OR upper(short_name) = upper(?)`
+  ).get(candidate, value, value);
+
+  if (row?.node_id) return row.node_id.startsWith('!') ? row.node_id : `!${row.node_id}`;
+  return null;
+}
+
 router.get('/', requireAuth, (req, res) => {
   const { node_id, limit } = req.query;
   let sql = 'SELECT * FROM messages WHERE race_id=?';
@@ -35,25 +54,31 @@ router.post('/', requireRole('admin', 'operator'), async (req, res) => {
 
   let fromNodeId = null;
   const isAprs = APRS_CALL_RE.test(to_node_id.trim());
+  let resolvedToNodeId = to_node_id;
 
   if (isAprs) {
     const aprsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'aprs_%'").all();
     const s = Object.fromEntries(aprsRows.map(r => [r.key, r.value]));
     fromNodeId = s.aprs_callsign || null;
+  } else {
+    resolvedToNodeId = resolveMeshtasticNodeId(to_node_id);
+    if (!resolvedToNodeId) {
+      return res.status(400).json({ ok: false, error: 'Invalid Meshtastic node ID or unknown tracker name' });
+    }
   }
 
   // Insert first (status=queued) so we have an ID for ACK tracking
   const result = db.prepare(`
     INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, to_name, text, timestamp, status)
     VALUES (?,?,?,?,?,?,?,?,'queued')
-  `).run(req.params.raceId, 'out', fromNodeId, username, to_node_id, to_name || null, text, ts);
+  `).run(req.params.raceId, 'out', fromNodeId, username, resolvedToNodeId, to_name || null, text, ts);
   const messageId = result.lastInsertRowid;
 
   let sent = false;
   if (isAprs) {
     sent = aprsClient.sendMessage(to_node_id.trim(), text, messageId) !== false;
   } else {
-    sent = await mqttClient.publishMessage(to_node_id, text);
+    sent = await mqttClient.publishMessage(resolvedToNodeId, text);
     if (sent) db.prepare("UPDATE messages SET status='enroute' WHERE id=?").run(messageId);
   }
 

@@ -39,6 +39,24 @@ function nodeIdHex(num) {
   return '!' + (num >>> 0).toString(16).padStart(8, '0');
 }
 
+function normalizeMeshtasticNodeId(rawId) {
+  if (!rawId) return null;
+  const value = String(rawId).trim();
+  if (!value) return null;
+  const candidate = value.startsWith('!') ? value.toLowerCase() : `!${value.toLowerCase()}`;
+  if (/^![0-9a-f]{8}$/.test(candidate)) return candidate;
+
+  const row = db.prepare(
+    `SELECT node_id FROM tracker_registry
+     WHERE node_id = ?
+       OR upper(long_name) = upper(?)
+       OR upper(short_name) = upper(?)`
+  ).get(candidate, value, value);
+
+  if (row?.node_id) return row.node_id.startsWith('!') ? row.node_id : `!${row.node_id}`;
+  return null;
+}
+
 // Meshtastic default channel key — the 8-bit sentinel AQ== (0x01) expands to this.
 // Source: Meshtastic firmware channel.cpp defaultpsk[]
 const MESH_DEFAULT_KEY = Buffer.from([
@@ -1041,12 +1059,13 @@ function getStatus() {
 // Publish an outbound text message to a specific Meshtastic node (encrypted protobuf)
 async function publishMessage(toNodeId, text) {
   if (!mqttClient || !mqttClient.connected || !currentConfig) return false;
-  if (!/^![0-9a-f]{1,8}$/i.test(toNodeId)) {
+  const normalized = normalizeMeshtasticNodeId(toNodeId);
+  if (!normalized) {
     logger.log('mqtt', 'warn', `publishMessage: invalid Meshtastic node ID "${toNodeId}"`);
     return false;
   }
   const from  = (_gatewayNodeId || 0) >>> 0;
-  const to    = parseInt(toNodeId.slice(1), 16) >>> 0;
+  const to    = parseInt(normalized.slice(1), 16) >>> 0;
   const topic = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
   try {
     const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: true });
