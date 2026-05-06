@@ -22,6 +22,7 @@ let selectedRaceId = null; // race being configured in sub-tabs
 
 const GLOBAL_TABS = [
   { id: 'races',    label: 'RACES' },
+  { id: 'courses',  label: 'COURSES' },
   { id: 'infra',    label: 'INFRASTRUCTURE' },
   { id: 'users',    label: 'USERS' },
   { id: 'settings', label: 'DATASOURCES' },
@@ -118,6 +119,7 @@ function renderTab() {
   const el = document.getElementById('admin-content');
   switch (currentTab) {
     case 'races':        el.innerHTML = renderRacesTab(); bindRacesTab(); break;
+    case 'courses':      el.innerHTML = renderCoursesTab(); bindCoursesTab(); break;
     case 'heats':        el.innerHTML = renderHeatsTab(); bindHeatsTab(); break;
     case 'participants': el.innerHTML = renderParticipantsTab(); bindParticipantsTab(); break;
     case 'course':       el.innerHTML = renderCourseTab(); bindCourseTab(); break;
@@ -174,7 +176,7 @@ function renderRaceList() {
 async function activateRace(id) {
   const race = races.find(r => r.id === id);
   if (!race?.course_id) {
-    RT.toast('A course is required before activating a race. Edit the race and select a course.', 'warn');
+    RT.toast('A course is required before activating a race. Go to the race → COURSE tab and assign one.', 'warn');
     return;
   }
   if (!confirm('Activate this race? The current active race (if any) will be set to past.')) return;
@@ -299,16 +301,10 @@ async function openRaceModal(id) {
   document.getElementById('rm-mqtt-enabled').checked = settings.mqtt_enabled !== '0';
   document.getElementById('rm-aprs-enabled').checked = settings.aprs_enabled === '1';
   document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || 'Net Control';
-  // Populate course dropdown
-  const cr = await RT.get('/api/courses');
-  const cSel = document.getElementById('rm-course-id');
-  cSel.innerHTML = '<option value="">— None —</option>' +
-    (cr.ok ? cr.data : []).map(c => `<option value="${c.id}"${race?.course_id===c.id?' selected':''}>${c.name} (${c.file_type.toUpperCase()})</option>`).join('');
   document.getElementById('race-modal').classList.remove('hidden');
 }
 
 async function saveRace() {
-  const courseVal = document.getElementById('rm-course-id').value;
   const body = {
     name:                document.getElementById('rm-name').value.trim(),
     date:                document.getElementById('rm-date').value,
@@ -331,7 +327,6 @@ async function saveRace() {
     leaderboard_enabled: document.getElementById('rm-leaderboard').checked ? 1 : 0,
     weather_enabled:     document.getElementById('rm-weather').checked ? 1 : 0,
     viewer_show_names:   document.getElementById('rm-show-names').checked ? 1 : 0,
-    course_id:           courseVal ? parseInt(courseVal) : null,
     race_format:         document.getElementById('rm-race-format').value,
     tactical_callsign:   document.getElementById('rm-tactical-callsign').value.trim() || 'Net Control',
     start_time:          parseTimeToUnix(document.getElementById('rm-start-time').value, document.getElementById('rm-date').value) ?? null,
@@ -483,11 +478,12 @@ async function deleteClass(id) {
 let courseFiles = [], selectedCourseId = null;
 let csvFilesList = [], selectedCsvId = null;
 let courseParseData = null; // { paths, points, trackPoints, totalDistance, pathIndex }
+let _courseTabContext = 'global'; // 'global' | 'race'
 
-function renderCourseTab() {
+// ── Global COURSES tab ────────────────────────────────────────────────────────
+function renderCoursesTab() {
   return `
   <div style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:12px;align-items:start">
-    <!-- Left: course file list -->
     <div>
       <div class="card" style="margin-bottom:0;overflow:hidden">
         <h3>KML / GPX LIBRARY</h3>
@@ -500,7 +496,6 @@ function renderCourseTab() {
         <div id="course-file-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
       </div>
     </div>
-    <!-- Right: course detail panel -->
     <div id="course-detail-panel">
       <div class="card" style="margin-bottom:0">
         <div id="course-detail-inner" style="color:var(--text3);font-size:16px;padding:20px;text-align:center">
@@ -509,9 +504,7 @@ function renderCourseTab() {
       </div>
     </div>
   </div>
-
   <div style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:12px;align-items:start;margin-top:12px">
-    <!-- Left: CSV file list -->
     <div>
       <div class="card" style="margin-bottom:0;overflow:hidden">
         <h3>STATION CSV LIBRARY</h3>
@@ -524,7 +517,6 @@ function renderCourseTab() {
         <div id="csv-lib-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
       </div>
     </div>
-    <!-- Right: CSV detail -->
     <div id="csv-detail-panel">
       <div class="card" style="margin-bottom:0">
         <div id="csv-detail-inner" style="color:var(--text3);font-size:16px;padding:20px;text-align:center">
@@ -532,9 +524,35 @@ function renderCourseTab() {
         </div>
       </div>
     </div>
+  </div>`;
+}
+
+async function bindCoursesTab() {
+  _courseTabContext = 'global';
+  selectedCourseId = null;
+  courseParseData = null;
+  await Promise.all([loadCourseFiles(), loadCsvLibFiles()]);
+}
+
+function renderCourseTab() {
+  const race = races.find(r => r.id === selectedRaceId);
+  const courseOpts = '<option value="">— None —</option>' +
+    courseFiles.map(c => `<option value="${c.id}"${c.id === race?.course_id ? ' selected' : ''}>${c.name} (${c.file_type.toUpperCase()})</option>`).join('');
+  return `
+  <div class="card">
+    <h3>COURSE FILE</h3>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="race-course-sel" style="flex:1;min-width:180px">${courseOpts}</select>
+      <button class="primary" onclick="saveRaceCourseAssignment()" style="font-size:13px;padding:4px 10px">ASSIGN</button>
+      <span style="font-size:13px;color:var(--text3)">Upload files in the
+        <a href="#" onclick="showTab('courses');return false;" style="color:var(--accent)">COURSES</a> tab
+      </span>
+    </div>
+    <div id="race-course-preview" style="margin-top:10px"></div>
+    <div id="race-course-seed"></div>
   </div>
 
-  <div class="card" style="margin-top:12px">
+  <div class="card">
     <h3>RACE STATIONS</h3>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="primary" onclick="openStationModal()">+ ADD</button>
@@ -556,7 +574,96 @@ function renderCourseTab() {
 }
 
 async function bindCourseTab() {
-  await Promise.all([loadCourseFiles(), loadCsvLibFiles(), loadStations()]);
+  _courseTabContext = 'race';
+  const race = races.find(r => r.id === selectedRaceId);
+  await Promise.all([loadCourseFiles(), loadStations()]);
+  // Populate the dropdown now that courseFiles is loaded
+  const sel = document.getElementById('race-course-sel');
+  if (sel) {
+    sel.innerHTML = '<option value="">— None —</option>' +
+      courseFiles.map(c => `<option value="${c.id}"${c.id === race?.course_id ? ' selected' : ''}>${c.name} (${c.file_type.toUpperCase()})</option>`).join('');
+  }
+  if (race?.course_id) await loadAssignedCourse(race.course_id);
+}
+
+async function saveRaceCourseAssignment() {
+  const courseVal = document.getElementById('race-course-sel').value;
+  const courseId = courseVal ? parseInt(courseVal) : null;
+  const res = await RT.put(`/api/races/${selectedRaceId}`, { course_id: courseId });
+  if (!res.ok) { RT.toast(res.error, 'warn'); return; }
+  await loadRaces();
+  RT.toast(courseId ? 'Course assigned' : 'Course removed', 'ok');
+  const preview = document.getElementById('race-course-preview');
+  const seed = document.getElementById('race-course-seed');
+  if (courseId) {
+    if (preview) preview.innerHTML = '<div class="text-dim" style="padding:12px;text-align:center;font-size:14px">Loading preview...</div>';
+    if (seed) seed.innerHTML = '';
+    await loadAssignedCourse(courseId);
+  } else {
+    if (preview) preview.innerHTML = '';
+    if (seed) seed.innerHTML = '';
+  }
+}
+
+async function loadAssignedCourse(courseId) {
+  const previewEl = document.getElementById('race-course-preview');
+  const seedEl = document.getElementById('race-course-seed');
+  if (!previewEl) return;
+  const res = await RT.get(`/api/courses/${courseId}/parse`);
+  if (!res.ok) { previewEl.innerHTML = `<div class="text-dim" style="font-size:14px">Error loading course: ${res.error}</div>`; return; }
+  courseParseData = res.data;
+  const d = courseParseData;
+  const course = courseFiles.find(c => c.id === courseId);
+  const dist = d.totalDistance ? RT.fmtDist(d.totalDistance) : '—';
+  const svg = buildCourseSVG(d.trackPoints, 520, 200, null, stations);
+  const hasPaths = d.paths?.length > 1;
+  previewEl.innerHTML = `
+    <div style="font-size:13px;color:var(--text3);margin-bottom:6px">${course?.name || ''} · ${dist}${d.trackPoints ? ` · ${d.trackPoints.length} pts` : ''}</div>
+    ${svg}
+    ${hasPaths ? `<div style="margin-top:8px">
+      <label style="font-size:13px;letter-spacing:1px;color:var(--text3)">SELECT PATH</label>
+      <select onchange="setCoursePathIndex(${courseId}, this.value)" style="margin-top:4px;font-size:13px">
+        ${d.paths.map(p => `<option value="${p.index}"${p.index === d.pathIndex ? ' selected' : ''}>${p.name} (${p.pointCount} pts)</option>`).join('')}
+      </select>
+    </div>` : ''}`;
+
+  // Build seed / auto-create section
+  const race = races.find(r => r.id === selectedRaceId);
+  const isOutBack = race?.race_format === 'out_and_back';
+  const missingA = isOutBack ? !stations.some(s => s.type === 'start_finish') : !stations.some(s => s.type === 'start');
+  const missingB = isOutBack ? !stations.some(s => s.type === 'turnaround')   : !stations.some(s => s.type === 'finish');
+  let seedHtml = '';
+  if ((missingA || missingB) && d.trackPoints?.length >= 2) {
+    const labelA = isOutBack ? 'START/FINISH' : 'START';
+    const labelB = isOutBack ? 'TURNAROUND'   : 'FINISH';
+    const missing = [missingA && labelA, missingB && labelB].filter(Boolean).join(' + ');
+    seedHtml += `<div style="background:rgba(210,153,34,.10);border:1px solid rgba(210,153,34,.35);border-radius:4px;padding:7px 10px;margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:14px;color:#d2993a;flex:1">&#9888; No ${missing} station for <strong>${race?.name || 'this race'}</strong></span>
+      <button onclick="autoCreateStartFinish()" style="font-size:13px;padding:4px 10px;white-space:nowrap">AUTO-CREATE FROM TRACK</button>
+    </div>`;
+  }
+  const wpts = d.points || [];
+  if (wpts.length) {
+    seedHtml += `<div style="margin-top:10px">
+      <div style="font-size:13px;letter-spacing:1px;color:var(--text3);margin-bottom:6px">WAYPOINTS / POINTS OF INTEREST (${wpts.length})</div>
+      <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:4px">
+        ${wpts.map((w, i) => `<div class="infra-row" style="gap:6px">
+          <input type="checkbox" id="wpt-${i}" checked style="flex-shrink:0">
+          <label for="wpt-${i}" style="flex:1;font-size:16px;cursor:pointer">${w.name}</label>
+          <span class="text-dim" style="font-size:13px">${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}</span>
+          <select id="wpt-type-${i}" style="font-size:13px;padding:1px 4px">
+            <option value="aid">AID</option><option value="checkpoint">CHECK</option>
+            <option value="start">START</option><option value="finish">FINISH</option>
+            <option value="start_finish">S/F</option><option value="turnaround">TURN</option>
+          </select>
+        </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="primary" onclick="seedWaypointsToRace()" style="font-size:13px;padding:4px 10px">SEED STATIONS TO RACE</button>
+      </div>
+    </div>`;
+  }
+  if (seedEl) seedEl.innerHTML = seedHtml;
 }
 
 // ── KML/GPX course library ────────────────────────────────────────────────────
@@ -592,7 +699,7 @@ async function selectCourse(id) {
   renderCourseDetail(el, courseFiles.find(c => c.id === id));
 }
 
-function buildCourseSVG(points, w, h, waypoints) {
+function buildCourseSVG(points, w, h, waypoints, stationMarkers) {
   if (!points || points.length < 2) return `<svg width="${w}" height="${h}"><text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#888" font-size="12">No track data</text></svg>`;
   const lats = points.map(p => p[0]), lons = points.map(p => p[1]);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -614,9 +721,18 @@ function buildCourseSVG(points, w, h, waypoints) {
     return `<circle cx="${cx}" cy="${cy}" r="4" fill="#58a6ff" stroke="#0d1117" stroke-width="1.5"/>
     <text x="${cx}" y="${(parseFloat(cy) - 7).toFixed(1)}" text-anchor="middle" fill="#58a6ff" font-size="9" font-family="monospace">${label}</text>`;
   }).join('');
+  const STYPE_COLORS = { start:'#3fb950', finish:'#f78166', start_finish:'#a371f7', turnaround:'#58a6ff', aid:'#d2a679', checkpoint:'#e8c55a', netcontrol:'#8b949e', repeater:'#8b949e' };
+  const stSvg = (stationMarkers || []).filter(s => s.lat && s.lon).map(s => {
+    const cx = toX(s.lon).toFixed(1), cy = toY(s.lat).toFixed(1);
+    const color = STYPE_COLORS[s.type] || '#8b949e';
+    const label = (s.name || '').length > 12 ? s.name.slice(0, 11) + '…' : s.name;
+    return `<circle cx="${cx}" cy="${cy}" r="5" fill="${color}" stroke="#0d1117" stroke-width="1.5"/>
+    <text x="${cx}" y="${(parseFloat(cy) + 15).toFixed(1)}" text-anchor="middle" fill="${color}" font-size="9" font-family="monospace">${label}</text>`;
+  }).join('');
   return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:${h}px;display:block;background:var(--surface2);border-radius:6px">
     <path d="${d}" fill="none" stroke="#f5a623" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${wptSvg}
+    ${stSvg}
     <circle cx="${sx}" cy="${sy}" r="5" fill="#3fb950" stroke="#0d1117" stroke-width="1.5"/>
     <circle cx="${ex}" cy="${ey}" r="5" fill="#f85149" stroke="#0d1117" stroke-width="1.5"/>
   </svg>`;
@@ -642,20 +758,6 @@ function renderCourseDetail(el, course) {
         ${d.paths.map(p => `<option value="${p.index}"${p.index===d.pathIndex?' selected':''}>${p.name} (${p.pointCount} pts)</option>`).join('')}
       </select>
     </div>` : ''}
-    ${d.trackPoints?.length >= 2 ? (() => {
-      const race = races.find(r => r.id === selectedRaceId);
-      const isOutBack = race?.race_format === 'out_and_back';
-      const missingA = isOutBack ? !stations.some(s => s.type === 'start_finish') : !stations.some(s => s.type === 'start');
-      const missingB = isOutBack ? !stations.some(s => s.type === 'turnaround')   : !stations.some(s => s.type === 'finish');
-      if (!missingA && !missingB) return '';
-      const labelA = isOutBack ? 'START/FINISH' : 'START';
-      const labelB = isOutBack ? 'TURNAROUND'   : 'FINISH';
-      const missing = [missingA && labelA, missingB && labelB].filter(Boolean).join(' + ');
-      return `<div style="background:rgba(210,153,34,.10);border:1px solid rgba(210,153,34,.35);border-radius:4px;padding:7px 10px;margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:14px;color:#d2993a;flex:1">&#9888; No ${missing} station for <strong>${race?.name || 'selected race'}</strong></span>
-        <button onclick="autoCreateStartFinish()" style="font-size:13px;padding:4px 10px;white-space:nowrap">AUTO-CREATE FROM TRACK</button>
-      </div>`;
-    })() : ''}
     ${wpts.length ? `
     <div style="margin-top:12px">
       <div style="font-size:13px;letter-spacing:1px;color:var(--text3);margin-bottom:6px">WAYPOINTS / POINTS OF INTEREST (${wpts.length})</div>
@@ -671,9 +773,6 @@ function renderCourseDetail(el, course) {
             <option value="start_finish">S/F</option><option value="turnaround">TURN</option>
           </select>
         </div>`).join('')}
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-        <button class="primary" onclick="seedWaypointsToRace()" style="font-size:13px;padding:4px 10px">SEED STATIONS TO RACE</button>
       </div>
     </div>` : `<div class="text-dim" style="font-size:14px;margin-top:10px">No waypoints/POIs in this file. Use the CSV library to import station coordinates.</div>`}`;
 }
@@ -697,18 +796,25 @@ async function autoCreateStartFinish() {
       toCreate.push({ name: 'Finish', type: 'finish', lat: pts[pts.length-1][0], lon: pts[pts.length-1][1] });
   }
   if (!toCreate.length) return;
-  for (const s of toCreate) {
-    await RT.post(`/api/races/${selectedRaceId}/stations`, s);
-  }
-  RT.toast(`Created ${toCreate.map(s=>s.name).join(' + ')} station(s)`, 'ok');
+  for (const s of toCreate) await RT.post(`/api/races/${selectedRaceId}/stations`, s);
+  RT.toast(`Created ${toCreate.map(s => s.name).join(' + ')} station(s)`, 'ok');
   await loadStations();
-  if (selectedCourseId) await selectCourse(selectedCourseId);
+  if (_courseTabContext === 'race') {
+    const r = races.find(x => x.id === selectedRaceId);
+    if (r?.course_id) await loadAssignedCourse(r.course_id);
+  } else if (selectedCourseId) {
+    await selectCourse(selectedCourseId);
+  }
 }
 
 async function setCoursePathIndex(courseId, idx) {
   await RT.put(`/api/courses/${courseId}`, { path_index: parseInt(idx) });
-  await selectCourse(courseId);
   RT.toast('Course path updated', 'ok');
+  if (_courseTabContext === 'race') {
+    await loadAssignedCourse(courseId);
+  } else {
+    await selectCourse(courseId);
+  }
 }
 
 async function uploadCourseFile(input) {
@@ -759,6 +865,8 @@ async function seedWaypointsToRace() {
     RT.toast(`Seeded ${res.data.length} stations`, 'ok');
     selectedRaceId = raceId;
     await loadStations();
+    const race = races.find(r => r.id === raceId);
+    if (race?.course_id) await loadAssignedCourse(race.course_id);
   } else RT.toast(res.error, 'warn');
 }
 
