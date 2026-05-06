@@ -39,17 +39,24 @@ function nodeIdHex(num) {
   return '!' + (num >>> 0).toString(16).padStart(8, '0');
 }
 
-// Meshtastic default channel key — used when PSK is AQ== (single byte 0x01)
-// Defined in firmware channel.pb.h; NOT just 0x01 padded with zeros
+// Meshtastic default channel key — the 8-bit sentinel AQ== (0x01) expands to this.
+// Source: Meshtastic firmware channel.cpp defaultpsk[]
 const MESH_DEFAULT_KEY = Buffer.from([
   0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
-  0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01,
+  0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x73,
 ]);
 
+// Returns an AES key Buffer, or null for no-encryption (empty/missing PSK).
+// PSK sizes:
+//   0-bit (empty)  → null  (no encryption, use decoded field)
+//   8-bit (AQ==)   → 16-byte firmware default key
+//   128-bit        → AES-128-CTR
+//   256-bit        → AES-256-CTR
 function derivePskKey(pskB64) {
+  if (!pskB64) return null;
   const raw = Buffer.from(pskB64, 'base64');
+  if (raw.length === 0) return null;
   if (raw.length === 1 && raw[0] === 1) return MESH_DEFAULT_KEY;
-  // 32-byte PSK → AES-256, otherwise AES-128
   const keyLen = raw.length >= 32 ? 32 : 16;
   const key = Buffer.alloc(keyLen, 0);
   raw.copy(key, 0, 0, Math.min(raw.length, keyLen));
@@ -59,14 +66,15 @@ function derivePskKey(pskB64) {
 function _aesNonce(packetId, fromNode) {
   const nonce = Buffer.alloc(16, 0);
   nonce.writeUInt32LE(packetId >>> 0, 0);
-  nonce.writeUInt32LE(fromNode >>> 0, 8);
+  nonce.writeUInt32LE(fromNode  >>> 0, 8);
   return nonce;
 }
 
-// Decrypt Meshtastic encrypted payload
+// Decrypt Meshtastic encrypted payload. Returns null if no key or decryption fails.
 function decryptPayload(encryptedBytes, packetId, fromNode, pskB64) {
   try {
     const key = derivePskKey(pskB64);
+    if (!key) return null;
     const algo = key.length === 32 ? 'aes-256-ctr' : 'aes-128-ctr';
     const decipher = crypto.createDecipheriv(algo, key, _aesNonce(packetId, fromNode));
     return Buffer.concat([decipher.update(encryptedBytes), decipher.final()]);
@@ -75,15 +83,17 @@ function decryptPayload(encryptedBytes, packetId, fromNode, pskB64) {
   }
 }
 
-// Encrypt Meshtastic payload bytes with the current channel PSK
+// Encrypt payload bytes with the current channel PSK. Returns null for no-encryption channels.
 function encryptPayload(dataBytes, packetId, fromNode) {
-  const key = derivePskKey(currentConfig?.psk || 'AQ==');
+  const key = derivePskKey(currentConfig?.psk ?? null);
+  if (!key) return null;
   const algo = key.length === 32 ? 'aes-256-ctr' : 'aes-128-ctr';
   const cipher = crypto.createCipheriv(algo, key, _aesNonce(packetId, fromNode));
   return Buffer.concat([cipher.update(dataBytes), cipher.final()]);
 }
 
-// Build a serialized ServiceEnvelope with encrypted Data payload
+// Build a serialized ServiceEnvelope.
+// Uses encrypted field when a PSK is configured; decoded field for no-encryption channels.
 let _pktCounter = 0;
 async function buildEnvelope(from, to, portnum, payloadBytes, opts = {}) {
   const root = await loadProto();
@@ -91,14 +101,13 @@ async function buildEnvelope(from, to, portnum, payloadBytes, opts = {}) {
   const MeshPacket      = root.lookupType('meshtastic.MeshPacket');
   const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
 
-  // Unique packet ID: low 31 bits of epoch-seconds XOR an incrementing counter
   const packetId = ((Math.floor(Date.now() / 1000) ^ (++_pktCounter & 0xffff)) & 0x7fffffff) >>> 0;
-
-  const dataBytes   = Data.encode(Data.create({ portnum, payload: payloadBytes })).finish();
-  const encrypted   = encryptPayload(Buffer.from(dataBytes), packetId, from);
+  const dataMsg  = Data.create({ portnum, payload: payloadBytes });
+  const encrypted = encryptPayload(Buffer.from(Data.encode(dataMsg).finish()), packetId, from);
 
   const packet = MeshPacket.create({
-    from, to, id: packetId, encrypted,
+    from, to, id: packetId,
+    ...(encrypted ? { encrypted } : { decoded: dataMsg }),
     wantAck:  opts.wantAck  ?? false,
     hopLimit: opts.hopLimit ?? 3,
     viaMqtt:  true,
@@ -918,7 +927,7 @@ function connectFromSettings(db) {
     region: s.mqtt_region || 'US',
     channel: s.mqtt_channel || 'LongFast',
     format: s.mqtt_format || 'json',
-    psk: s.mqtt_psk || 'AQ==',
+    psk: s.mqtt_psk ?? 'AQ==',
     diagnostic: s.mqtt_diagnostic === '1',
   });
   return true;
