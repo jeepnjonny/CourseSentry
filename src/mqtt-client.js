@@ -952,13 +952,21 @@ async function handleProtoMessage(payload, psk) {
 }
 
 function connectFromSettings(db) {
-  const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'mqtt_%'").all();
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'mqtt_%' OR key='aprs_callsign'").all();
   const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
   if (!s.mqtt_host) return false;
   // mqtt_enabled defaults to '1' if never set (backward compat)
   if (s.mqtt_enabled === '0') { disconnect(); return false; }
   const protocol = s.mqtt_protocol || 'tcp';
   const defaultPort = protocol === 'ws' ? 9001 : 1883;
+
+  // Derive gateway node ID from the APRS callsign so outbound packets have a valid from address
+  // even before the beacon fires. The beacon will call setGatewayNodeId again with the live callsign.
+  if (s.aprs_callsign && !_gatewayNodeId) {
+    _gatewayNodeId = callsignToNodeId(s.aprs_callsign);
+    logger.log('mqtt', 'info', `Gateway node ID: ${nodeIdHex(_gatewayNodeId)} (from callsign ${s.aprs_callsign})`);
+  }
+
   connect({
     host: s.mqtt_host,
     port: parseInt(s.mqtt_port || s.mqtt_port_ws) || defaultPort,

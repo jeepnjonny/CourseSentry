@@ -52,14 +52,14 @@ message Position {
   uint32  HDOP                    = 12;
   uint32  VDOP                    = 13;
   uint32  gps_accuracy            = 14;
-  fixed32 ground_speed            = 15;
-  fixed32 ground_track            = 16;
-  fixed32 fix_quality             = 17;
-  fixed32 fix_type                = 18;
-  fixed32 sats_in_view            = 19;
-  fixed32 sensor_id               = 20;
-  fixed32 next_update             = 21;
-  fixed32 seq_number              = 22;
+  uint32  ground_speed            = 15;
+  uint32  ground_track            = 16;
+  uint32  fix_quality             = 17;
+  uint32  fix_type                = 18;
+  uint32  sats_in_view            = 19;
+  uint32  sensor_id               = 20;
+  uint32  next_update             = 21;
+  uint32  seq_number              = 22;
   sint32  precision_bits          = 23;
 }
 
