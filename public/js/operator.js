@@ -6,6 +6,7 @@ let personnel = [], messages = [];
 let markerLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
 let leafletMap = null, currentBaseLayer = null, weatherLayersControl = null, weatherLegendControl = null;
 let activeWeatherOverlays = new Set(), wxPoller = null;
+let weatherOpacity = 0.55;
 let wxData = null, wxError = null, wxDataTs = 0, wxForecast = null, wxAlerts = [];
 let wxAlertPoller = null;
 let owmKey = null;
@@ -210,7 +211,7 @@ function initMap() {
   setBaseLayer('topo');
   leafletMap.setView([39.5, -98.5], 5);
   leafletMap.on('click', onMapClick);
-  leafletMap.on('overlayadd',    e => { activeWeatherOverlays.add(e.name);    updateWeatherLegend(); });
+  leafletMap.on('overlayadd',    e => { activeWeatherOverlays.add(e.name);    updateWeatherLegend(); setWeatherOpacity(Math.round(weatherOpacity * 100)); });
   leafletMap.on('overlayremove', e => { activeWeatherOverlays.delete(e.name); updateWeatherLegend(); });
 }
 
@@ -231,14 +232,14 @@ async function setupWeatherLayers(key) {
 
   const overlays = {};
   if (owmKey && race?.weather_enabled) {
-    const owm = (layer, opacity) => L.tileLayer(
+    const owm = (layer) => L.tileLayer(
       `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
-      { opacity: opacity || 0.55, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
+      { opacity: weatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
     );
     overlays['&#9730; Precipitation'] = owm('precipitation_new');
-    overlays['&#9729; Clouds']        = owm('clouds_new', 0.45);
+    overlays['&#9729; Clouds']        = owm('clouds_new');
     overlays['&#127790; Wind Speed']  = owm('wind_new');
-    overlays['&#127777; Temperature'] = owm('temp_new', 0.5);
+    overlays['&#127777; Temperature'] = owm('temp_new');
   }
   if (Object.keys(overlays).length) {
     weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
@@ -253,11 +254,22 @@ function createWeatherLegendControl() {
   ctrl.onAdd = () => {
     const div = L.DomUtil.create('div', '');
     div.id = 'wx-legend';
-    div.style.cssText = 'display:none;background:var(--surface,#161b22);border:1px solid var(--border,#30363d);border-radius:6px;padding:8px 10px;font-family:monospace;min-width:170px;pointer-events:none';
+    div.style.cssText = 'display:none;background:var(--surface,#161b22);border:1px solid var(--border,#30363d);border-radius:6px;padding:8px 10px;font-family:monospace;min-width:170px;pointer-events:auto';
     L.DomEvent.disableClickPropagation(div);
     return div;
   };
   return ctrl;
+}
+
+function setWeatherOpacity(val) {
+  weatherOpacity = val / 100;
+  document.getElementById('wx-opacity-lbl').textContent = val + '%';
+  // Update opacity of all active weather overlays
+  leafletMap.eachLayer(layer => {
+    if (layer.options && layer.options.attribution === '© OpenWeatherMap') {
+      layer.setOpacity(weatherOpacity);
+    }
+  });
 }
 
 function updateWeatherLegend() {
@@ -273,7 +285,12 @@ function updateWeatherLegend() {
   div.innerHTML = `
     <div style="font-size:10px;letter-spacing:1px;color:var(--text3,#7d8590);margin-bottom:4px">${spec.label}</div>
     <div style="height:8px;width:150px;border-radius:3px;background:linear-gradient(to right,${spec.grad});margin-bottom:3px"></div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2,#8b949e)">${tickHtml}</div>`;
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2,#8b949e);margin-bottom:6px">${tickHtml}</div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:10px;color:var(--text3,#7d8590)">Opacity:</span>
+      <input type="range" min="10" max="100" value="${Math.round(weatherOpacity * 100)}" style="flex:1" oninput="OP.setWeatherOpacity(this.value)">
+      <span id="wx-opacity-lbl" style="font-size:10px;color:var(--text2,#8b949e);min-width:30px">${Math.round(weatherOpacity * 100)}%</span>
+    </div>`;
 }
 
 function onMapClick(e) {
@@ -2039,5 +2056,5 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          openEditEvent, saveEditEvent, deleteStationEvent,
          openPersonnelModal, renderPersonnelTable, editPersonnelRow, savePersonnelRow,
          addPersonnel, deletePersonnel, assignPersonnel,
-         startRace };
+         startRace, setWeatherOpacity };
 })();

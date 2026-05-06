@@ -6,7 +6,7 @@ let sortBy = 'position', clockInterval;
 let fmt24 = false;
 let mapMode = true; // vs leaderboard on mobile
 let viewerLayersControl = null, viewerBaseTiles = null, currentViewerBaseLayer = null;
-let viewerLegendControl = null, activeViewerOverlays = new Set();
+let viewerLegendControl = null, activeViewerOverlays = new Set(), viewerWeatherOpacity = 0.55;
 
 const LAYER_LEGENDS = {
 'Precipitation': { label:'PRECIP (mm/h)',    grad:'#c8e6fa,#64b4fa,#1464d2,#00be00,#fafa00,#fa8c32,#fa3232', ticks:['0.1','1','5','25','100','140'] },
@@ -41,7 +41,7 @@ function initMap() {
   }
   setViewerBaseLayer('Topo');
   leafletMap.setView([39.5, -98.5], 5);
-  leafletMap.on('overlayadd',    e => { activeViewerOverlays.add(e.name);    updateViewerLegend(); });
+  leafletMap.on('overlayadd',    e => { activeViewerOverlays.add(e.name);    updateViewerLegend(); VW.setViewerWeatherOpacity(Math.round(viewerWeatherOpacity * 100)); });
   leafletMap.on('overlayremove', e => { activeViewerOverlays.delete(e.name); updateViewerLegend(); });
 }
 
@@ -60,14 +60,14 @@ async function setupWeatherLayers(owmKey) {
 
   const overlays = {};
   if (owmKey) {
-    const owm = (layer, opacity) => L.tileLayer(
+    const owm = (layer) => L.tileLayer(
       `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
-      { opacity: opacity || 0.55, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
+      { opacity: viewerWeatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
     );
     overlays['&#127783; Precipitation'] = owm('precipitation_new');
-    overlays['&#9729; Clouds']          = owm('clouds_new', 0.45);
+    overlays['&#9729; Clouds']          = owm('clouds_new');
     overlays['&#127790; Wind Speed']    = owm('wind_new');
-    overlays['&#127777; Temperature']   = owm('temp_new', 0.5);
+    overlays['&#127777; Temperature']   = owm('temp_new');
   }
   if (Object.keys(overlays).length)
     viewerLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'topright' }).addTo(leafletMap);
@@ -76,7 +76,7 @@ async function setupWeatherLayers(owmKey) {
     viewerLegendControl.onAdd = () => {
       const div = L.DomUtil.create('div', '');
       div.id = 'vw-wx-legend';
-      div.style.cssText = 'display:none;background:var(--surface,#161b22);border:1px solid var(--border,#30363d);border-radius:6px;padding:8px 10px;font-family:monospace;min-width:170px;pointer-events:none';
+      div.style.cssText = 'display:none;background:var(--surface,#161b22);border:1px solid var(--border,#30363d);border-radius:6px;padding:8px 10px;font-family:monospace;min-width:170px;pointer-events:auto';
       L.DomEvent.disableClickPropagation(div);
       return div;
     };
@@ -96,7 +96,23 @@ function updateViewerLegend() {
   div.innerHTML = `
     <div style="font-size:10px;letter-spacing:1px;color:var(--text3,#7d8590);margin-bottom:4px">${spec.label}</div>
     <div style="height:8px;width:150px;border-radius:3px;background:linear-gradient(to right,${spec.grad});margin-bottom:3px"></div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2,#8b949e)">${spec.ticks.map(t=>`<span>${t}</span>`).join('')}</div>`;
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2,#8b949e);margin-bottom:6px">${spec.ticks.map(t=>`<span>${t}</span>`).join('')}</div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:10px;color:var(--text3,#7d8590)">Opacity:</span>
+      <input type="range" min="10" max="100" value="${Math.round(viewerWeatherOpacity * 100)}" style="flex:1" oninput="VW.setViewerWeatherOpacity(this.value)">
+      <span id="vw-wx-opacity-lbl" style="font-size:10px;color:var(--text2,#8b949e);min-width:30px">${Math.round(viewerWeatherOpacity * 100)}%</span>
+    </div>`;
+}
+
+function setViewerWeatherOpacity(val) {
+  viewerWeatherOpacity = val / 100;
+  document.getElementById('vw-wx-opacity-lbl').textContent = val + '%';
+  // Update opacity of all active weather overlays
+  leafletMap.eachLayer(layer => {
+    if (layer.options && layer.options.attribution === '© OpenWeatherMap') {
+      layer.setOpacity(viewerWeatherOpacity);
+    }
+  });
 }
 
 function handleWS(msg) {
@@ -384,5 +400,5 @@ function startClock() {
 }
 
 init();
-return { setSort, toggleView, setViewerBaseLayer };
+return { setSort, toggleView, setViewerBaseLayer, setViewerWeatherOpacity };
 })();
