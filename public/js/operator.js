@@ -1714,6 +1714,20 @@ function resolveNodeIdForMessages(trackerId) {
   return [...ids];
 }
 
+function updateMsgCharCount() {
+  const sel = document.getElementById('msg-to');
+  const input = document.getElementById('msg-input');
+  const counter = document.getElementById('msg-char-count');
+  if (!input || !counter) return;
+  const firstName = (sel?.options[sel?.selectedIndex]?.dataset.name || '').split(' ')[0];
+  const prefixLen = firstName ? firstName.length + 2 : 0;
+  const maxTypable = 67 - prefixLen;
+  input.maxLength = maxTypable;
+  const remaining = maxTypable - (input.value?.length || 0);
+  counter.textContent = remaining;
+  counter.style.color = remaining <= 5 ? 'var(--error)' : remaining <= 15 ? 'var(--accent2)' : 'var(--text3)';
+}
+
 function renderPersonnelRecipients() {
   const sel = document.getElementById('msg-to');
   if (!sel) return;
@@ -1724,7 +1738,8 @@ function renderPersonnelRecipients() {
       `<option value="${p.tracker_id}" data-name="${p.name}">${p.name}${p.station_name ? ' @ ' + p.station_name : ''}</option>`
     ).join('');
   if (prev) sel.value = prev;
-  sel.onchange = () => renderMessages();
+  sel.onchange = () => { renderMessages(); updateMsgCharCount(); };
+  updateMsgCharCount();
 }
 
 function renderMessages() {
@@ -2089,7 +2104,7 @@ document.addEventListener('keydown', e => {
 init();
 
 return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipant,
-         openEditModal, sendMessage, dismissAlert, jumpToMsg, showViewerLink, copyViewerLink,
+         openEditModal, sendMessage, updateMsgCharCount, dismissAlert, jumpToMsg, showViewerLink, copyViewerLink,
          toggleStartWindow, endRace,
          switchLeftTab, selectStation,
          openBatchCheckIn, closeBatchCheckIn, addBatchRow, removeBatchRow,

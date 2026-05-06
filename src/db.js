@@ -258,6 +258,7 @@ try {
 try { db.prepare('ALTER TABLE users ADD COLUMN callsign TEXT').run(); } catch {}
 try { db.prepare("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'enroute'").run(); } catch {}
 try { db.prepare("ALTER TABLE races ADD COLUMN tactical_callsign TEXT NOT NULL DEFAULT 'Net Control'").run(); } catch {}
+try { db.prepare('ALTER TABLE races ADD COLUMN viewer_show_names INTEGER NOT NULL DEFAULT 1').run(); } catch {}
 
 // Seed default admin on first run
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();

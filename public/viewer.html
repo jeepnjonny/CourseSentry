@@ -89,6 +89,14 @@
     .v-lb-row, .v-lb-head { padding: 4px 6px; font-size: 14px; gap: 3px; }
   }
 
+  /* Privacy: hide name column when viewer_show_names is off */
+  #viewer-lb-wrap.names-hidden .v-lb-cols { grid-template-columns: 22px 28px 44px 50px 72px; }
+  #viewer-lb-wrap.names-hidden .v-lb-cols > span:nth-child(3) { display: none; }
+  #viewer-lb-wrap.names-hidden [data-sort="name"] { display: none; }
+  @media (max-width: 700px) {
+    #viewer-lb-wrap.names-hidden .v-lb-cols { grid-template-columns: 18px 24px 38px 42px 60px; }
+  }
+
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
   .tracker-icon-alert { animation: blink 1s infinite; }
   .leaflet-div-icon { background: none; border: none; }

@@ -142,6 +142,7 @@ function handleInit(data) {
   fmt24 = race.time_format === '24h';
   document.getElementById('vw-race-pill').className = 'pill pill-ok';
   document.getElementById('vw-race-pill').textContent = race.name.toUpperCase();
+  document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
 
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
   stations = data.stations || [];
@@ -258,6 +259,12 @@ function handleParticipantUpdate(data) {
   renderLeaderboard();
 }
 
+function fmtParticipantName(name) {
+  const parts = (name || '').trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
+
 // ── Leaderboard ───────────────────────────────────────────────────────────────
 function renderLeaderboard() {
   const el = document.getElementById('viewer-lb-body');
@@ -286,7 +293,7 @@ function renderLeaderboard() {
     return `<div class="v-lb-row v-lb-cols ${finished ? 'text-ok' : ''}">
       <span style="color:var(--text3)">${i+1}</span>
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${p.name}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${fmtParticipantName(p.name)}</span>
       <span style="color:var(--accent)">${pct}</span>
       <span style="color:var(--text2);font-size:13px">${p._pct && p.start_time ? fmtPace(p) : '--'}</span>
       <span style="color:var(--text3);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>

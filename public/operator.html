@@ -202,9 +202,11 @@
       <div class="msg-wrap" id="msg-thread-mini" style="flex:1;min-height:0"></div>
       <div style="padding:5px 8px;border-top:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:4px">
         <select id="msg-to" style="width:100%;font-size:13px;padding:2px 4px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font)"></select>
-        <div style="display:flex;gap:5px">
-          <input id="msg-input" placeholder="Message (max 67 chars)…" maxlength="67" style="flex:1;font-size:13px"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();OP.sendMessage();}">
+        <div style="display:flex;gap:5px;align-items:center">
+          <input id="msg-input" placeholder="Message…" maxlength="67" style="flex:1;font-size:13px"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();OP.sendMessage();}"
+            oninput="OP.updateMsgCharCount()">
+          <span id="msg-char-count" style="font-size:11px;color:var(--text3);min-width:26px;text-align:right"></span>
           <button class="primary" onclick="OP.sendMessage()" style="font-size:13px;padding:3px 10px">SEND</button>
         </div>
       </div>
