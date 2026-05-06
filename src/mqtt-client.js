@@ -1097,6 +1097,7 @@ async function sendNodeInfo(tacticalCallsign, nodeId) {
     const User = root.lookupType('meshtastic.User');
     const userBytes = User.encode(User.create({
       id: nodeIdHex(from), longName: tacticalCallsign, shortName: 'NC',
+      hwModel: 255,  // PRIVATE_HW — required; hw=0 (UNSET) causes firmware to discard the node
     })).finish();
     const buf = await buildEnvelope(from, 0xffffffff, PORTNUM.NODEINFO, Buffer.from(userBytes));
     mqttClient.publish(topic, buf);
