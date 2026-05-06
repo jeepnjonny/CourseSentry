@@ -27,7 +27,25 @@ function callsignToNodeId(callsign) {
 
 function setGatewayNodeId(id) { _gatewayNodeId = id >>> 0; }
 
-const PORTNUM = { TEXT: 1, POSITION: 3, NODEINFO: 4, TELEMETRY: 67 };
+const PORTNUM = { TEXT: 1, POSITION: 3, NODEINFO: 4, ROUTING: 5, TELEMETRY: 67 };
+
+// packetId → { messageId, timer } — tracks outbound messages waiting for a ROUTING ACK
+const _pendingMqttAcks = new Map();
+
+function updateMessageStatus(messageId, status) {
+  db.prepare("UPDATE messages SET status=? WHERE id=?").run(status, messageId);
+  const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
+  if (msg) broadcast('message', msg);
+}
+
+function trackMqttMessage(packetId, messageId) {
+  const timer = setTimeout(() => {
+    if (_pendingMqttAcks.delete(packetId)) {
+      updateMessageStatus(messageId, 'timeout');
+    }
+  }, 60000);
+  _pendingMqttAcks.set(packetId >>> 0, { messageId, timer });
+}
 
 async function loadProto() {
   if (protoRoot) return protoRoot;
@@ -119,7 +137,7 @@ async function buildEnvelope(from, to, portnum, payloadBytes, opts = {}) {
   const MeshPacket      = root.lookupType('meshtastic.MeshPacket');
   const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
 
-  const packetId = ((Math.floor(Date.now() / 1000) ^ (++_pktCounter & 0xffff)) & 0x7fffffff) >>> 0;
+  const packetId = (opts.packetId != null ? opts.packetId : ((Math.floor(Date.now() / 1000) ^ (++_pktCounter & 0xffff)) & 0x7fffffff)) >>> 0;
   const dataMsg  = Data.create({ portnum, payload: payloadBytes });
   const encrypted = encryptPayload(Buffer.from(Data.encode(dataMsg).finish()), packetId, from);
 
@@ -900,6 +918,21 @@ async function processProtoData(data, fromNode, toNode, snr, rssi) {
     handleNodeInfo({ nodeId: fromHex, longName: user.longName, shortName: user.shortName, hwModel: user.hwModel, timestamp: ts });
   } else if (data.portnum === PORTNUM.TEXT) {
     handleTextMessage({ fromNodeId: fromHex, toNodeId: toHex, text: data.payload.toString('utf8'), timestamp: ts });
+  } else if (data.portnum === PORTNUM.ROUTING) {
+    if (data.payload?.length && data.replyId) {
+      const replyId = data.replyId >>> 0;
+      const pending = _pendingMqttAcks.get(replyId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        _pendingMqttAcks.delete(replyId);
+        const Routing = root.lookupType('meshtastic.Routing');
+        let errReason = 0;
+        try { errReason = Routing.decode(data.payload).errorReason ?? 0; } catch (_) {}
+        const newStatus = errReason === 0 ? 'delivered' : 'failed';
+        logger.log('mqtt', 'info', `ACK from=${fromHex} replyId=${replyId} err=${errReason} → ${newStatus}`);
+        updateMessageStatus(pending.messageId, newStatus);
+      }
+    }
   }
 }
 
@@ -1067,20 +1100,22 @@ function getStatus() {
 }
 
 // Publish an outbound text message to a specific Meshtastic node (encrypted protobuf)
-async function publishMessage(toNodeId, text) {
+async function publishMessage(toNodeId, text, messageId) {
   if (!mqttClient || !mqttClient.connected || !currentConfig) return false;
   const normalized = normalizeMeshtasticNodeId(toNodeId);
   if (!normalized) {
     logger.log('mqtt', 'warn', `publishMessage: invalid Meshtastic node ID "${toNodeId}"`);
     return false;
   }
-  const from  = (_gatewayNodeId || 0) >>> 0;
-  const to    = parseInt(normalized.slice(1), 16) >>> 0;
-  const topic = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
+  const from     = (_gatewayNodeId || 0) >>> 0;
+  const to       = parseInt(normalized.slice(1), 16) >>> 0;
+  const packetId = ((Math.floor(Date.now() / 1000) ^ (++_pktCounter & 0xffff)) & 0x7fffffff) >>> 0;
+  const topic    = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
   try {
-    const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: true });
+    const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: true, packetId });
     mqttClient.publish(topic, buf);
-    logger.log('mqtt', 'info', `MSG→${toNodeId}: ${text}`);
+    logger.log('mqtt', 'info', `MSG→${toNodeId} pkt=${packetId}: ${text}`);
+    if (messageId != null) trackMqttMessage(packetId, messageId);
     return true;
   } catch (e) {
     logger.log('mqtt', 'error', `publishMessage failed: ${e.message}`);

@@ -96,3 +96,29 @@ message Telemetry {
   DeviceMetrics      device_metrics      = 2;
   EnvironmentMetrics environment_metrics = 3;
 }
+
+message RouteDiscovery {
+  repeated fixed32 route = 2;
+}
+
+message Routing {
+  oneof variant {
+    RouteDiscovery route_request = 1;
+    RouteDiscovery route_reply   = 2;
+    Routing.Error  error_reason  = 3;
+  }
+  enum Error {
+    NONE             = 0;
+    NO_ROUTE         = 1;
+    GOT_NAK          = 2;
+    TIMEOUT          = 3;
+    NO_INTERFACE     = 4;
+    MAX_RETRANSMIT   = 5;
+    NO_CHANNEL       = 6;
+    TOO_LARGE        = 7;
+    NO_RESPONSE      = 8;
+    DUTY_CYCLE_LIMIT = 9;
+    BAD_REQUEST      = 32;
+    NOT_AUTHORIZED   = 33;
+  }
+}

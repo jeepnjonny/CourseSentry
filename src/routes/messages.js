@@ -78,7 +78,7 @@ router.post('/', requireRole('admin', 'operator'), async (req, res) => {
   if (isAprs) {
     sent = aprsClient.sendMessage(to_node_id.trim(), text, messageId) !== false;
   } else {
-    sent = await mqttClient.publishMessage(resolvedToNodeId, text);
+    sent = await mqttClient.publishMessage(resolvedToNodeId, text, messageId);
     if (sent) db.prepare("UPDATE messages SET status='enroute' WHERE id=?").run(messageId);
   }
 

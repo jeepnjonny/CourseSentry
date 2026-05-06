@@ -18,7 +18,7 @@ const MESH_DEFAULT_KEY = Buffer.from([
   0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x73,
 ]);
 
-const PORTNUM = { TEXT: 1, POSITION: 3, NODEINFO: 4, TELEMETRY: 67 };
+const PORTNUM = { TEXT: 1, POSITION: 3, NODEINFO: 4, ROUTING: 5, TELEMETRY: 67 };
 const PORTNUM_NAMES = Object.fromEntries(Object.entries(PORTNUM).map(([k,v]) => [v, k]));
 
 function derivePskKey(pskB64) {
@@ -84,6 +84,7 @@ async function main() {
   const Position        = root.lookupType('meshtastic.Position');
   const User            = root.lookupType('meshtastic.User');
   const Telemetry       = root.lookupType('meshtastic.Telemetry');
+  const Routing         = root.lookupType('meshtastic.Routing');
 
   const topics = [
     `msh/${region}/2/e/${channel}/#`,
@@ -169,6 +170,11 @@ async function main() {
         } else if (data.portnum === PORTNUM.TELEMETRY && data.payload?.length) {
           const tel = Telemetry.decode(data.payload);
           if (tel.deviceMetrics) log('TEL', `  battery=${tel.deviceMetrics.batteryLevel}%  voltage=${tel.deviceMetrics.voltage?.toFixed(2)}V`);
+        } else if (data.portnum === PORTNUM.ROUTING) {
+          let errReason = 0;
+          try { errReason = Routing.decode(data.payload).errorReason ?? 0; } catch (_) {}
+          const replyId = data.replyId ? `replyId=${data.replyId >>> 0}` : '';
+          log('ACK', `  err=${errReason} ${replyId} (${errReason === 0 ? 'DELIVERED' : 'FAILED'})`);
         } else if (data.portnum === PORTNUM.TEXT) {
           log('TEXT', `  "${Buffer.from(data.payload).toString('utf8')}"`);
         } else {
