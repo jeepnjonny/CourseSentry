@@ -428,19 +428,19 @@ function renderLeaderboard() {
     const bat = p.registry?.battery_level != null ? `${p.registry.battery_level}%` : '--';
     const rowCls = (alerting ? 'alert-row' : '') + (missing ? ' missing-row' : '') + (p.id === selectedPId ? ' selected' : '');
     return `<div class="lb-row ${rowCls}" onclick="OP.selectParticipant(${p.id})">
-      <span style="color:var(--text3)">${i + 1}</span>
+      <span style="color:var(--text2)">${i + 1}</span>
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${p.name}</span>
       <span style="color:var(--accent)">${pct}</span>
-      <span style="color:var(--text2)">${pace}</span>
-      <span style="color:var(--text3);font-size:13px">${bat}</span>
+      <span style="color:var(--text)">${pace}</span>
+      <span style="color:var(--text2);font-size:13px">${bat}</span>
     </div>`;
   }).join('');
 
   updateStats(list);
 }
 
-const STATUS_COLORS = { dns: '#484f58', active: '#58a6ff', dnf: '#f78166', finished: '#3fb950' };
+const STATUS_COLORS = { dns: '#8b949e', active: '#58a6ff', dnf: '#f78166', finished: '#3fb950' };
 
 function computePercent(p) {
   if (p.status === 'finished') return 100;

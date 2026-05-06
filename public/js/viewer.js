@@ -281,22 +281,22 @@ function renderLeaderboard() {
     return 0;
   });
 
-  const STATUS_COLORS = { dns:'#484f58', active:'#58a6ff', dnf:'#f78166', finished:'#3fb950' };
+  const STATUS_COLORS = { dns:'#8b949e', active:'#58a6ff', dnf:'#f78166', finished:'#3fb950' };
 
   el.innerHTML = list.map((p, i) => {
-    const sc = STATUS_COLORS[p.status] || '#484f58';
+    const sc = STATUS_COLORS[p.status] || '#8b949e';
     const heat = p.heat_id ? heats[p.heat_id] : null;
     const dot = heat ? `<span class="dot" style="background:${heat.color}"></span>` : '';
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const finished = p.status === 'finished';
     const lastAid = p._lastStation || '--';
     return `<div class="v-lb-row v-lb-cols ${finished ? 'text-ok' : ''}">
-      <span style="color:var(--text3)">${i+1}</span>
+      <span style="color:var(--text2)">${i+1}</span>
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${fmtParticipantName(p.name)}</span>
       <span style="color:var(--accent)">${pct}</span>
-      <span style="color:var(--text2);font-size:13px">${p._pct && p.start_time ? fmtPace(p) : '--'}</span>
-      <span style="color:var(--text3);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>
+      <span style="color:var(--text);font-size:13px">${p._pct && p.start_time ? fmtPace(p) : '--'}</span>
+      <span style="color:var(--text2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>
     </div>`;
   }).join('');
 }
