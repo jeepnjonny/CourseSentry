@@ -34,9 +34,13 @@ function sendBeacons() {
       'NETCTRL';
     const nodeId = mqttClient.callsignToNodeId(callsign);
     mqttClient.setGatewayNodeId(nodeId);
-    mqttClient.sendNodeInfo(name, nodeId);
+    mqttClient.sendNodeInfo(name, nodeId).catch(e =>
+      logger.log('system', 'error', `NodeInfo beacon failed: ${e.message}`)
+    );
     if (stn) {
-      mqttClient.sendPositionBeacon(stn.lat, stn.lon, nodeId);
+      mqttClient.sendPositionBeacon(stn.lat, stn.lon, nodeId).catch(e =>
+        logger.log('system', 'error', `Position beacon failed: ${e.message}`)
+      );
     }
   }
 }

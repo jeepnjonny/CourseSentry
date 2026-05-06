@@ -56,18 +56,59 @@ function derivePskKey(pskB64) {
   return key;
 }
 
+function _aesNonce(packetId, fromNode) {
+  const nonce = Buffer.alloc(16, 0);
+  nonce.writeUInt32LE(packetId >>> 0, 0);
+  nonce.writeUInt32LE(fromNode >>> 0, 8);
+  return nonce;
+}
+
 // Decrypt Meshtastic encrypted payload
 function decryptPayload(encryptedBytes, packetId, fromNode, pskB64) {
   try {
     const key = derivePskKey(pskB64);
-    const nonce = Buffer.alloc(16, 0);
-    nonce.writeUInt32LE(packetId >>> 0, 0);
-    nonce.writeUInt32LE(fromNode >>> 0, 8);
-    const decipher = crypto.createDecipheriv('aes-128-ctr', key, nonce);
+    const algo = key.length === 32 ? 'aes-256-ctr' : 'aes-128-ctr';
+    const decipher = crypto.createDecipheriv(algo, key, _aesNonce(packetId, fromNode));
     return Buffer.concat([decipher.update(encryptedBytes), decipher.final()]);
   } catch (e) {
     return null;
   }
+}
+
+// Encrypt Meshtastic payload bytes with the current channel PSK
+function encryptPayload(dataBytes, packetId, fromNode) {
+  const key = derivePskKey(currentConfig?.psk || 'AQ==');
+  const algo = key.length === 32 ? 'aes-256-ctr' : 'aes-128-ctr';
+  const cipher = crypto.createCipheriv(algo, key, _aesNonce(packetId, fromNode));
+  return Buffer.concat([cipher.update(dataBytes), cipher.final()]);
+}
+
+// Build a serialized ServiceEnvelope with encrypted Data payload
+let _pktCounter = 0;
+async function buildEnvelope(from, to, portnum, payloadBytes, opts = {}) {
+  const root = await loadProto();
+  const Data            = root.lookupType('meshtastic.Data');
+  const MeshPacket      = root.lookupType('meshtastic.MeshPacket');
+  const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
+
+  // Unique packet ID: low 31 bits of epoch-seconds XOR an incrementing counter
+  const packetId = ((Math.floor(Date.now() / 1000) ^ (++_pktCounter & 0xffff)) & 0x7fffffff) >>> 0;
+
+  const dataBytes   = Data.encode(Data.create({ portnum, payload: payloadBytes })).finish();
+  const encrypted   = encryptPayload(Buffer.from(dataBytes), packetId, from);
+
+  const packet = MeshPacket.create({
+    from, to, id: packetId, encrypted,
+    wantAck:  opts.wantAck  ?? false,
+    hopLimit: opts.hopLimit ?? 3,
+    viaMqtt:  true,
+  });
+  const envelope = ServiceEnvelope.create({
+    packet,
+    channelId: currentConfig.channel,
+    gatewayId: nodeIdHex(from),
+  });
+  return Buffer.from(ServiceEnvelope.encode(envelope).finish());
 }
 
 function setWs(ws) { wsRef = ws; }
@@ -965,28 +1006,19 @@ function getStatus() {
   return { connected: !!(mqttClient && mqttClient.connected), enabled, host: currentConfig?.host || null };
 }
 
-// Publish an outbound text message to a specific Meshtastic node
-function publishMessage(toNodeId, text) {
+// Publish an outbound text message to a specific Meshtastic node (encrypted protobuf)
+async function publishMessage(toNodeId, text) {
   if (!mqttClient || !mqttClient.connected || !currentConfig) return false;
-  // Meshtastic JSON expects numeric 32-bit node IDs; incoming tracker_ids are "!xxxxxxxx"
   if (!/^![0-9a-f]{1,8}$/i.test(toNodeId)) {
     logger.log('mqtt', 'warn', `publishMessage: invalid Meshtastic node ID "${toNodeId}"`);
     return false;
   }
-  const toNum  = parseInt(toNodeId.slice(1), 16) >>> 0;
-  const msgId  = (Date.now() & 0x7fffffff) >>> 0;
-  const topic  = `msh/${currentConfig.region}/2/json/${currentConfig.channel}/!server`;
-  const packet = JSON.stringify({
-    from:      _gatewayNodeId || 0,
-    to:        toNum,
-    id:        msgId,
-    type:      'text',
-    channel:   parseInt(currentConfig.channel) || 0,
-    payload:   text,
-    timestamp: Math.floor(Date.now() / 1000),
-  });
+  const from  = (_gatewayNodeId || 0) >>> 0;
+  const to    = parseInt(toNodeId.slice(1), 16) >>> 0;
+  const topic = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
   try {
-    mqttClient.publish(topic, packet);
+    const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: true });
+    mqttClient.publish(topic, buf);
     logger.log('mqtt', 'info', `MSG→${toNodeId}: ${text}`);
     return true;
   } catch (e) {
@@ -995,23 +1027,18 @@ function publishMessage(toNodeId, text) {
   }
 }
 
-function sendNodeInfo(tacticalCallsign, nodeId) {
+async function sendNodeInfo(tacticalCallsign, nodeId) {
   if (!mqttClient || !mqttClient.connected || !currentConfig) return false;
   const from  = (nodeId || _gatewayNodeId || 0) >>> 0;
-  const topic = `msh/${currentConfig.region}/2/json/${currentConfig.channel}/${nodeIdHex(from)}`;
-  const ts    = Math.floor(Date.now() / 1000);
-  const packet = JSON.stringify({
-    channel:   parseInt(currentConfig.channel) || 0,
-    from,
-    id:        (Date.now() & 0x7fffffff) >>> 0,
-    sender:    nodeIdHex(from),
-    timestamp: ts,
-    to:        0xffffffff,
-    type:      'nodeinfo',
-    payload:   { id: nodeIdHex(from), longname: tacticalCallsign, shortname: 'NC'}
-  });
+  const topic = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
   try {
-    mqttClient.publish(topic, packet);
+    const root = await loadProto();
+    const User = root.lookupType('meshtastic.User');
+    const userBytes = User.encode(User.create({
+      id: nodeIdHex(from), longName: tacticalCallsign, shortName: 'NC',
+    })).finish();
+    const buf = await buildEnvelope(from, 0xffffffff, PORTNUM.NODEINFO, Buffer.from(userBytes));
+    mqttClient.publish(topic, buf);
     logger.log('mqtt', 'info', `NodeInfo beacon: "${tacticalCallsign}" from ${nodeIdHex(from)}`);
     return true;
   } catch (e) {
@@ -1020,22 +1047,19 @@ function sendNodeInfo(tacticalCallsign, nodeId) {
   }
 }
 
-function sendPositionBeacon(lat, lon, nodeId) {
+async function sendPositionBeacon(lat, lon, nodeId) {
   if (!mqttClient || !mqttClient.connected || !currentConfig) return false;
   const from  = (nodeId || _gatewayNodeId || 0) >>> 0;
-  const topic = `msh/${currentConfig.region}/2/json/${currentConfig.channel}/${nodeIdHex(from)}`;
+  const topic = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
   const ts    = Math.floor(Date.now() / 1000);
-  const packet = JSON.stringify({
-    from,
-    to:        0xffffffff,
-    id:        ((Date.now() + 1) & 0x7fffffff) >>> 0,
-    type:      'position',
-    channel:   parseInt(currentConfig.channel) || 0,
-    payload:   { latitude_i: Math.round(lat * 1e7), longitude_i: Math.round(lon * 1e7), time: ts },
-    timestamp: ts,
-  });
   try {
-    mqttClient.publish(topic, packet);
+    const root = await loadProto();
+    const Position = root.lookupType('meshtastic.Position');
+    const posBytes = Position.encode(Position.create({
+      latitudeI: Math.round(lat * 1e7), longitudeI: Math.round(lon * 1e7), time: ts,
+    })).finish();
+    const buf = await buildEnvelope(from, 0xffffffff, PORTNUM.POSITION, Buffer.from(posBytes));
+    mqttClient.publish(topic, buf);
     logger.log('mqtt', 'info', `Position beacon from ${nodeIdHex(from)}: ${lat.toFixed(5)},${lon.toFixed(5)}`);
     return true;
   } catch (e) {

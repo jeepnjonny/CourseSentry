@@ -22,7 +22,7 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ ok: true, data: db.prepare(sql).all(...args) });
 });
 
-router.post('/', requireRole('admin', 'operator'), (req, res) => {
+router.post('/', requireRole('admin', 'operator'), async (req, res) => {
   const { to_node_id, to_name, text } = req.body;
   if (!to_node_id || !text) return res.status(400).json({ ok: false, error: 'to_node_id and text required' });
   if (text.length > 67) return res.status(400).json({ ok: false, error: 'Message too long (max 67 chars)' });
@@ -53,7 +53,7 @@ router.post('/', requireRole('admin', 'operator'), (req, res) => {
   if (isAprs) {
     sent = aprsClient.sendMessage(to_node_id.trim(), text, messageId) !== false;
   } else {
-    sent = mqttClient.publishMessage(to_node_id, text);
+    sent = await mqttClient.publishMessage(to_node_id, text);
     if (sent) db.prepare("UPDATE messages SET status='enroute' WHERE id=?").run(messageId);
   }
 
