@@ -186,11 +186,19 @@
       Sent as APRS object beacon (<code>/o</code>) and Meshtastic NodeInfo every 10 min. Add a <em>Net Control</em> station to the course map to provide the beacon location.
     </div>
     <div class="section-header">FEATURES</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-      <div class="checkbox-row"><input type="checkbox" id="rm-messaging"><label for="rm-messaging">Operator messaging</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="rm-viewer-map" checked><label for="rm-viewer-map">Viewer map</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="rm-leaderboard" checked><label for="rm-leaderboard">Viewer leaderboard</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="rm-weather"><label for="rm-weather">Weather</label></div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:var(--text1);margin-bottom:6px">Viewer Page Options</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div class="checkbox-row"><input type="checkbox" id="rm-viewer-map" checked><label for="rm-viewer-map">Map</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="rm-leaderboard" checked><label for="rm-leaderboard">Leaderboard</label></div>
+        <div class="checkbox-row"><input type="checkbox" id="rm-weather"><label for="rm-weather">Weather</label></div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:var(--text1);margin-bottom:6px">Operator Options</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:6px">
+        <div class="checkbox-row"><input type="checkbox" id="rm-messaging"><label for="rm-messaging">Messaging</label></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal('race-modal')">CANCEL</button>

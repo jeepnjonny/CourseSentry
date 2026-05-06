@@ -115,9 +115,9 @@ function applyMessagingFlag() {
 function applyWeatherFlag() {
   const btn = document.getElementById('wx-tab-btn');
   if (!btn) return;
-  const enabled = race?.weather_enabled;
-  btn.style.display = enabled ? '' : 'none';
-  if (!enabled && rightTab === 'weather') switchRightTab('info');
+  // Weather always enabled on operator page
+  btn.style.display = '';
+  if (rightTab === 'weather') switchRightTab('info');
 }
 
 function handleInit(data) {
@@ -233,7 +233,7 @@ async function setupWeatherLayers(key) {
   activeWeatherOverlays.clear();
 
   const overlays = {};
-  if (owmKey && race?.weather_enabled) {
+  if (owmKey) {
     const owm = (layer) => L.tileLayer(
       `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
       { opacity: weatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
@@ -1896,7 +1896,6 @@ function startWxPoller() {
 }
 
 async function fetchWxAlerts() {
-  if (!race?.weather_enabled) return;
   const res = await RT.get(`/api/races/${race.id}/weather/alerts`);
   wxAlerts = (res.ok && Array.isArray(res.data)) ? res.data : [];
   updateWxAlertBadge();
@@ -1913,7 +1912,6 @@ function updateWxAlertBadge() {
 }
 
 async function fetchWxData() {
-  if (!race?.weather_enabled) return;
   const [curRes, fcRes] = await Promise.all([
     RT.get(`/api/races/${race.id}/weather`),
     RT.get(`/api/races/${race.id}/weather/forecast`),
@@ -1937,10 +1935,6 @@ async function fetchWxData() {
 function renderWeatherPanel() {
   const el = document.getElementById('weather-panel');
   if (!el) return;
-  if (!race?.weather_enabled) {
-    el.innerHTML = '<div style="color:var(--text3);font-size:14px;padding:4px">Weather not enabled for this race.</div>';
-    return;
-  }
   if (wxError && !wxData) {
     el.innerHTML = `<div style="color:var(--accent3);font-size:14px;padding:4px">${wxError}</div>`;
     return;
