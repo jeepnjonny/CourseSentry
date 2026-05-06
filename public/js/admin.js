@@ -626,8 +626,8 @@ function renderCourseDetail(el, course) {
   const d = courseParseData;
   const hasPaths = d.paths?.length > 1;
   const dist = d.totalDistance ? RT.fmtDist(d.totalDistance) : '—';
-  const svg = buildCourseSVG(d.trackPoints, 520, 200, wpts);
   const wpts = d.points || [];
+  const svg = buildCourseSVG(d.trackPoints, 520, 200, wpts);
 
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
