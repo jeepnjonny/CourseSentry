@@ -74,9 +74,11 @@ async function main() {
   const url         = `${protocol === 'ws' ? 'ws' : 'mqtt'}://${s.mqtt_host}:${port}`;
 
   const pskKey = derivePskKey(psk);
+  const pskHash = pskKey ? pskKey.reduce((h, b) => h ^ b, 0) : 0;
   log('CFG', `broker  : ${url}`);
   log('CFG', `channel : ${channel}  region: ${region}`);
   log('CFG', `psk     : ${psk}  →  key: ${pskKey ? pskKey.toString('hex') : '(none — no encryption)'}`);
+  log('CFG', `ch hash : 0x${pskHash.toString(16).padStart(2, '0')}  (MeshPacket.channel field — must match this value on receiving devices)`);
 
   const root = await protobuf.load(PROTO_PATH);
   const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
@@ -130,8 +132,9 @@ async function main() {
       const toHex   = (packet.to >>> 0) === 0xffffffff ? 'broadcast' : nodeIdHex(packet.to >>> 0);
       const encLen  = packet.encrypted?.length ?? 0;
       const hasDecoded = !!(packet.decoded && packet.decoded.portnum != null);
+      const chHash  = `ch=0x${(packet.channel >>> 0).toString(16).padStart(2, '0')}`;
 
-      log('PKT', `from=${fromHex} → to=${toHex}  id=${packet.id}  ${hasDecoded ? '[decoded]' : `[encrypted ${encLen}B]`}`);
+      log('PKT', `from=${fromHex} → to=${toHex}  id=${packet.id}  ${chHash}  ${hasDecoded ? '[decoded]' : `[encrypted ${encLen}B]`}`);
 
       let data = null;
       if (hasDecoded) {
