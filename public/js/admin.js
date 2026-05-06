@@ -592,7 +592,7 @@ async function selectCourse(id) {
   renderCourseDetail(el, courseFiles.find(c => c.id === id));
 }
 
-function buildCourseSVG(points, w, h) {
+function buildCourseSVG(points, w, h, waypoints) {
   if (!points || points.length < 2) return `<svg width="${w}" height="${h}"><text x="${w/2}" y="${h/2}" text-anchor="middle" fill="#888" font-size="12">No track data</text></svg>`;
   const lats = points.map(p => p[0]), lons = points.map(p => p[1]);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -608,8 +608,15 @@ function buildCourseSVG(points, w, h) {
   const d = points.map((p, i) => `${i===0?'M':'L'}${toX(p[1]).toFixed(1)},${toY(p[0]).toFixed(1)}`).join(' ');
   const sx = toX(points[0][1]).toFixed(1), sy = toY(points[0][0]).toFixed(1);
   const ex = toX(points[points.length-1][1]).toFixed(1), ey = toY(points[points.length-1][0]).toFixed(1);
+  const wptSvg = (waypoints || []).map(wp => {
+    const cx = toX(wp.lon).toFixed(1), cy = toY(wp.lat).toFixed(1);
+    const label = (wp.name || '').length > 14 ? wp.name.slice(0, 13) + '…' : wp.name;
+    return `<circle cx="${cx}" cy="${cy}" r="4" fill="#58a6ff" stroke="#0d1117" stroke-width="1.5"/>
+    <text x="${cx}" y="${(parseFloat(cy) - 7).toFixed(1)}" text-anchor="middle" fill="#58a6ff" font-size="9" font-family="monospace">${label}</text>`;
+  }).join('');
   return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:${h}px;display:block;background:var(--surface2);border-radius:6px">
     <path d="${d}" fill="none" stroke="#f5a623" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${wptSvg}
     <circle cx="${sx}" cy="${sy}" r="5" fill="#3fb950" stroke="#0d1117" stroke-width="1.5"/>
     <circle cx="${ex}" cy="${ey}" r="5" fill="#f85149" stroke="#0d1117" stroke-width="1.5"/>
   </svg>`;
@@ -619,7 +626,7 @@ function renderCourseDetail(el, course) {
   const d = courseParseData;
   const hasPaths = d.paths?.length > 1;
   const dist = d.totalDistance ? RT.fmtDist(d.totalDistance) : '—';
-  const svg = buildCourseSVG(d.trackPoints, 520, 200);
+  const svg = buildCourseSVG(d.trackPoints, 520, 200, wpts);
   const wpts = d.points || [];
 
   el.innerHTML = `

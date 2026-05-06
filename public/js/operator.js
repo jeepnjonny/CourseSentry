@@ -516,6 +516,16 @@ function getManualFix(p) {
 function computePace(p) {
   if (!p.start_time) return null;
 
+  // Finished: use actual elapsed time over full course distance
+  if (p.status === 'finished' && p.finish_time) {
+    const totalDist = computeTotalDist();
+    if (!totalDist) return null;
+    const elapsed = p.finish_time - p.start_time;
+    if (elapsed <= 0) return null;
+    const dist = race?.race_format === 'out_and_back' ? totalDist * 2 : totalDist;
+    return dist / elapsed; // m/s
+  }
+
   if (p.last_lat) {
     // GPS path
     const pct = p._pct;

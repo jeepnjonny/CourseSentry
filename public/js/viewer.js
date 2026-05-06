@@ -344,11 +344,14 @@ function computePct(p) {
 
 function fmtPace(p) {
   if (!p.start_time || !p._pct) return '--';
-  const elapsed = Math.floor(Date.now()/1000) - p.start_time;
   const total = computeTotal();
-  if (!total || elapsed <= 0) return '--';
-  const ms = (p._pct/100*total) / elapsed;
-  return RT.fmtPace(ms);
+  if (!total) return '--';
+  const dist = race?.race_format === 'out_and_back' ? total * 2 : total;
+  const elapsed = (p.status === 'finished' && p.finish_time)
+    ? p.finish_time - p.start_time
+    : Math.floor(Date.now()/1000) - p.start_time;
+  if (elapsed <= 0) return '--';
+  return RT.fmtPace(dist / elapsed);
 }
 
 let _total = null, _cachedDists = null, _stationAlongCache = null;
