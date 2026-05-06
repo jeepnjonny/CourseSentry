@@ -1143,8 +1143,8 @@ function showStationInfo(id) {
         <span style="font-size:18px;font-weight:bold;color:var(--accent4)">${s.name}</span>
         <span class="badge" style="color:var(--accent4)">${s.type.toUpperCase()}</span>
         ${s.cutoff_time ? `<span class="text-dim" style="font-size:14px">Cutoff: ${s.cutoff_time}</span>` : ''}
-        <button class="primary" style="margin-left:auto;font-size:13px;padding:3px 10px"
-          onclick="OP.openBatchCheckIn(${id})">LOG CHECK-IN</button>
+        ${s.type !== 'netcontrol' && s.type !== 'repeater' ? `<button class="primary" style="margin-left:auto;font-size:13px;padding:3px 10px"
+          onclick="OP.openBatchCheckIn(${id})">LOG CHECK-IN</button>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px;margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px">
         ${distStr  ? `<div><div style="font-size:11px;letter-spacing:1px;color:var(--text3)">DIST</div><div style="font-size:15px;color:var(--text)">${distStr}</div></div>` : ''}
@@ -1162,7 +1162,7 @@ function showStationInfo(id) {
           ${p.tracker_id ? `<span class="text-dim" style="font-size:13px">${p.tracker_id}</span>` : ''}
           ${p.phone ? `<span class="text-dim" style="font-size:13px">${p.phone}</span>` : ''}
         </div>`).join('') : '<div class="text-dim" style="font-size:14px;margin-bottom:8px">None assigned.</div>'}
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px">
+      ${s.type !== 'netcontrol' && s.type !== 'repeater' ? `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px">
         <span style="font-size:13px;letter-spacing:2px;color:var(--text3)">ARRIVALS / DEPARTURES</span>
         <button style="font-size:12px;padding:1px 7px;margin-left:auto" onclick="OP.openBatchCheckIn(${id})">+ LOG</button>
       </div>
@@ -1178,7 +1178,7 @@ function showStationInfo(id) {
           <button style="font-size:11px;padding:1px 6px;flex-shrink:0;color:var(--accent3);border-color:var(--accent3)"
             onclick="OP.deleteStationEvent(${e.id},${id})">DEL</button>
         </div>`).join('')}
-      </div>`;
+      </div>` : ''}`;
   });
 }
 
