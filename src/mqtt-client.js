@@ -82,16 +82,16 @@ const MESH_DEFAULT_KEY = Buffer.from([
   0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x73,
 ]);
 
-// Meshtastic channel hash: XOR of all PSK key bytes.
+// Meshtastic channel hash: XOR of channel name bytes XOR'd with XOR of all PSK key bytes.
 // Stored in MeshPacket.channel so firmware can identify which channel a packet belongs to
 // without attempting decryption with every configured PSK.
 // Source: Meshtastic firmware Channels::generateHash() in channel.cpp
-function channelHash(pskB64) {
-  const key = derivePskKey(pskB64);
-  if (!key) return 0;
+function channelHash(channelName, pskB64) {
   let h = 0;
-  for (const b of key) h ^= b;
-  return h;
+  for (const c of (channelName || '')) h ^= c.charCodeAt(0);
+  const key = derivePskKey(pskB64);
+  if (key) for (const b of key) h ^= b;
+  return h & 0xFF;
 }
 
 // Returns an AES key Buffer, or null for no-encryption (empty/missing PSK).
@@ -156,7 +156,7 @@ async function buildEnvelope(from, to, portnum, payloadBytes, opts = {}) {
   const hopLimit = opts.hopLimit ?? 3;
   const packet = MeshPacket.create({
     from, to, id: packetId,
-    channel: channelHash(currentConfig?.psk ?? null), // XOR of PSK bytes — firmware uses this to find matching channel before attempting decrypt
+    channel: channelHash(currentConfig?.channel ?? '', currentConfig?.psk ?? null), // name XOR + PSK XOR — firmware uses this to find matching channel before attempting decrypt
     ...(encrypted ? { encrypted } : { decoded: dataMsg }),
     wantAck:  opts.wantAck ?? false,
     hopLimit,

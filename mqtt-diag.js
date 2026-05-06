@@ -74,11 +74,14 @@ async function main() {
   const url         = `${protocol === 'ws' ? 'ws' : 'mqtt'}://${s.mqtt_host}:${port}`;
 
   const pskKey = derivePskKey(psk);
-  const pskHash = pskKey ? pskKey.reduce((h, b) => h ^ b, 0) : 0;
+  let chHash = 0;
+  for (const c of channel) chHash ^= c.charCodeAt(0);
+  if (pskKey) for (const b of pskKey) chHash ^= b;
+  chHash &= 0xFF;
   log('CFG', `broker  : ${url}`);
   log('CFG', `channel : ${channel}  region: ${region}`);
   log('CFG', `psk     : ${psk}  →  key: ${pskKey ? pskKey.toString('hex') : '(none — no encryption)'}`);
-  log('CFG', `ch hash : 0x${pskHash.toString(16).padStart(2, '0')}  (MeshPacket.channel field — must match this value on receiving devices)`);
+  log('CFG', `ch hash : 0x${chHash.toString(16).padStart(2, '0')}  (MeshPacket.channel = XOR(name bytes) ^ XOR(psk bytes))`);
 
   const root = await protobuf.load(PROTO_PATH);
   const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
