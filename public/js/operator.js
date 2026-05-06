@@ -1754,8 +1754,10 @@ async function sendMessage() {
   const sel = document.getElementById('msg-to');
   const to_node_id = sel?.value;
   const to_name = sel?.options[sel.selectedIndex]?.dataset.name;
-  const text = document.getElementById('msg-input').value.trim();
-  if (!to_node_id || !text) { RT.toast('Select a recipient and enter a message', 'warn'); return; }
+  const rawText = document.getElementById('msg-input').value.trim();
+  if (!to_node_id || !rawText) { RT.toast('Select a recipient and enter a message', 'warn'); return; }
+  const firstName = (to_name || '').split(' ')[0];
+  const text = firstName ? `${firstName}: ${rawText}` : rawText;
   const res = await RT.post(`/api/races/${race.id}/messages`, { to_node_id, to_name, text });
   if (res.ok) {
     document.getElementById('msg-input').value = '';
