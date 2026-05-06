@@ -13,6 +13,8 @@ const LAYER_LEGENDS = {
   'Clouds':        { label:'CLOUD COVER',      grad:'rgba(255,255,255,0.15),#888888',                   ticks:['0%','50%','100%'] },
   'Wind Speed':    { label:'WIND (m/s)',        grad:'#ffffff,#64c8fa,#1464d2,#00be00,#fafa00,#fa6400,#fa0000', ticks:['0','5','15','25','50','200'] },
   'Temperature':   { label:'TEMPERATURE (°F)', grad:'#820eb4,#1464d2,#20e8e8,#28b428,#f0f032,#fa8c32,#fa3232', ticks:['-4','32','59','86','104'] },
+  'Radar':         { label:'RADAR (dBZ)',      grad:'#00ccff,#0066ff,#00ff00,#ffff00,#ff6600,#ff0000,#8b0000', ticks:['-30','-10','10','30','50','70'] },
+  'Lightning':     { label:'LIGHTNING STRIKES', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['0','1h','6h','24h'] },
 };
 
 const BASE_LAYERS = {
@@ -68,6 +70,14 @@ async function setupWeatherLayers(owmKey) {
     overlays['&#9729; Clouds']          = owm('clouds_new');
     overlays['&#127790; Wind Speed']    = owm('wind_new');
     overlays['&#127777; Temperature']   = owm('temp_new');
+    overlays['&#128205; Radar (NWS)'] = L.tileLayer(
+      'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
+      { opacity: viewerWeatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
+    );
+    overlays['⚡ Lightning'] = L.tileLayer(
+      'https://maps.gnosis.cards/tilecache/tile.py/1.0.0/lightning-10m/{z}/{x}/{y}.png',
+      { opacity: viewerWeatherOpacity, attribution: '© Blitzortung', maxZoom: 16, zIndex: 200 }
+    );
   }
   if (Object.keys(overlays).length)
     viewerLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'topright' }).addTo(leafletMap);
