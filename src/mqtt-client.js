@@ -1112,7 +1112,10 @@ function getStatus() {
   return { connected: !!(mqttClient && mqttClient.connected), enabled, host: currentConfig?.host || null };
 }
 
-// Publish an outbound text message to a specific Meshtastic node (encrypted protobuf)
+// Publish an outbound text message to the channel (broadcast).
+// MT firmware 2.5+ rejects channel-PSK unicast DMs received via MQTT ("legacy DM" check) —
+// unicast requires Curve25519 PKI encryption which we don't implement. Broadcast bypasses
+// the check and is appropriate for race Net Control communications.
 async function publishMessage(toNodeId, text, messageId) {
   if (!mqttClient || !mqttClient.connected || !currentConfig) return false;
   const normalized = normalizeMeshtasticNodeId(toNodeId);
@@ -1121,13 +1124,13 @@ async function publishMessage(toNodeId, text, messageId) {
     return false;
   }
   const from     = (_gatewayNodeId || 0) >>> 0;
-  const to       = parseInt(normalized.slice(1), 16) >>> 0;
+  const to       = 0xffffffff; // broadcast — unicast DMs rejected by MT firmware 2.5+ legacy DM check
   const packetId = ((Math.floor(Date.now() / 1000) ^ (++_pktCounter & 0xffff)) & 0x7fffffff) >>> 0;
   const topic    = `msh/${currentConfig.region}/2/e/${currentConfig.channel}/${nodeIdHex(from)}`;
   try {
-    const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: true, packetId });
+    const buf = await buildEnvelope(from, to, PORTNUM.TEXT, Buffer.from(text, 'utf8'), { wantAck: false, packetId });
     mqttClient.publish(topic, buf);
-    logger.log('mqtt', 'info', `MSG→${toNodeId} pkt=${packetId}: ${text}`);
+    logger.log('mqtt', 'info', `MSG→${toNodeId} (broadcast) pkt=${packetId}: ${text}`);
     if (messageId != null) trackMqttMessage(packetId, messageId);
     return true;
   } catch (e) {
