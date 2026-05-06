@@ -1372,7 +1372,8 @@ function updateMsgUnread() {
 }
 
 async function markThreadRead(nodeId) {
-  const toMark = messages.filter(m => m.direction === 'in' && !m.read && m.from_node_id === nodeId);
+  const ids = new Set(resolveNodeIdForMessages(nodeId));
+  const toMark = messages.filter(m => m.direction === 'in' && !m.read && ids.has(m.from_node_id));
   if (!toMark.length) return;
   for (const m of toMark) {
     m.read = 1;
@@ -1386,7 +1387,16 @@ async function markThreadRead(nodeId) {
 
 function jumpToMsg(nodeId, alertId) {
   const sel = document.getElementById('msg-to');
-  if (sel && nodeId) { sel.value = nodeId; renderMessages(); }
+  if (sel && nodeId) {
+    // Try exact match first; if not found (e.g. alert has hex but option has name), resolve
+    if (![...sel.options].some(o => o.value === nodeId)) {
+      const match = [...sel.options].find(o => o.value && resolveNodeIdForMessages(o.value).includes(nodeId));
+      if (match) sel.value = match.value;
+    } else {
+      sel.value = nodeId;
+    }
+    renderMessages();
+  }
   dismissAlert(alertId);
 }
 
@@ -1680,6 +1690,30 @@ function updateAlertCount() {
 }
 
 // ── Messaging ─────────────────────────────────────────────────────────────────
+
+// Resolve a tracker_id (name or hex) to all matching hex node_ids for message filtering.
+// Messages are stored with hex node_ids so a name-based tracker_id needs resolution.
+function resolveNodeIdForMessages(trackerId) {
+  if (!trackerId) return [];
+  const ids = new Set([trackerId]);
+  if (/^![0-9a-f]{8}$/i.test(trackerId)) return [...ids]; // already a hex ID
+  // Check participants' enriched registry data
+  for (const p of Object.values(participants)) {
+    const hex = p.registry?.node_id;
+    if (hex && (
+      p.tracker_id?.toLowerCase() === trackerId.toLowerCase() ||
+      p.registry.long_name?.toLowerCase() === trackerId.toLowerCase() ||
+      p.registry.short_name?.toLowerCase() === trackerId.toLowerCase()
+    )) ids.add(hex);
+  }
+  // Fall back to sent messages — to_name → resolved to_node_id
+  for (const m of messages) {
+    if (m.direction === 'out' && m.to_name === trackerId && /^![0-9a-f]{8}$/i.test(m.to_node_id))
+      ids.add(m.to_node_id);
+  }
+  return [...ids];
+}
+
 function renderPersonnelRecipients() {
   const sel = document.getElementById('msg-to');
   if (!sel) return;
@@ -1698,8 +1732,9 @@ function renderMessages() {
   const nodeId = sel?.value;
   const el = document.getElementById('msg-thread-mini');
   if (!el) return;
-  const thread = nodeId
-    ? messages.filter(m => m.from_node_id === nodeId || m.to_node_id === nodeId)
+  const ids = new Set(resolveNodeIdForMessages(nodeId));
+  const thread = ids.size
+    ? messages.filter(m => ids.has(m.from_node_id) || ids.has(m.to_node_id))
     : messages.slice(0, 20);
   // messages array is newest-first; reverse so oldest renders at top, newest at bottom
   el.innerHTML = [...thread].reverse().map(m => {
