@@ -3,7 +3,7 @@
 let race, raceId, currentStation = null;
 let participants = [], heats = [], stations = [], messages = [];
 let selectedParticipant = null;
-let map, markersLayer, stationsLayer;
+let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = true;
 let baseTiles = {}, currentBaseLayer = null;
 
@@ -133,32 +133,44 @@ function setBaseLayer(name) {
   if (sel) sel.value = name;
 }
 
+function renderRoute() {
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  if (!trackPoints || trackPoints.length < 2) return;
+  routeLayer = L.polyline(trackPoints, { color: '#f5a623', weight: 5, opacity: 0.85 }).addTo(map);
+  map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+}
+
+function renderStationMarkers() {
+  Object.values(stationMarkers).forEach(m => map.removeLayer(m));
+  stationMarkers = {};
+  for (const s of stations) {
+    const color = s.type === 'start' ? '#3fb950' : s.type === 'finish' ? '#f78166' :
+                  s.type === 'start_finish' ? '#a371f7' : s.type === 'turnaround' ? '#58a6ff' :
+                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' : '#d2a679';
+    const letter = s.type === 'start' ? 'S' : s.type === 'finish' ? 'F' :
+                   s.type === 'start_finish' ? '⇌' : s.type === 'turnaround' ? 'T' :
+                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' : s.name[0]?.toUpperCase() || 'A';
+    const icon = L.divIcon({
+      html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};border:2px solid #fff4;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:#000">${letter}</div>`,
+      className: '', iconAnchor: [10, 10],
+    });
+    stationMarkers[s.id] = L.marker([s.lat, s.lon], { icon }).bindTooltip(s.name).addTo(map);
+  }
+  if (stations.length && !trackPoints) {
+    const bounds = L.latLngBounds(stations.map(s => [s.lat, s.lon]));
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }
+}
+
 function initMap() {
-  map = L.map('mo-map', { zoomControl: true });
+  map = L.map('mo-map', { zoomControl: true, maxZoom: 16 });
   for (const [name, cfg] of Object.entries(BASE_LAYERS)) {
     baseTiles[name] = L.tileLayer(cfg.url, cfg.opts);
   }
   setBaseLayer('Street');
-
-  markersLayer  = L.layerGroup().addTo(map);
-  stationsLayer = L.layerGroup().addTo(map);
-
-  for (const s of stations) {
-    const isAssigned = currentStation && s.id === currentStation.id;
-    const color = isAssigned ? 'var(--accent)' : 'var(--accent3)';
-    const icon = L.divIcon({
-      html: `<div style="background:${color};border:2px solid rgba(255,255,255,.7);border-radius:3px;padding:1px 5px;font-size:10px;color:#000;white-space:nowrap;font-family:monospace;font-weight:bold">${s.name}</div>`,
-      className: '', iconAnchor: [0, 0],
-    });
-    L.marker([s.lat, s.lon], { icon }).addTo(stationsLayer);
-  }
-
-  if (stations.length) {
-    const bounds = L.latLngBounds(stations.map(s => [s.lat, s.lon]));
-    map.fitBounds(bounds, { padding: [30, 30] });
-  } else {
-    map.setView([39.5, -98.35], 4);
-  }
+  markersLayer = L.layerGroup().addTo(map);
+  renderStationMarkers();
+  if (!stations.length) map.setView([39.5, -98.5], 5);
 }
 
 const trackerMarkers = {};
@@ -181,6 +193,8 @@ function handleWS(msg) {
   if (msg.type === 'init') {
     participants = msg.data.participants || [];
     heats        = msg.data.heats || [];
+    if (msg.data.stations?.length) { stations = msg.data.stations; renderStationMarkers(); }
+    if (msg.data.trackPoints?.length) { trackPoints = msg.data.trackPoints; renderRoute(); }
     renderLeaderboard();
     if (msg.data.messages) { messages = msg.data.messages; renderMessages(); }
     for (const [nodeId, pos] of Object.entries(msg.data.positions || {})) {

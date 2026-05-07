@@ -16,13 +16,9 @@
     padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
   }
   #mot-row-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  #mo-title {
-    font-size: 17px; font-weight: bold; letter-spacing: 2px;
-    color: var(--accent); white-space: nowrap; flex-shrink: 0;
-  }
-  #mo-race-pill { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
+  #mo-race-pill { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
   #mo-station-badge {
-    font-size: 13px; padding: 3px 10px; flex-shrink: 0;
+    font-size: 13px; padding: 3px 10px; flex-shrink: 0; margin-left: auto;
     background: rgba(88,166,255,.1); color: var(--accent);
     border: 1px solid rgba(88,166,255,.3); border-radius: 20px; white-space: nowrap;
     cursor: pointer; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
@@ -58,11 +54,20 @@
   .mo-tab-icon { font-size: 18px; line-height: 1; }
   .mo-tab.active { color: var(--accent); }
 
-  /* Map */
+  /* Map — matches viewer exactly */
   #mo-map { width: 100%; flex: 1; }
-  .leaflet-div-icon { background: none; border: none; }
-  .tracker-icon-alert { animation: blink 1s infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .tracker-icon-alert { animation: blink 1s infinite; }
+  .leaflet-div-icon { background: none; border: none; }
+  .leaflet-control-layers {
+    background: var(--surface) !important; border: 1px solid var(--border) !important;
+    border-radius: 6px !important; box-shadow: none !important;
+    color: var(--text) !important; font-family: var(--font) !important; font-size: 14px !important;
+  }
+  .leaflet-control-layers-toggle { background-color: var(--surface2) !important; }
+  .leaflet-control-layers-expanded { padding: 8px 10px !important; }
+  .leaflet-control-layers-separator { border-top: 1px solid var(--border) !important; }
+  .leaflet-control-layers label { display: flex !important; align-items: center !important; gap: 6px !important; color: var(--text2) !important; font-size: 14px !important; margin: 2px 0 !important; }
   .leaflet-control-zoom a {
     background: var(--surface) !important; border-color: var(--border) !important;
     color: var(--text) !important; font-family: var(--font) !important;
@@ -169,7 +174,6 @@
 
   <div id="mo-topbar">
     <div id="mot-row-name">
-      <div id="mo-title">&#9654; MOBILOP</div>
       <div class="pill pill-idle" id="mo-race-pill">LOADING...</div>
       <div id="mo-station-badge" title="Tap to change station" onclick="showStationPicker()">&#x25B6; tap to select station</div>
     </div>
