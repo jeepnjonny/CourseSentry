@@ -44,7 +44,10 @@
 <link id="rt-theme-css" rel="stylesheet">
 <style>
   html, body { max-width: 100vw; overflow-x: hidden; }
-  body { overflow: hidden; }
+  /* 100dvh = dynamic viewport height: excludes mobile browser chrome,
+     fixing the tab bar being pushed off-screen on iOS Safari / Android Chrome.
+     Falls back to theme.css's 100vh on browsers that don't support dvh. */
+  body { overflow: hidden; height: 100dvh; }
 
   /* ── Topbar ── */
   #mo-topbar {
