@@ -13,20 +13,32 @@
 
   #mo-topbar {
     background: var(--surface); border-bottom: 1px solid var(--border);
-    padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+    padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
   }
-  #mo-topbar-row1 { display: flex; align-items: center; gap: 8px; }
-  #mo-topbar-row2 { display: flex; align-items: center; gap: 6px; }
-  #mo-title { font-size: 16px; font-weight: bold; color: var(--accent); letter-spacing: 1.5px; flex-shrink: 0; }
-  #mo-race-name { font-size: 14px; color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  #mot-row-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #mo-title {
+    font-size: 17px; font-weight: bold; letter-spacing: 2px;
+    color: var(--accent); white-space: nowrap; flex-shrink: 0;
+  }
+  #mo-race-pill { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
   #mo-station-badge {
-    font-size: 13px; padding: 4px 12px; flex: 1;
+    font-size: 13px; padding: 3px 10px; flex-shrink: 0;
     background: rgba(88,166,255,.1); color: var(--accent);
-    border: 1px solid rgba(88,166,255,.3); border-radius: 6px; white-space: nowrap;
-    cursor: pointer; text-align: center; overflow: hidden; text-overflow: ellipsis;
+    border: 1px solid rgba(88,166,255,.3); border-radius: 20px; white-space: nowrap;
+    cursor: pointer; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
   }
   #mo-station-badge:hover, #mo-station-badge:active { background: rgba(88,166,255,.2); }
-  #mo-station-label { font-size: 11px; color: var(--text3); letter-spacing: 1px; flex-shrink: 0; }
+  #mot-row-controls { display: flex; align-items: center; gap: 8px; }
+  #mot-row-controls select {
+    flex: 1; font-size: 14px; padding: 4px 6px;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 4px; font-family: var(--font);
+  }
+  @media (min-width: 701px) {
+    #mo-topbar { flex-direction: row; align-items: center; gap: 8px; }
+    #mot-row-name { flex: 1; }
+    #mot-row-controls select { flex: unset; max-width: 90px; }
+  }
 
   #mo-body { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
 
@@ -156,21 +168,20 @@
 <div style="display:flex;flex-direction:column;height:100vh">
 
   <div id="mo-topbar">
-    <div id="mo-topbar-row1">
+    <div id="mot-row-name">
       <div id="mo-title">&#9654; MOBILOP</div>
-      <div id="mo-race-name">Loading…</div>
-      <select id="mo-theme-sel" title="Display theme" style="font-size:12px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font);flex-shrink:0"></select>
-      <button onclick="RT.logout()" style="font-size:12px;padding:5px 10px;flex-shrink:0">OUT</button>
+      <div class="pill pill-idle" id="mo-race-pill">LOADING...</div>
+      <div id="mo-station-badge" title="Tap to change station" onclick="showStationPicker()">&#x25B6; tap to select station</div>
     </div>
-    <div id="mo-topbar-row2">
-      <span id="mo-station-label">STATION:</span>
-      <div id="mo-station-badge" title="Tap to change station" onclick="showStationPicker()">— tap to select —</div>
-      <select id="mo-base-layer-sel" title="Base map" onchange="setBaseLayer(this.value)" style="font-size:12px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font);flex-shrink:0">
+    <div id="mot-row-controls">
+      <select id="mo-theme-sel" title="Display theme"></select>
+      <select id="mo-base-layer-sel" title="Base map" onchange="setBaseLayer(this.value)">
         <option value="Topo">Topo</option>
         <option value="Satellite">Satellite</option>
         <option value="Street" selected>Street</option>
         <option value="Dark">Dark</option>
       </select>
+      <button onclick="RT.logout()" style="flex-shrink:0">OUT</button>
     </div>
   </div>
 

@@ -48,7 +48,9 @@ async function init() {
   }
   race = rRes.data;
   fmt24 = race.time_format === '24h';
-  document.getElementById('mo-race-name').textContent = race.name;
+  const racePill = document.getElementById('mo-race-pill');
+  racePill.textContent = race.name.toUpperCase();
+  racePill.className = 'pill pill-ok';
   document.title = `MobilOp — ${race.name}`;
 
   if (race.messaging_enabled) {
@@ -114,6 +116,8 @@ async function assignStation(station) {
 
   document.getElementById('mo-station-badge').textContent = station.name;
   document.getElementById('mo-no-station').classList.add('hidden');
+  document.getElementById('mo-station-badge').style.background = 'rgba(88,166,255,.15)';
+  document.getElementById('mo-station-badge').style.fontWeight = 'bold';
 
   // Register station on the server (callsign matching happens here)
   await RT.post(`/api/races/${raceId}/stations/${station.id}/assign`, {});
