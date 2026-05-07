@@ -1,4 +1,14 @@
 'use strict';
+
+/**
+ * MQTT client for Meshtastic network integration.
+ * Maintains persistent connection to configured MQTT broker, publishes/subscribes to mesh packets,
+ * and bridges with local race tracker infrastructure (participants, geofences, stations).
+ *
+ * Handles protobuf serialization, AES encryption/decryption, position tracking,
+ * and automation triggers (geofence alerts, off-course detection, missing participant warnings).
+ */
+
 const mqtt = require('mqtt');
 const crypto = require('crypto');
 const protobuf = require('protobufjs');
@@ -7,12 +17,14 @@ const db = require('./db');
 const geo = require('./geo');
 const logger = require('./logger');
 
+// ── Module state ──────────────────────────────────────────────────────────────
 let protoRoot = null;
 let mqttClient = null;
 let wsRef = null;
 let currentConfig = null;
 let _gatewayNodeId = 0; // set from callsignToNodeId() by beacon scheduler
 
+// ── Node ID generation and utility functions ──────────────────────────────────
 // FNV-1a 32-bit — deterministic Meshtastic node ID derived from a callsign
 function callsignToNodeId(callsign) {
   const s = (callsign || 'NETCTRL').toUpperCase().replace(/[^A-Z0-9]/g, '');

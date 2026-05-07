@@ -1,9 +1,24 @@
 'use strict';
+
+/**
+ * APRS-IS client for receiving positions and sending beacons/messages.
+ * Connects to APRS-IS server (rotate.aprs2.net) over TCP, parses position packets,
+ * and bridges with MQTT infrastructure for unified tracker management.
+ *
+ * Position formats decoded: uncompressed, compressed (APRS spec §9), and Mic-E.
+ * Supports location-based and callsign-based filtering to reduce network traffic.
+ */
+
 const net = require('net');
 const db = require('./db');
 const geo = require('./geo');
 const logger = require('./logger');
 
+// ── APRS callsign validation ──────────────────────────────────────────────────
+// Matches bare callsign or callsign-SSID (1–6 alphanum chars, SSID 1–15)
+const APRS_CALL_RE = /^[A-Z0-9]{1,6}(-(?:1[0-5]|[0-9]))?$/;
+
+// ── Module state ──────────────────────────────────────────────────────────────
 let socket = null;
 let wsRef = null;
 let currentConfig = null;
@@ -13,10 +28,8 @@ let _connected = false;
 let _messagingCallsign = null; // set to logged-in user's callsign when available
 const _pendingAcks = new Map(); // key: "CALLSIGN:seqNum" → { messageId, timer }
 
-// Matches bare callsign or callsign-SSID (1–6 alphanum chars, SSID 1–15)
-const APRS_CALL_RE = /^[A-Z0-9]{1,6}(-(?:1[0-5]|[0-9]))?$/;
-
-// Byham APRS passcode algorithm
+// ── Byham APRS passcode algorithm ────────────────────────────────────────────
+// Generates the 16-bit passcode required for authenticated APRS-IS connections
 function generatePasscode(callsign) {
   const base = callsign.toUpperCase().split('-')[0];
   let hash = 0x73e2;
@@ -27,7 +40,10 @@ function generatePasscode(callsign) {
   return hash & 0x7fff;
 }
 
-function setWs(ws) { wsRef = ws; }
+// ── WebSocket and status management ──────────────────────────────────────────
+function setWs(ws) {
+  wsRef = ws;
+}
 
 function getStatus() {
   return {
@@ -40,10 +56,15 @@ function getStatus() {
 }
 
 function broadcast(type, data) {
-  if (wsRef) { try { wsRef.broadcast({ type, data }); } catch {} }
+  if (wsRef) {
+    try {
+      wsRef.broadcast({ type, data });
+    } catch {}
+  }
 }
 
-// Parse APRS DM notation (DDMM.mmN) to decimal degrees
+// ── Position parsing: uncompressed, compressed, Mic-E ─────────────────────────
+
 function parseDM(dm, hemi) {
   const dot = dm.indexOf('.');
   if (dot < 2) return null;
@@ -221,13 +242,14 @@ function inferAltitudeMeters(rawFt, nodeId) {
 
 function updateMessageStatus(messageId, status) {
   try {
-    db.prepare('UPDATE messages SET status=? WHERE id=?').run(status, messageId);
+    db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, messageId);
     broadcast('message_status', { id: messageId, status });
   } catch (e) {
     logger.log('aprs', 'error', `updateMessageStatus failed: ${e.message}`);
   }
 }
 
+// ── Message parsing and inbound handling ──────────────────────────────────────
 // Parse APRS message body — body must start with ':' (message type indicator)
 // Returns { addressee, text, seq } or null
 function parseAprsMessage(body) {
@@ -243,10 +265,11 @@ function parseAprsMessage(body) {
   return { addressee, text: text.trim(), seq };
 }
 
+// ── Acknowledgments and message responses ─────────────────────────────────────
 function sendAck(toCallsign, seq) {
   if (!socket || !_connected || !currentConfig) return;
   const from = currentConfig.callsign;
-  const to   = toCallsign.toUpperCase().trim().padEnd(9, ' ');
+  const to = toCallsign.toUpperCase().trim().padEnd(9, ' ');
   try {
     socket.write(`${from}>APRS,TCPIP*,qAC,${from}::${to}:ack${seq}\r\n`);
     logger.log('aprs', 'info', `ACK→${toCallsign.trim()} seq=${seq}`);
@@ -255,6 +278,7 @@ function sendAck(toCallsign, seq) {
   }
 }
 
+// ── Inbound message handling ──────────────────────────────────────────────────
 function handleInboundMessage(fromCall, text) {
   const race = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
   if (!race) return;
@@ -271,6 +295,8 @@ function handleInboundMessage(fromCall, text) {
   broadcast('message', msg);
 }
 
+// ── Main packet processing loop ───────────────────────────────────────────────
+// Parses APRS packet header and body, routes to appropriate handlers
 function processLine(line) {
   if (!line) return;
   if (line.startsWith('#')) {
@@ -364,7 +390,8 @@ function processLine(line) {
   }
 }
 
-// ── Filter builders ───────────────────────────────────────────────────────────
+// ── Filter builders: geographic and callsign-based filtering ──────────────────
+// Filters reduce network traffic by requesting only relevant positions from APRS-IS
 
 function buildLocationFilter() {
   const race = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
@@ -437,6 +464,7 @@ function buildFilter(filterType) {
 }
 
 // ── Connection management ─────────────────────────────────────────────────────
+// Establishes/maintains persistent TCP connection to APRS-IS server
 
 function connect(config) {
   disconnect();
@@ -498,18 +526,25 @@ function scheduleReconnect() {
   }, 15000);
 }
 
+// ── Disconnection and settings-based connection ───────────────────────────────
 function disconnect() {
   _connected = false;
   currentConfig = null;
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (socket) {
-    socket.removeAllListeners(); // prevent stale close/error events firing on the new socket's context
-    try { socket.destroy(); } catch {}
+    socket.removeAllListeners();
+    try {
+      socket.destroy();
+    } catch {}
     socket = null;
   }
   lineBuffer = '';
 }
 
+// Load APRS settings from database and auto-connect if enabled
 function connectFromSettings(dbArg) {
   const _db = dbArg || db;
   const rows = _db.prepare("SELECT key, value FROM settings WHERE key LIKE 'aprs_%'").all();
@@ -540,6 +575,7 @@ function connectFromSettings(dbArg) {
 }
 
 // ── Outbound beacons ──────────────────────────────────────────────────────────
+// Send APRS object beacons for net control stations and course waypoints
 
 function _toAprsLat(deg) {
   const abs = Math.abs(deg), d = Math.floor(abs), m = (abs - d) * 60;
@@ -570,6 +606,8 @@ function sendObjectBeacon(lat, lon, name) {
 }
 
 // ── Outbound messaging ────────────────────────────────────────────────────────
+// Send APRS text messages with sequence number ACK tracking
+
 let _msgSeq = 0;
 
 function sendMessage(toCallsign, text, messageId) {
@@ -598,6 +636,9 @@ function sendMessage(toCallsign, text, messageId) {
     return false;
   }
 }
+
+// ── State and utility functions ───────────────────────────────────────────────
+// Dynamic callsign filter updates, messaging context, filter preview
 
 // Called after participants/personnel roster changes to refresh callsign filter live
 function notifyRosterChange() {

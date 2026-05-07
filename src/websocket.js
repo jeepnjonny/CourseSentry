@@ -1,10 +1,20 @@
 'use strict';
+
+/**
+ * WebSocket server for real-time dashboard and admin updates.
+ * Authenticates users via session or race viewer tokens, broadcasts race state,
+ * tracker positions, and system events to connected clients.
+ *
+ * Maintains separate role-based authorization (admin, operator, viewer).
+ */
+
 const WebSocket = require('ws');
 const db = require('./db');
 
 let wss = null;
 const clients = new Set();
 
+// ── WebSocket server initialization and connection handling ──────────────────
 function init(server, sessionMiddleware) {
   wss = new WebSocket.Server({ server, path: '/ws' });
 
@@ -16,7 +26,7 @@ function init(server, sessionMiddleware) {
 
       // Viewer auth via race token
       if (!user && token) {
-        const race = db.prepare('SELECT id, name FROM races WHERE viewer_token=?').get(token);
+        const race = db.prepare('SELECT id, name FROM races WHERE viewer_token = ?').get(token);
         if (race) {
           user = { role: 'viewer', raceId: race.id };
         }
@@ -30,7 +40,7 @@ function init(server, sessionMiddleware) {
       ws.user = user;
       clients.add(ws);
 
-      // Send initial state
+      // Send initial state (race data, participants, etc.)
       sendInit(ws, user, req.url);
 
       ws.on('close', () => clients.delete(ws));
@@ -41,11 +51,13 @@ function init(server, sessionMiddleware) {
   return wss;
 }
 
+// ── Track point extraction and caching ────────────────────────────────────────
+// Retrieve course track points for real-time race map visualization
 function getTrackPointsForRace(race) {
   const fs = require('fs');
   try {
     if (race.course_id) {
-      const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
+      const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(race.course_id);
       if (course) {
         const text = fs.readFileSync(course.file_path, 'utf8');
         const { parseCourse } = require('./routes/courses');
@@ -62,6 +74,8 @@ function getTrackPointsForRace(race) {
   return null;
 }
 
+// ── Initial state broadcast ───────────────────────────────────────────────────
+// Sends complete race state to newly connected clients
 function sendInit(ws, user, reqUrl) {
   try {
     const urlRaceId = reqUrl
