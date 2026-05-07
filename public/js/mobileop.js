@@ -554,7 +554,7 @@ async function sendMessage() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 
 function switchTab(name) {
-  document.querySelectorAll('.mo-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.rt-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.mo-extra-panel').forEach(p => p.classList.remove('active'));
   document.body.classList.remove('mo-lb-mode', 'mo-extra-active');
 

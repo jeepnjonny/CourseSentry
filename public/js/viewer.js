@@ -406,7 +406,7 @@ function setSort(key) {
 function switchTab(name) {
   mapMode = name === 'map';
   document.body.classList.toggle('lb-mode', !mapMode);
-  document.querySelectorAll('.vt-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.rt-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   if (mapMode) setTimeout(() => leafletMap?.invalidateSize(), 50);
 }
 

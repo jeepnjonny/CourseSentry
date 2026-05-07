@@ -101,15 +101,13 @@
 
   /* ── Bottom tab bar (mobile only) ── */
   #viewer-tabbar { display: none; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
-  .vt-tab {
+  .rt-tab {
     flex: 1; padding: 10px 4px; text-align: center;
-    font-size: 11px; letter-spacing: 1px; color: var(--text3);
-    background: none; border: none; cursor: pointer;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    transition: color 0.15s;
+    background: none; border: none; border-top: 2px solid transparent; cursor: pointer;
+    color: var(--text3); transition: color 0.15s, border-color 0.15s;
   }
-  .vt-tab-icon { font-size: 18px; line-height: 1; }
-  .vt-tab.active { color: var(--accent); }
+  .rt-tab-icon { font-size: 22px; line-height: 1; display: block; }
+  .rt-tab.active { color: var(--accent); border-top-color: var(--accent); }
 
   @media (min-width: 701px) {
     #viewer-lb-wrap { display: flex !important; }
@@ -192,11 +190,11 @@
   </div>
 </div>
 <div id="viewer-tabbar">
-  <button class="vt-tab active" data-tab="map" onclick="VW.switchTab('map')">
-    <span class="vt-tab-icon">&#x1F5FA;</span>MAP
+  <button class="rt-tab active" data-tab="map" onclick="VW.switchTab('map')">
+    <span class="rt-tab-icon">&#x1F5FA;</span>
   </button>
-  <button class="vt-tab" data-tab="lb" onclick="VW.switchTab('lb')">
-    <span class="vt-tab-icon">&#x1F3C5;</span>LEADERBOARD
+  <button class="rt-tab" data-tab="lb" onclick="VW.switchTab('lb')">
+    <span class="rt-tab-icon">&#x1F3C5;</span>
   </button>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
