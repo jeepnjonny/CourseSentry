@@ -24,6 +24,8 @@
     cursor: pointer; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
   }
   #mo-station-badge:hover, #mo-station-badge:active { background: rgba(88,166,255,.2); }
+  #mot-row-clock { display: flex; justify-content: center; }
+  #mo-clock { font-size: 26px; font-weight: bold; color: var(--accent2); letter-spacing: 3px; white-space: nowrap; }
   #mot-row-controls { display: flex; align-items: center; gap: 8px; }
   #mot-row-controls select {
     flex: 1; font-size: 14px; padding: 4px 6px;
@@ -33,6 +35,8 @@
   @media (min-width: 701px) {
     #mo-topbar { flex-direction: row; align-items: center; gap: 8px; }
     #mot-row-name { flex: 1; }
+    #mot-row-clock { justify-content: unset; margin-left: auto; }
+    #mo-clock { font-size: 22px; letter-spacing: 2px; }
     #mot-row-controls select { flex: unset; max-width: 90px; }
   }
 
@@ -176,6 +180,9 @@
     <div id="mot-row-name">
       <div class="pill pill-idle" id="mo-race-pill">LOADING...</div>
       <div id="mo-station-badge" title="Tap to change station" onclick="showStationPicker()">&#x25B6; tap to select station</div>
+    </div>
+    <div id="mot-row-clock">
+      <div id="mo-clock">--:--:--</div>
     </div>
     <div id="mot-row-controls">
       <select id="mo-theme-sel" title="Display theme"></select>

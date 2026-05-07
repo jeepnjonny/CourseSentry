@@ -6,6 +6,7 @@ let selectedParticipant = null;
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = true;
 let baseTiles = {}, currentBaseLayer = null;
+let clockInterval = null;
 
 const BASE_LAYERS = {
   'Topo':      { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',        opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
@@ -71,6 +72,7 @@ async function init() {
   }
 
   initMap();
+  startClock();
   RT.connectWS(handleWS, null, raceId);
 
   document.getElementById('mo-bib-input').addEventListener('keydown', e => {
@@ -79,6 +81,19 @@ async function init() {
   document.getElementById('mo-msg-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') sendMessage();
   });
+}
+
+// ── Clock ────────────────────────────────────────────────────────────────────
+
+function startClock() {
+  if (clockInterval) clearInterval(clockInterval);
+  clockInterval = setInterval(() => {
+    if (!race) return;
+    const active = participants.find(p => p.status === 'active' && p.start_time);
+    if (!active) return;
+    const elapsed = Math.floor(Date.now() / 1000) - active.start_time;
+    document.getElementById('mo-clock').textContent = RT.fmtElapsed(elapsed > 0 ? elapsed : 0, race?.clock_seconds !== 0);
+  }, 1000);
 }
 
 // ── Station picker ────────────────────────────────────────────────────────────
