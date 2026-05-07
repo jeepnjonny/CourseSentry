@@ -1,12 +1,55 @@
+<!--
+  RaceTracker Administration Interface
+  
+  This is the comprehensive race configuration and system administration panel for RaceTracker.
+  It provides complete CRUD operations for all race-related entities including races, participants,
+  personnel, heats, classes, stations, courses, and system users.
+  
+  Layout:
+  - Top Bar: Race status indicator (active race pill), datasource status lights (MQTT/APRS), navigation
+  - Main Content: Tabbed interface dynamically populated with admin sections
+  - Race Context Bar: Shows currently-configured race with sub-tabs for entity management
+  - Multiple Modals: Separate forms for creating/editing races, participants, heats, etc.
+  
+  Main Tabs (dynamically rendered):
+  - Races: List all races, create new races, manage race settings (format, time, units, alerts, features)
+  - Participants: Manage participant roster with BIB/name/status/heat/class/tracker assignments
+  - Heats: Configure heat waves with color-coding and icon shapes for map display
+  - Classes: Manage participant classifications
+  - Personnel: Manage race staff and officials with tracker assignments and map icons
+  - Stations: Configure course stations (start/finish/aid/checkpoint) with coordinates and cutoff times
+  - Courses: Upload and manage KML/GPX track files with multi-path support
+  - Users: Manage system user accounts (admin/operator/station roles) and APRS callsigns
+  - Infrastructure: View registered tracking devices (Meshtastic nodes, APRS, inReach)
+  - Logs: Real-time application logs with channel filtering and log level controls
+  
+  Key Features:
+  - Tabbed navigation with auto-show/hide based on configuration state
+  - Race context bar showing currently-editing race with quick-access tabs
+  - Multiple modals for entity-specific forms with inline validation
+  - Icon preview for custom heat/personnel markers
+  - APRS passcode calculation from callsign
+  - CSV import capability for bulk participant/personnel/station operations
+  - Real-time datasource status (MQTT/APRS connectivity)
+  - Active race highlighting and visual status indicators
+  
+  Data Binding & State Management:
+  - Common configuration loaded from /api/races/{raceId} and related endpoints
+  - Modals controlled by common UI functions (openModal, closeModal)
+  - Form inputs have unique IDs matching API field names for easy serialization
+  - WebSocket broadcasts trigger re-rendering of affected sections
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RaceTracker — Admin</title>
-<base href="/RaceTracker/">
-<link rel="stylesheet" href="css/theme.css">
-<link id="rt-theme-css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RaceTracker — Admin</title>
+  <base href="/RaceTracker/">
+  <!-- Base application theme -->
+  <link rel="stylesheet" href="css/theme.css">
+  <!-- Dynamic theme CSS loaded from user preferences -->
+  <link id="rt-theme-css" rel="stylesheet">
 <style>
   body { overflow: auto; flex-direction: column; height: auto; min-height: 100vh; }
   #main { flex-direction: column; overflow: visible; flex: none; }
@@ -55,9 +98,14 @@
 </style>
 </head>
 <body>
+<!-- ═══════════════════════════════════════════════════════════════════
+     TOP BAR: Application header with race status and navigation
+     ═══════════════════════════════════════════════════════════════════ -->
 <div id="topbar">
   <h1>&#9654; RaceTracker</h1>
+  <!-- Status pill showing currently active race (if any) -->
   <div class="pill pill-idle" id="active-race-pill">NO ACTIVE RACE</div>
+  <!-- Datasource status indicators: MQTT (Meshtastic), APRS, reserved for future use -->
   <div class="ds-lights">
     <span class="ds-light ds-light-idle" id="mqtt-light"  title="MQTT: Offline"></span>
     <span class="ds-light ds-light-idle" id="aprs-light"  title="APRS: Offline"></span>
@@ -65,27 +113,42 @@
     <span class="ds-light ds-light-off"  id="ds4-light"   title="—"></span>
   </div>
 
+  <!-- Navigation buttons -->
   <div id="topbar-right">
     <button onclick="window.location.href=RT.BASE+'race-select.html'">OPERATOR VIEW</button>
     <button onclick="goToRFAnalysis()">RF ANALYSIS</button>
     <button onclick="RT.logout()">LOGOUT</button>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MAIN CONTENT: Tabbed interface for admin sections
+     ═══════════════════════════════════════════════════════════════════ -->
 <div id="main">
   <div class="admin-wrap">
+    <!-- Dynamic tab navigation: Races, Participants, Heats, Classes, etc. -->
     <div class="admin-tabs" id="admin-tabs"></div>
+    
+    <!-- Race context bar: Shows which race is being configured with entity tabs -->
     <div id="race-context-bar" class="hidden">
       <div class="race-context-label">
         <span style="font-size:10px;letter-spacing:1.5px;color:var(--text3)">CONFIGURING</span>
         <span id="race-context-name" style="font-size:16px;font-weight:bold;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
       </div>
+      <!-- Sub-tabs for race configuration entities (Participants, Heats, etc.) -->
       <div id="race-tabs"></div>
     </div>
+    
+    <!-- Dynamic content area populated by admin.js based on selected tab -->
     <div id="admin-content"></div>
   </div>
 </div>
 
-<!-- Race Edit Modal -->
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODALS: Form dialogs for creating/editing entities
+     ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- Race Edit Modal: Complete race configuration including settings, alerts, features -->
 <div class="modal-bg hidden" id="race-modal">
   <div class="modal modal-wide">
     <h2 id="race-modal-title">NEW RACE</h2>
@@ -204,7 +267,7 @@
   </div>
 </div>
 
-<!-- Participant Modal -->
+<!-- Participant Modal: Manage individual participant roster entry -->
 <div class="modal-bg hidden" id="participant-modal">
   <div class="modal modal-wide">
     <h2 id="pm2-title">NEW PARTICIPANT</h2>
@@ -250,7 +313,7 @@
   </div>
 </div>
 
-<!-- User Modal -->
+<!-- User Modal: Create/edit system user accounts with role assignments -->
 <div class="modal-bg hidden" id="user-modal">
   <div class="modal">
     <h2 id="user-modal-title">NEW USER</h2>
@@ -275,7 +338,7 @@
   </div>
 </div>
 
-<!-- Heat Modal -->
+<!-- Heat Modal: Configure heat waves with color and icon shape for participant markers -->
 <div class="modal-bg hidden" id="heat-modal">
   <div class="modal">
     <h2 id="heat-modal-title">NEW HEAT</h2>
@@ -303,7 +366,7 @@
   </div>
 </div>
 
-<!-- Personnel Modal -->
+<!-- Personnel Modal: Register race staff/officials with tracker IDs and custom map icons -->
 <div class="modal-bg hidden" id="personnel-modal">
   <div class="modal">
     <h2 id="personnel-modal-title">NEW PERSONNEL</h2>
@@ -342,7 +405,7 @@
   </div>
 </div>
 
-<!-- Station Modal -->
+<!-- Station Modal: Define course stations (aid, checkpoint, start, finish) with coordinates -->
 <div class="modal-bg hidden" id="station-modal">
   <div class="modal">
     <h2 id="station-modal-title">NEW STATION</h2>
@@ -374,7 +437,7 @@
   </div>
 </div>
 
-<!-- Assign Tracker Modal -->
+<!-- Assign Tracker Modal: Map a discovered tracker device to a participant or staff member -->
 <div class="modal-bg hidden" id="assign-modal">
   <div class="modal">
     <h2>ASSIGN TRACKER</h2>
@@ -390,7 +453,12 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     SCRIPTS: Common utilities and admin-specific logic
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- Shared utilities (RT object, theme handling, common UI functions) -->
 <script src="js/common.js"></script>
+<!-- Admin-specific logic (tab rendering, modal handling, CRUD operations) -->
 <script src="js/admin.js"></script>
 </body>
 </html>

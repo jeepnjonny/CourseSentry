@@ -1,15 +1,48 @@
+<!--
+  RaceTracker RF Analysis Tool
+  
+  This is a diagnostic and visualization tool for analyzing RF (radio frequency) signal coverage
+  and reception quality from Meshtastic and other RF-based tracking systems.
+  It processes historical position and signal data to generate heatmaps and coverage analysis.
+  
+  Layout:
+  - Left Sidebar: Race/time window selection, technology filter, metric selector, coverage overlay, display tuning
+  - Center: Interactive Leaflet map showing heatmap overlay and coverage polygon
+  - Right Panel: Tabbed interface with node list, statistics, and raw data table
+  - Top Bar: Navigation and logout
+  
+  Key Features:
+  - Heatmap visualization of signal density, SNR (Signal-to-Noise Ratio), or RSSI (Received Signal Strength)
+  - Coverage analysis via convex hull of received positions per technology source
+  - Technology filtering (Meshtastic, APRS, inReach, etc.)
+  - Time window selection (race duration or all historical data)
+  - Interactive heatmap tuning (opacity, radius, blur)
+  - Signal legend showing color gradient for selected metric
+  - Raw RF data table with per-node statistics
+  - Real-time data clearing and refresh
+  
+  Algorithms:
+  - Heatmap Generation: Uses Leaflet.heat library to create weighted density visualization
+  - Coverage Polygon: Computes convex hull of received positions to show RF reach
+  - Signal Metrics: Aggregates packet-level RSSI/SNR data by location
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RaceTracker — RF Analysis</title>
-<base href="/RaceTracker/">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
-<link rel="stylesheet" href="css/theme.css">
-<link id="rt-theme-css" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RaceTracker — RF Analysis</title>
+  <base href="/RaceTracker/">
+  <!-- Leaflet CSS for interactive mapping -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <!-- Base application theme -->
+  <link rel="stylesheet" href="css/theme.css">
+  <!-- Dynamic theme CSS -->
+  <link id="rt-theme-css" rel="stylesheet">
+  <!-- Leaflet JavaScript library for map rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <!-- Leaflet.heat plugin for heatmap generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
 <style>
   body { overflow: hidden; }
 

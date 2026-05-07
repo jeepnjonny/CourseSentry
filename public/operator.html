@@ -1,13 +1,39 @@
+<!--
+  RaceTracker Operator Interface
+  
+  This is the primary real-time race monitoring and management interface for race operators.
+  It provides live tracking of participants on an interactive Leaflet map with real-time updates
+  via WebSocket, leaderboard management, messaging to trackers, and race control operations.
+  
+  Layout:
+  - Left Sidebar: Station list and controls
+  - Center: Interactive Leaflet map showing participant positions (color-coded by heat)
+  - Right Panel: Tabbed interface with participant info, leaderboard, messages, weather, and alerts
+  - Top Bar: Race clock, status pills (MQTT/APRS), race controls (start/end race)
+  
+  Key Features:
+  - Real-time WebSocket updates for participant positions and status changes
+  - Interactive map with custom marker icons for participants and stations
+  - Leaderboard with sorting (time/distance/pace/alerts)
+  - Messaging interface supporting both Meshtastic and APRS
+  - Weather integration (current conditions, forecasts, alerts)
+  - Batch check-in modal for participant status updates
+  - Map overlay statistics (current pace, altitude, speed)
+  - Responsive design with mobile-optimized tab navigation
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RaceTracker — Operator</title>
-<base href="/RaceTracker/">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
-<link rel="stylesheet" href="css/theme.css">
-<link id="rt-theme-css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RaceTracker — Operator</title>
+  <base href="/RaceTracker/">
+  <!-- Leaflet CSS for interactive mapping -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <!-- Base application theme and styling -->
+  <link rel="stylesheet" href="css/theme.css">
+  <!-- Dynamic theme CSS loaded from user preferences -->
+  <link id="rt-theme-css" rel="stylesheet">
 <style>
   .tracker-icon-alert { animation: blink 1s infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
@@ -83,21 +109,29 @@
 </head>
 <body>
 
-<!-- TOP BAR -->
+<!-- ═══════════════════════════════════════════════════════════════════
+     TOP BAR: Race status, datasource indicators, and race controls
+     ═══════════════════════════════════════════════════════════════════ -->
 <div id="topbar">
   <h1>&#9654; RaceTracker</h1>
+  <!-- Race pill shows selected race name or "NO RACE" if not started -->
   <div class="pill pill-idle" id="race-pill">NO RACE</div>
+  <!-- Datasource status lights: MQTT (Meshtastic), APRS, and reserved for future datasources -->
   <div class="ds-lights">
     <span class="ds-light ds-light-idle" id="mqtt-light"  title="MQTT: Offline"></span>
     <span class="ds-light ds-light-idle" id="aprs-light"  title="APRS: Offline"></span>
     <span class="ds-light ds-light-off"  id="ds3-light"   title="—"></span>
     <span class="ds-light ds-light-off"  id="ds4-light"   title="—"></span>
   </div>
+  <!-- Live race clock display showing elapsed time -->
   <div id="race-clock" style="font-size:24px;font-weight:bold;color:var(--accent2);letter-spacing:2px">--:--:--</div>
+  <!-- Race control buttons: Start Window (pre-race), Start Race (begin timing), End Race (finish) -->
   <button id="start-window-btn" class="hidden" onclick="OP.toggleStartWindow()" style="font-size:14px;padding:4px 10px;white-space:nowrap">OPEN START WINDOW</button>
   <button id="start-race-btn" class="hidden" onclick="OP.startRace()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(63,185,80,.18);border-color:#3fb950;color:#3fb950">START RACE</button>
   <button id="end-race-btn" class="hidden" onclick="OP.endRace()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(248,81,73,.18);border-color:#f85149;color:#f85149">END RACE</button>
+  <!-- Alert indicator showing number of active participant alerts -->
   <div id="alert-count" class="pill pill-error hidden">0 ALERTS</div>
+  <!-- Right-side navigation buttons -->
   <div id="topbar-right">
     <select id="base-layer-sel" onchange="OP.setBaseLayer(this.value)" style="font-size:14px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font);max-width:80px">
       <option value="topo">Topo</option>
@@ -111,24 +145,30 @@
   </div>
 </div>
 
-<!-- Setup warning bar -->
+<!-- Setup warning bar: alerts operator about incomplete configuration (missing courses, stations, etc.) -->
 <div id="setup-warning" style="display:none;background:rgba(210,153,34,.12);border-bottom:1px solid rgba(210,153,34,.4);padding:5px 14px;font-size:14px;color:#d2993a;display:none;align-items:center;gap:8px;flex-wrap:wrap">
   <span style="font-weight:bold;letter-spacing:1px">&#9888; SETUP INCOMPLETE</span>
   <span id="setup-warning-text"></span>
 </div>
 
-<!-- MAIN -->
+<!-- ═══════════════════════════════════════════════════════════════════
+     MAIN LAYOUT: Three-column design (Left panel, Map, Right panel)
+     ═══════════════════════════════════════════════════════════════════ -->
 <div id="main">
 
-  <!-- LEFT: PARTICIPANTS / STATIONS -->
+  <!-- ─────────────────────────────────────────────────────────────────
+       LEFT PANEL: Participant list and station list (tabbed)
+       ────────────────────────────────────────────────────────────────→ -->
   <div class="panel panel-320" style="overflow:hidden;display:flex;flex-direction:column">
-    <!-- Tab bar -->
+    <!-- Tab navigation: Participants (sorted leaderboard) vs Stations -->
     <div style="display:flex;flex-shrink:0;border-bottom:1px solid var(--border)">
       <button class="tab-btn active" id="lp-tab-participants" onclick="OP.switchLeftTab('participants')" style="flex:1">PARTICIPANTS</button>
       <button class="tab-btn" id="lp-tab-stations" onclick="OP.switchLeftTab('stations')" style="flex:1">STATIONS</button>
     </div>
-    <!-- Participants pane -->
+    
+    <!-- Participants pane: Leaderboard with real-time standings and sorting options -->
     <div id="lp-participants" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+      <!-- Sort bar: Multiple sort options for leaderboard (position/bib/pace/eta/name/heat) -->
       <div id="sort-bar">
         <span style="font-size:13px;color:var(--text3);align-self:center">SORT:</span>
         <button class="sort-btn active" data-sort="position" onclick="OP.setSort('position')">POSITION</button>
@@ -138,20 +178,27 @@
         <button class="sort-btn" data-sort="name" onclick="OP.setSort('name')">NAME</button>
         <button class="sort-btn" data-sort="heat" onclick="OP.setSort('heat')">HEAT</button>
       </div>
+      <!-- Leaderboard header row: position, bib, name, progress %, pace, alerts icon -->
       <div class="lb-head">
         <span>#</span><span>BIB</span><span>NAME</span><span>PROG</span><span>PACE</span><span>&#9889;</span>
       </div>
+      <!-- Leaderboard rows: populated by operator.js with real-time updates via WebSocket -->
       <div id="leaderboard-body"></div>
     </div>
-    <!-- Stations pane -->
+    
+    <!-- Stations pane: List of course stations (aid, checkpoint, start, finish) -->
     <div id="lp-stations" style="display:none;flex:1;overflow-y:auto">
       <div id="station-list-body"></div>
     </div>
   </div>
 
-  <!-- MAP -->
+  <!-- ─────────────────────────────────────────────────────────────────
+       CENTER: Interactive Leaflet map with real-time participant markers
+       ────────────────────────────────────────────────────────────────→ -->
   <div id="map-container">
+    <!-- Leaflet map container -->
     <div id="map"></div>
+    <!-- Map overlay: Statistics (active count, finished, DNF, DNS, total distance) -->
     <div id="map-overlay">
       <h3>Status</h3>
       <div class="stat-line"><span>Active</span><span class="stat-val" id="stat-active">0</span></div>
@@ -164,10 +211,13 @@
     </div>
   </div>
 
-  <!-- RIGHT: INFO / MESSAGING PANEL -->
+  <!-- ─────────────────────────────────────────────────────────────────
+       RIGHT PANEL: Tabbed interface (Info/Alerts/Log/Messages/Weather)
+       ────────────────────────────────────────────────────────────────→ -->
   <div class="panel panel-right" id="right-panel" style="display:flex;flex-direction:column;overflow:hidden">
-    <!-- Upper: tabs -->
+    <!-- Upper section: Tab navigation and content -->
     <div id="right-panel-top" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden">
+      <!-- Tab buttons: Info (participant details), Alerts, Log -->
       <div class="panel-tabs">
         <button class="tab-btn active" onclick="OP.switchRightTab('info')">INFO</button>
         <button class="tab-btn" onclick="OP.switchRightTab('alerts')">ALERTS <span id="alert-tab-count"></span></button>

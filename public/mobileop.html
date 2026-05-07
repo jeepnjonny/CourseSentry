@@ -1,3 +1,39 @@
+<!--
+  RaceTracker Mobile Operator (Station Personnel View)
+  
+  Optimized mobile-first interface for station personnel to monitor their assigned station and
+  provide real-time participant check-in, tracking, and alerts. Designed for smaller screens
+  (phones/tablets) with touch-friendly controls and minimal text. Supports both mobile portrait
+  and desktop landscape viewing.
+  
+  Layout (Mobile Portrait):
+  - Top bar (stacked rows): Race name, assigned station, live clock
+  - Body (flexible): Map + Leaderboard tabs
+  - Bottom tab bar: Map, Leaderboard, Log tabs with icons
+  
+  Layout (Desktop Landscape):
+  - Top bar (horizontal): Race name, station, clock, map layer selector
+  - Body: Side-by-side map and leaderboard
+  
+  Key Features:
+  - WebSocket real-time participant position updates and status changes
+  - Station geofence detection: Auto-log participants entering/exiting assigned station
+  - Leaflet map with custom participant icons colored by heat
+  - Interactive leaderboard: tap to select participants, view details
+  - Log viewer: Real-time race event stream
+  - Map layer selection: Topo, satellite, street, dark basemaps
+  - Responsive design: Automatically switches layout on viewport change
+  
+  Key Algorithms:
+  - Marker clustering for dense participant areas
+  - Geofence detection: Circle radius around station coordinates vs participant position
+  - Leaderboard sorting: Position-based (course progress) with distance calculation
+  - Map updates: WebSocket push (rt:participant:update) triggers marker re-render
+  
+  Responsive Breakpoints:
+  - Mobile (≤700px): Vertical layout with bottom tabs, stacked topbar
+  - Desktop (>700px): Horizontal topbar, side-by-side panels
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>

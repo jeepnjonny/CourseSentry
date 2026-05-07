@@ -1,3 +1,26 @@
+<!--
+  RaceTracker Race Selection Screen
+  
+  This page serves as the intermediate launch screen where users select which active race to join.
+  It supports role-based redirects: operators go to operator.html, station personnel go to mobileop.html.
+  If only one race is active, the page auto-redirects without showing selection UI.
+  
+  Layout:
+  - Centered full-screen card layout with heading and description
+  - Card grid: Individual race cards (name + date) for multi-race selection
+  - Footer: Admin button (admin-only) and logout button
+  
+  Key Features:
+  - Loads list of active races from /api/races
+  - Auto-redirect for single active race (no UI needed)
+  - Role-based destination routing (operator vs station/mobileop)
+  - Responsive card layout (wraps on small screens)
+  - Admin access gating (admin button only shows for admin role)
+  
+  Key Functions (inline JavaScript):
+  - init(): Fetch active races and render selection cards or auto-redirect
+  - Card click handlers: Navigate to operator/mobileop with race ID parameter
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>

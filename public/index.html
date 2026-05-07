@@ -1,58 +1,127 @@
+<!--
+  RaceTracker Login Page
+  
+  This is the primary authentication entry point for the RaceTracker application.
+  It handles user login with username/password credentials and redirects to the
+  appropriate interface based on user role (admin or operator).
+  
+  Features:
+  - Responsive login form with autocomplete support
+  - Real-time error feedback
+  - Auto-redirect for authenticated sessions
+  - Role-based routing to admin or operator interfaces
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RaceTracker — Login</title>
-<base href="/RaceTracker/">
-<link rel="stylesheet" href="css/theme.css">
-<link id="rt-theme-css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RaceTracker — Login</title>
+  <!-- Base URL is dynamically calculated to support deployment in subdirectories -->
+  <base href="/RaceTracker/">
+  <link rel="stylesheet" href="css/theme.css">
+  <!-- Theme CSS is loaded from settings, allows user-selected theme -->
+  <link id="rt-theme-css" rel="stylesheet">
 </head>
 <body style="overflow:auto">
-<div class="login-wrap">
-  <div class="login-box">
-    <h1>&#9654; RaceTracker</h1>
-    <p>Race Safety &amp; Tracking System</p>
-    <div class="form-group">
-      <label>USERNAME</label>
-      <input type="text" id="username" autocomplete="username" autofocus>
+  <div class="login-wrap">
+    <div class="login-box">
+      <h1>&#9654; RaceTracker</h1>
+      <p>Race Safety &amp; Tracking System</p>
+      
+      <!-- Login form with username and password inputs -->
+      <div class="form-group">
+        <label>USERNAME</label>
+        <input type="text" id="username" autocomplete="username" autofocus>
+      </div>
+      <div class="form-group">
+        <label>PASSWORD</label>
+        <input type="password" id="password" autocomplete="current-password">
+      </div>
+      
+      <!-- Sign in button and error message display -->
+      <button class="primary w100" onclick="login()" style="margin-top:4px">SIGN IN</button>
+      <div class="login-error" id="login-error"></div>
     </div>
-    <div class="form-group">
-      <label>PASSWORD</label>
-      <input type="password" id="password" autocomplete="current-password">
-    </div>
-    <button class="primary w100" onclick="login()" style="margin-top:4px">SIGN IN</button>
-    <div class="login-error" id="login-error"></div>
   </div>
-</div>
-<script>
-const _base = (() => { const s = location.pathname.split('/')[1]; return s && !s.includes('.') ? '/' + s + '/' : '/'; })();
-async function login() {
-  const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value;
-  document.getElementById('login-error').textContent = '';
-  if (!username || !password) {
-    document.getElementById('login-error').textContent = 'Enter username and password.';
-    return;
-  }
-  try {
-    const res = await fetch(_base + 'api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+
+  <script>
+    /**
+     * Dynamically calculates the base URL path to support deployment in subdirectories
+     * Extracts the first path segment if it's not a filename (doesn't contain a dot)
+     * @returns {string} Base URL path with trailing slash (e.g., '/RaceTracker/' or '/')
+     */
+    const _base = (() => {
+      const segment = location.pathname.split('/')[1];
+      return segment && !segment.includes('.') ? '/' + segment + '/' : '/';
+    })();
+
+    /**
+     * Authenticates user with provided credentials and redirects to appropriate interface
+     * Validates input, submits to /api/auth/login, and routes based on user role
+     * @async
+     */
+    async function login() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('login-error');
+
+      // Clear any previous error messages
+      errorEl.textContent = '';
+
+      // Validate required fields
+      if (!username || !password) {
+        errorEl.textContent = 'Enter username and password.';
+        return;
+      }
+
+      try {
+        // Submit credentials to authentication endpoint
+        const response = await fetch(_base + 'api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const result = await response.json();
+
+        // Check for authentication success
+        if (!result.ok) {
+          errorEl.textContent = result.error;
+          return;
+        }
+
+        // Route to appropriate interface based on user role
+        const role = result.data.role;
+        const destination = role === 'admin' ? 'admin.html' : 'race-select.html';
+        window.location.href = _base + destination;
+      } catch (error) {
+        errorEl.textContent = 'Connection error.';
+      }
+    }
+
+    /**
+     * Allow Enter key to trigger login (standard form behavior)
+     */
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') login();
     });
-    const json = await res.json();
-    if (!json.ok) { document.getElementById('login-error').textContent = json.error; return; }
-    const role = json.data.role;
-    window.location.href = _base + (role === 'admin' ? 'admin.html' : 'race-select.html');
-  } catch (e) {
-    document.getElementById('login-error').textContent = 'Connection error.';
-  }
-}
-document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
-fetch(_base + 'api/auth/me').then(r => r.json()).then(j => {
-  if (j.ok) window.location.href = _base + (j.data.role === 'admin' ? 'admin.html' : 'race-select.html');
-}).catch(() => {});
-</script>
+
+    /**
+     * Auto-redirect authenticated users to their respective interfaces
+     * Prevents authenticated users from seeing the login form
+     */
+    fetch(_base + 'api/auth/me')
+      .then(response => response.json())
+      .then(result => {
+        if (result.ok) {
+          const destination = result.data.role === 'admin' ? 'admin.html' : 'race-select.html';
+          window.location.href = _base + destination;
+        }
+      })
+      .catch(() => {
+        // User is not authenticated, stay on login page
+      });
+  </script>
 </body>
 </html>
