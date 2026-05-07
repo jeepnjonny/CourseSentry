@@ -124,14 +124,14 @@ router.get('/:id', requireAuth, (req, res) => {
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
-  const { bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact } = req.body;
+  const { bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, inreach_url } = req.body;
   if (!bib || !name) return res.status(400).json({ ok: false, error: 'bib and name required' });
   try {
     const result = db.prepare(`
-      INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact)
-      VALUES (?,?,?,?,?,?,?,?,?)
+      INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, inreach_url)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
     `).run(req.params.raceId, String(bib), name, tracker_id || null, heat_id || null,
-           class_id || null, age || null, phone || null, emergency_contact || null);
+           class_id || null, age || null, phone || null, emergency_contact || null, inreach_url || null);
     applyHeatStartTime(result.lastInsertRowid);
     const p = enrichParticipant(db.prepare('SELECT * FROM participants WHERE id=?').get(result.lastInsertRowid));
     wsManager.broadcast({ type: 'participant_update', data: { action: 'add', participant: p } });
@@ -162,7 +162,7 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
   const p = db.prepare('SELECT * FROM participants WHERE id=? AND race_id=?').get(req.params.id, req.params.raceId);
   if (!p) return res.status(404).json({ ok: false, error: 'Participant not found' });
 
-  const fields = ['bib','name','tracker_id','heat_id','class_id','age','phone','emergency_contact','status','start_time','finish_time'];
+  const fields = ['bib','name','tracker_id','heat_id','class_id','age','phone','emergency_contact','status','start_time','finish_time','inreach_url'];
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f] === '' ? null : req.body[f];

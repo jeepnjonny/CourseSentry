@@ -9,7 +9,8 @@ const mqttClient = require('./src/mqtt-client');
 
 const logger = require('./src/logger');
 const aprsClient = require('./src/aprs-client');
-const beacon     = require('./src/beacon');
+const beacon        = require('./src/beacon');
+const inreachPoller = require('./src/inreach-poller');
 const PORT = process.env.PORT || 3000;
 
 // ── Global error safety net ───────────────────────────────────────────────────
@@ -295,6 +296,7 @@ if (aprsOk) console.log('[server] APRS-IS connecting from global settings');
 else console.log('[server] APRS-IS not configured');
 
 beacon.start();
+inreachPoller.start();
 
 server.listen(PORT, () => {
   console.log(`[server] RaceTracker listening on port ${PORT}`);
