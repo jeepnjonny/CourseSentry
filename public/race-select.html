@@ -75,8 +75,9 @@ async function init() {
 
   const active = res.data.filter(r => r.status === 'active');
 
+  const dest = user.role === 'station' ? 'mobileop.html' : 'operator.html';
   if (active.length === 1) {
-    window.location.replace(RT.BASE + 'operator.html?race=' + active[0].id);
+    window.location.replace(RT.BASE + dest + '?race=' + active[0].id);
     return;
   }
 
@@ -88,12 +89,12 @@ async function init() {
     return;
   }
 
-  subtitle.textContent = 'Choose a race to open the operator view.';
+  subtitle.textContent = user.role === 'station' ? 'Choose a race to continue.' : 'Choose a race to open the operator view.';
   for (const race of active) {
     const card = document.createElement('div');
     card.className = 'rs-card';
     card.innerHTML = `<div class="rs-card-name">${race.name}</div><div class="rs-card-date">${race.date}</div>`;
-    card.onclick = () => { window.location.href = RT.BASE + 'operator.html?race=' + race.id; };
+    card.onclick = () => { window.location.href = RT.BASE + dest + '?race=' + race.id; };
     cards.appendChild(card);
   }
 }

@@ -13,8 +13,8 @@ router.get('/', requireRole('admin'), (req, res) => {
 
 router.post('/', requireRole('admin'), async (req, res) => {
   const { username, password, role, callsign } = req.body;
-  if (!username || !password || !['admin', 'operator'].includes(role))
-    return res.status(400).json({ ok: false, error: 'username, password, and role (admin|operator) required' });
+  if (!username || !password || !['admin', 'operator', 'station'].includes(role))
+    return res.status(400).json({ ok: false, error: 'username, password, and role (admin|operator|station) required' });
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = db.prepare('INSERT INTO users (username, password_hash, role, callsign) VALUES (?,?,?,?)').run(username, hash, role, callsign?.toUpperCase().trim() || null);

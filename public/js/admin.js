@@ -1691,7 +1691,7 @@ async function loadUsers() {
   el.innerHTML = `<table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>CREATED</th><th></th></tr></thead><tbody>
     ${users.map(u => `<tr>
       <td>${u.username}${u.id===currentUser.id?' <span class="text-dim">(you)</span>':''}</td>
-      <td><span class="badge" style="color:${u.role==='admin'?'var(--accent3)':'var(--accent)'}">${u.role.toUpperCase()}</span></td>
+      <td><span class="badge" style="color:${u.role==='admin'?'var(--accent3)':u.role==='station'?'var(--accent2)':'var(--accent)'}">${u.role.toUpperCase()}</span></td>
       <td style="font-size:13px;color:var(--accent2)">${u.callsign || '<span class="text-dim">—</span>'}</td>
       <td class="text-dim">${new Date(u.created_at*1000).toLocaleDateString()}</td>
       <td style="text-align:right">

@@ -1,4 +1,10 @@
 'use strict';
+
+/**
+ * SQLite database initialization and schema management.
+ * Uses better-sqlite3 with WAL mode for concurrency and durability.
+ */
+
 const Database = require('better-sqlite3');
 const bcrypt = require('bcrypt');
 const path = require('path');
@@ -7,23 +13,29 @@ const fs = require('fs');
 const DB_PATH = path.join(__dirname, '..', 'data', 'db.sqlite');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
+// ── Initialize database connection ───────────────────────────────────────────
 const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-db.pragma('synchronous = NORMAL');     // WAL mode makes NORMAL crash-safe; avoids double-fsync per commit
-db.pragma('cache_size = -65536');      // 64 MB page cache — reduce repeated disk reads
-db.pragma('temp_store = MEMORY');      // temp tables/indexes in RAM
-db.pragma('wal_autocheckpoint = 200'); // checkpoint every 200 pages (~800 KB) instead of 1000 — keeps WAL small
+db.pragma('journal_mode = WAL');           // Write-Ahead Logging for better concurrency
+db.pragma('foreign_keys = ON');            // Enforce referential integrity
+db.pragma('synchronous = NORMAL');         // WAL mode makes NORMAL crash-safe
+db.pragma('cache_size = -65536');          // 64 MB page cache
+db.pragma('temp_store = MEMORY');          // Temporary tables in RAM
+db.pragma('wal_autocheckpoint = 200');     // Checkpoint every ~800 KB (200 pages)
+
+// ── Database schema ─────────────────────────────────────────────────────────
 
 db.exec(`
+-- Users: admin and operator accounts
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT    UNIQUE NOT NULL,
   password_hash TEXT    NOT NULL,
   role          TEXT    NOT NULL CHECK(role IN ('admin','operator')),
+  callsign      TEXT,
   created_at    INTEGER DEFAULT (unixepoch())
 );
 
+-- Races: event definitions with course/track and settings
 CREATE TABLE IF NOT EXISTS races (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   name                TEXT    NOT NULL,
@@ -55,25 +67,30 @@ CREATE TABLE IF NOT EXISTS races (
   mqtt_channel        TEXT    DEFAULT 'RaceTracker',
   mqtt_format         TEXT    DEFAULT 'json' CHECK(mqtt_format IN ('json','proto')),
   mqtt_psk            TEXT    DEFAULT 'AQ==',
+  mqtt_rf_tech        TEXT    NOT NULL DEFAULT 'meshtastic',
   cloned_from         INTEGER REFERENCES races(id),
   created_at          INTEGER DEFAULT (unixepoch())
 );
 
+-- Heats: competitor groups within a race
 CREATE TABLE IF NOT EXISTS heats (
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id  INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
   name     TEXT    NOT NULL,
   color    TEXT    NOT NULL DEFAULT '#58a6ff',
   shape    TEXT    NOT NULL DEFAULT 'circle'
-           CHECK(shape IN ('circle','triangle','square','diamond','star','pentagon'))
+           CHECK(shape IN ('circle','triangle','square','diamond','star','pentagon')),
+  start_time INTEGER
 );
 
+-- Classes: participant categories (age groups, divisions, etc.)
 CREATE TABLE IF NOT EXISTS classes (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
   name    TEXT    NOT NULL
 );
 
+-- Stations: aid stations and course waypoints
 CREATE TABLE IF NOT EXISTS stations (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id       INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
@@ -81,12 +98,13 @@ CREATE TABLE IF NOT EXISTS stations (
   lat           REAL    NOT NULL,
   lon           REAL    NOT NULL,
   type          TEXT    NOT NULL DEFAULT 'aid'
-                CHECK(type IN ('start','finish','aid','checkpoint')),
+                CHECK(type IN ('start','finish','aid','checkpoint','start_finish','turnaround','netcontrol','repeater')),
   cutoff_time   TEXT,
   course_order  INTEGER DEFAULT 0,
   created_at    INTEGER DEFAULT (unixepoch())
 );
 
+-- Personnel: race staff and volunteers
 CREATE TABLE IF NOT EXISTS personnel (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id     INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
@@ -94,9 +112,12 @@ CREATE TABLE IF NOT EXISTS personnel (
   name        TEXT    NOT NULL,
   tracker_id  TEXT,
   phone       TEXT,
+  color       TEXT    DEFAULT '#f5a623',
+  shape       TEXT    DEFAULT 'triangle',
   created_at  INTEGER DEFAULT (unixepoch())
 );
 
+-- Participants: racers/competitors
 CREATE TABLE IF NOT EXISTS participants (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id           INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
@@ -108,6 +129,7 @@ CREATE TABLE IF NOT EXISTS participants (
   age               INTEGER,
   phone             TEXT,
   emergency_contact TEXT,
+  inreach_url       TEXT,
   status            TEXT    DEFAULT 'dns'
                     CHECK(status IN ('dns','active','dnf','finished')),
   start_time        INTEGER,
@@ -116,6 +138,7 @@ CREATE TABLE IF NOT EXISTS participants (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_participants_bib ON participants(race_id, bib);
 
+-- Tracker registry: known nodes from MQTT/APRS networks
 CREATE TABLE IF NOT EXISTS tracker_registry (
   node_id       TEXT    PRIMARY KEY,
   long_name     TEXT,
@@ -129,9 +152,13 @@ CREATE TABLE IF NOT EXISTS tracker_registry (
   last_altitude REAL,
   last_speed    REAL,
   snr           REAL,
-  rssi          INTEGER
+  rssi          INTEGER,
+  rf_tech       TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_registry_longname  ON tracker_registry(long_name);
+CREATE INDEX IF NOT EXISTS idx_registry_shortname ON tracker_registry(short_name);
 
+-- Tracker positions: historical location records
 CREATE TABLE IF NOT EXISTS tracker_positions (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id      INTEGER REFERENCES races(id),
@@ -144,12 +171,12 @@ CREATE TABLE IF NOT EXISTS tracker_positions (
   battery      INTEGER,
   snr          REAL,
   rssi         INTEGER,
-  timestamp    INTEGER NOT NULL
+  timestamp    INTEGER NOT NULL,
+  rf_source    TEXT    DEFAULT 'meshtastic'
 );
-CREATE INDEX IF NOT EXISTS idx_positions_node     ON tracker_positions(node_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_registry_longname  ON tracker_registry(long_name);
-CREATE INDEX IF NOT EXISTS idx_registry_shortname ON tracker_registry(short_name);
+CREATE INDEX IF NOT EXISTS idx_positions_node ON tracker_positions(node_id, timestamp DESC);
 
+-- Events: race milestones (starts, aid arrivals/departures, finishes, DNF)
 CREATE TABLE IF NOT EXISTS events (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id        INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
@@ -166,6 +193,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_race        ON events(race_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_events_participant ON events(participant_id);
 
+-- Courses: reusable track files (KML/GPX)
 CREATE TABLE IF NOT EXISTS courses (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
@@ -175,6 +203,7 @@ CREATE TABLE IF NOT EXISTS courses (
   created_at INTEGER DEFAULT (unixepoch())
 );
 
+-- CSV files: uploaded roster imports
 CREATE TABLE IF NOT EXISTS csv_files (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT    NOT NULL,
@@ -182,11 +211,13 @@ CREATE TABLE IF NOT EXISTS csv_files (
   created_at INTEGER DEFAULT (unixepoch())
 );
 
+-- Settings: global configuration key-value store
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
 
+-- Messages: APRS/MQTT inbound/outbound communications
 CREATE TABLE IF NOT EXISTS messages (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id      INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
@@ -197,16 +228,49 @@ CREATE TABLE IF NOT EXISTS messages (
   to_name      TEXT,
   text         TEXT    NOT NULL,
   timestamp    INTEGER NOT NULL,
+  status       TEXT    DEFAULT 'sent',
   read         INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_messages_race ON messages(race_id, timestamp DESC);
 `);
 
-// Migrations
-try { db.prepare('ALTER TABLE races ADD COLUMN course_id INTEGER REFERENCES courses(id)').run(); } catch {}
-try { db.prepare("ALTER TABLE races ADD COLUMN race_format TEXT NOT NULL DEFAULT 'point_to_point'").run(); } catch {}
+// ── Schema migrations ────────────────────────────────────────────────────────
+// Applied conditionally to support gradual schema evolution
 
-// Migrate stations table to add new types (start_finish, turnaround, netcontrol, repeater)
+// Add callsign field to users (for APRS messaging context)
+try {
+  db.prepare('ALTER TABLE users ADD COLUMN callsign TEXT').run();
+} catch {}
+
+// Add 'station' role to users (table rebuild required for CHECK constraint change)
+{
+  const usersDDL = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (usersDDL && !usersDDL.sql.includes("'station'")) {
+    db.exec(`
+      CREATE TABLE users_new (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        username      TEXT    UNIQUE NOT NULL,
+        password_hash TEXT    NOT NULL,
+        role          TEXT    NOT NULL CHECK(role IN ('admin','operator','station')),
+        callsign      TEXT,
+        created_at    INTEGER DEFAULT (unixepoch())
+      );
+      INSERT INTO users_new SELECT * FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `);
+  }
+}
+
+// Add course_id and race_format to races
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN course_id INTEGER REFERENCES courses(id)').run();
+} catch {}
+try {
+  db.prepare("ALTER TABLE races ADD COLUMN race_format TEXT NOT NULL DEFAULT 'point_to_point'").run();
+} catch {}
+
+// Extend station types (support new checkpoint types)
 {
   const stationsDDL = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='stations'").get();
   if (stationsDDL && !stationsDDL.sql.includes('netcontrol')) {
@@ -230,24 +294,91 @@ try { db.prepare("ALTER TABLE races ADD COLUMN race_format TEXT NOT NULL DEFAULT
   }
 }
 
-// Per-race feature flag migrations
-try { db.prepare('ALTER TABLE races ADD COLUMN feat_missing  INTEGER NOT NULL DEFAULT 1').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN feat_auto_log INTEGER NOT NULL DEFAULT 1').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN feat_auto_start INTEGER NOT NULL DEFAULT 1').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN feat_off_course INTEGER NOT NULL DEFAULT 1').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN feat_stopped INTEGER NOT NULL DEFAULT 1').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN checkpoint_radius INTEGER DEFAULT 50').run(); } catch {}
-try { db.prepare("ALTER TABLE races ADD COLUMN speed_units TEXT NOT NULL DEFAULT 'min_mile'").run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN clock_seconds INTEGER NOT NULL DEFAULT 1').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN start_time INTEGER').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN start_window_open INTEGER DEFAULT 0').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN start_window_ts INTEGER').run(); } catch {}
-try { db.prepare('ALTER TABLE races ADD COLUMN start_clearance INTEGER DEFAULT 400').run(); } catch {}
-try { db.prepare('ALTER TABLE heats ADD COLUMN start_time INTEGER').run(); } catch {}
-try { db.prepare("ALTER TABLE tracker_positions ADD COLUMN rf_source TEXT DEFAULT 'meshtastic'").run(); } catch {}
-try { db.prepare('ALTER TABLE tracker_registry ADD COLUMN rf_tech TEXT').run(); } catch {}
-try { db.prepare("ALTER TABLE races ADD COLUMN mqtt_rf_tech TEXT NOT NULL DEFAULT 'meshtastic'").run(); } catch {}
-try { db.prepare("ALTER TABLE races ADD COLUMN units TEXT NOT NULL DEFAULT 'us'").run(); } catch {}
+// Add personnel display fields (color/shape for map visualization)
+try {
+  db.prepare("ALTER TABLE personnel ADD COLUMN color TEXT DEFAULT '#f5a623'").run();
+} catch {}
+try {
+  db.prepare("ALTER TABLE personnel ADD COLUMN shape TEXT DEFAULT 'triangle'").run();
+} catch {}
+
+// Add feature flags for per-race automation settings
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN feat_missing INTEGER NOT NULL DEFAULT 1').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN feat_auto_log INTEGER NOT NULL DEFAULT 1').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN feat_auto_start INTEGER NOT NULL DEFAULT 1').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN feat_off_course INTEGER NOT NULL DEFAULT 1').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN feat_stopped INTEGER NOT NULL DEFAULT 1').run();
+} catch {}
+
+// Add checkpoint and station parameters
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN checkpoint_radius INTEGER DEFAULT 50').run();
+} catch {}
+
+// Add speed display and units settings
+try {
+  db.prepare("ALTER TABLE races ADD COLUMN speed_units TEXT NOT NULL DEFAULT 'min_mile'").run();
+} catch {}
+try {
+  db.prepare("ALTER TABLE races ADD COLUMN speed_display TEXT DEFAULT 'pace'").run();
+} catch {}
+try {
+  db.prepare("ALTER TABLE races ADD COLUMN units TEXT NOT NULL DEFAULT 'us'").run();
+} catch {}
+
+// Add timing and start window fields
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN clock_seconds INTEGER NOT NULL DEFAULT 1').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN start_time INTEGER').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN start_window_open INTEGER DEFAULT 0').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN start_window_ts INTEGER').run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE races ADD COLUMN start_clearance INTEGER DEFAULT 400').run();
+} catch {}
+
+// Add message status tracking
+try {
+  db.prepare("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'").run();
+} catch {}
+
+// Add heat start time
+try {
+  db.prepare('ALTER TABLE heats ADD COLUMN start_time INTEGER').run();
+} catch {}
+
+// Add inReach URL field to participants
+try {
+  db.prepare('ALTER TABLE participants ADD COLUMN inreach_url TEXT').run();
+} catch {}
+
+// Add RF tracking fields
+try {
+  db.prepare("ALTER TABLE tracker_positions ADD COLUMN rf_source TEXT DEFAULT 'meshtastic'").run();
+} catch {}
+try {
+  db.prepare('ALTER TABLE tracker_registry ADD COLUMN rf_tech TEXT').run();
+} catch {}
+try {
+  db.prepare("ALTER TABLE races ADD COLUMN mqtt_rf_tech TEXT NOT NULL DEFAULT 'meshtastic'").run();
+} catch {}
+
+module.exports = db;
 try { db.prepare("ALTER TABLE races ADD COLUMN speed_display TEXT NOT NULL DEFAULT 'pace'").run(); } catch {}
 // Migrate existing speed_units → new fields (safe to run repeatedly; WHERE guards idempotency)
 try {

@@ -21,12 +21,17 @@ const RT = (() => {
     window.location.href = BASE;
   }
 
-  async function requireLogin(requiredRole) {
+  async function requireLogin(allowedRoles) {
     const user = await getMe();
     if (!user) { window.location.href = BASE; return null; }
-    if (requiredRole && user.role !== requiredRole && !(requiredRole === 'operator' && user.role === 'admin')) {
-      window.location.href = BASE;
-      return null;
+    if (allowedRoles) {
+      const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+      // admin is implicitly allowed on any operator-tier page
+      const effective = roles.includes('operator') ? [...roles, 'admin'] : roles;
+      if (!effective.includes(user.role)) {
+        window.location.href = BASE;
+        return null;
+      }
     }
     return user;
   }
