@@ -93,14 +93,11 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
-// Activate a race (deactivates any current active race)
+// Activate a race (multiple races can be active simultaneously)
 router.post('/:id/activate', requireRole('admin'), (req, res) => {
   const race = db.prepare('SELECT * FROM races WHERE id=?').get(req.params.id);
   if (!race) return res.status(404).json({ ok: false, error: 'Race not found' });
 
-  const prev = db.prepare("SELECT name FROM races WHERE status='active' LIMIT 1").get();
-  if (prev && prev.name !== race.name) logger.log('race', 'info', `DEACTIVATED — ${prev.name}`);
-  db.prepare("UPDATE races SET status='past' WHERE status='active'").run();
   db.prepare("UPDATE races SET status='active' WHERE id=?").run(req.params.id);
   logger.log('race', 'info', `ACTIVATED — ${race.name} (${race.date})`);
   mqttClient.connectFromSettings(db);

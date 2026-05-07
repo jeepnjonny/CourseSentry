@@ -194,9 +194,9 @@ function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi,
       snr=excluded.snr, rssi=excluded.rssi
   `).run(nodeId, timestamp, lat, lon, altitude ?? null, speed ?? null, battery ?? null, snr ?? null, rssi ?? null);
 
-  // Store position history
-  const activeRace = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
-  if (activeRace) {
+  // Store position history and run automation for each active race
+  const activeRaces = db.prepare("SELECT * FROM races WHERE status='active'").all();
+  for (const activeRace of activeRaces) {
     const src = rfSource || activeRace.mqtt_rf_tech || 'meshtastic';
     db.prepare(`
       INSERT INTO tracker_positions (race_id, node_id, lat, lon, altitude, speed, heading, battery, snr, rssi, timestamp, rf_source)
@@ -288,27 +288,29 @@ function getDisplayName(nodeId) {
 }
 
 function handleTextMessage({ fromNodeId, toNodeId, text, timestamp }) {
-  const activeRace = db.prepare("SELECT id FROM races WHERE status='active' LIMIT 1").get();
-  if (!activeRace) return;
+  const activeRaces = db.prepare("SELECT id FROM races WHERE status='active'").all();
+  if (!activeRaces.length) return;
 
   const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(fromNodeId);
   const fromName = reg ? (reg.long_name || reg.short_name || fromNodeId) : fromNodeId;
 
-  // Find matching personnel name for sender
-  const personnel = db.prepare(
-    'SELECT name FROM personnel WHERE race_id=? AND tracker_id=? LIMIT 1'
-  ).get(activeRace.id, fromNodeId);
+  // Store message for each active race; use personnel name if sender belongs to that race
+  for (const activeRace of activeRaces) {
+    const personnel = db.prepare(
+      'SELECT name FROM personnel WHERE race_id=? AND tracker_id=? LIMIT 1'
+    ).get(activeRace.id, fromNodeId);
 
-  db.prepare(`
-    INSERT INTO messages (race_id, direction, from_node_id, to_node_id, from_name, to_name, text, timestamp)
-    VALUES (?,?,?,?,?,?,?,?)
-  `).run(activeRace.id, 'in', fromNodeId, toNodeId,
-         personnel ? personnel.name : fromName, null, text, timestamp);
+    db.prepare(`
+      INSERT INTO messages (race_id, direction, from_node_id, to_node_id, from_name, to_name, text, timestamp)
+      VALUES (?,?,?,?,?,?,?,?)
+    `).run(activeRace.id, 'in', fromNodeId, toNodeId,
+           personnel ? personnel.name : fromName, null, text, timestamp);
+  }
 
   broadcast('message', {
     direction: 'in',
     from_node_id: fromNodeId,
-    from_name: personnel ? personnel.name : fromName,
+    from_name: fromName,
     text,
     timestamp,
   });

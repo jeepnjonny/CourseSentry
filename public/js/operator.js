@@ -44,9 +44,10 @@ async function init() {
   }
   fmt24 = false;
 
+  const urlRaceId = new URLSearchParams(location.search).get('race') || null;
   initMap();
-  RT.connectWS(handleWS);
-  await loadInitialData();
+  RT.connectWS(handleWS, null, urlRaceId);
+  await loadInitialData(urlRaceId);
   startClock();
   missingCheckInterval = setInterval(checkMissing, 30000);
   stoppedCheckInterval = setInterval(checkStopped, 60000);
@@ -155,8 +156,10 @@ function handleInit(data) {
   setupWeatherLayers(data.weatherKey);
 }
 
-async function loadInitialData() {
-  const res = await RT.get('/api/races/active');
+async function loadInitialData(urlRaceId) {
+  const res = urlRaceId
+    ? await RT.get(`/api/races/${urlRaceId}`)
+    : await RT.get('/api/races/active');
   if (!res.ok || !res.data) { updateRacePill(null); return; }
   race = res.data;
   fmt24 = race.time_format === '24h';

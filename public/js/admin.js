@@ -109,10 +109,13 @@ async function loadRaces() {
   const res = await RT.get('/api/races');
   if (!res.ok) return;
   races = res.data;
-  const active = races.find(r => r.status === 'active');
-  activeRaceId = active?.id || null;
-  document.getElementById('active-race-pill').textContent = active ? active.name.toUpperCase() : 'NO ACTIVE RACE';
-  document.getElementById('active-race-pill').className = active ? 'pill pill-ok' : 'pill pill-idle';
+  const actives = races.filter(r => r.status === 'active');
+  activeRaceId = actives[0]?.id || null;
+  const pillText = actives.length === 0 ? 'NO ACTIVE RACE'
+    : actives.length === 1 ? actives[0].name.toUpperCase()
+    : `${actives.length} ACTIVE RACES`;
+  document.getElementById('active-race-pill').textContent = pillText;
+  document.getElementById('active-race-pill').className = actives.length > 0 ? 'pill pill-ok' : 'pill pill-idle';
 }
 
 function renderTab() {

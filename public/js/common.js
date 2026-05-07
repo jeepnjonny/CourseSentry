@@ -49,9 +49,12 @@ const RT = (() => {
   const del  = url        => api('POST', url, undefined, 'DELETE');
 
   // ── WebSocket ─────────────────────────────────────────────────────────────
-  function connectWS(onMessage, tokenParam) {
+  function connectWS(onMessage, tokenParam, raceParam) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const qs = tokenParam ? `?token=${tokenParam}` : '';
+    const parts = [];
+    if (tokenParam) parts.push(`token=${tokenParam}`);
+    if (raceParam)  parts.push(`race=${raceParam}`);
+    const qs = parts.length ? '?' + parts.join('&') : '';
     const url = `${proto}://${location.host}${BASE}ws${qs}`;
     let ws, reconnectTimer;
 

@@ -31,7 +31,7 @@ function init(server, sessionMiddleware) {
       clients.add(ws);
 
       // Send initial state
-      sendInit(ws, user);
+      sendInit(ws, user, req.url);
 
       ws.on('close', () => clients.delete(ws));
       ws.on('error', () => clients.delete(ws));
@@ -62,18 +62,28 @@ function getTrackPointsForRace(race) {
   return null;
 }
 
-function sendInit(ws, user) {
+function sendInit(ws, user, reqUrl) {
   try {
-    const activeRace = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
-    if (!activeRace) {
+    const urlRaceId = reqUrl
+      ? parseInt(new URL(reqUrl, 'http://localhost').searchParams.get('race') || '0') || null
+      : null;
+
+    let raceId, race;
+    if (user.role === 'viewer') {
+      raceId = user.raceId;
+      race = db.prepare('SELECT * FROM races WHERE id=?').get(raceId);
+    } else if (urlRaceId) {
+      raceId = urlRaceId;
+      race = db.prepare('SELECT * FROM races WHERE id=?').get(raceId);
+    } else {
+      race = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
+      raceId = race?.id ?? null;
+    }
+
+    if (!race) {
       send(ws, 'init', { race: null });
       return;
     }
-
-    const raceId = user.role === 'viewer' ? user.raceId : activeRace.id;
-    const race = user.role === 'viewer'
-      ? db.prepare('SELECT * FROM races WHERE id=?').get(raceId)
-      : activeRace;
 
     const participants = db.prepare(`
       SELECT p.*, h.name as heat_name, h.color as heat_color, h.shape as heat_shape,
