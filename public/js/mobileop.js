@@ -1,7 +1,8 @@
 'use strict';
 
 let race, raceId, currentStation = null;
-let participants = [], heats = [], stations = [], messages = [], personnel = [];
+let participants = [], heats = [], stations = [], messages = [], personnel = [], onlineUsers = [];
+let me = null; // current logged-in user, set in init()
 let selectedParticipant = null;
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = true;
@@ -42,6 +43,7 @@ async function init() {
 
   const user = await RT.requireLogin(['operator', 'station']);
   if (!user) return;
+  me = user;
 
   const params = new URLSearchParams(location.search);
   raceId = parseInt(params.get('race') || '0', 10);
@@ -215,6 +217,7 @@ function handleWS(msg) {
   if (msg.type === 'init') {
     participants = msg.data.participants || [];
     heats        = msg.data.heats || [];
+    onlineUsers  = msg.data.onlineUsers || [];
     // Seed _lastStation from server-supplied field
     participants.forEach(p => { p._lastStation = p.last_station_name || null; });
     if (msg.data.stations?.length) {
@@ -267,6 +270,9 @@ function handleWS(msg) {
     const isNew = !messages.find(m => m.id === msg.data.id);
     if (isNew) messages.unshift(msg.data);
     renderMessages();
+  } else if (msg.type === 'users_online') {
+    onlineUsers = msg.data;
+    renderPersonnelRecipients();
   }
 }
 
@@ -532,6 +538,7 @@ function buildEventRow(ev) {
 function resolveNodeIdForMessages(trackerId) {
   if (!trackerId) return [];
   const ids = new Set([trackerId]);
+  if (trackerId.startsWith('web:')) return [...ids]; // web-only ID, exact match
   if (/^![0-9a-f]{8}$/i.test(trackerId)) return [...ids];
   for (const p of participants) {
     const hex = p.registry?.node_id;
@@ -549,11 +556,18 @@ function resolveNodeIdForMessages(trackerId) {
 }
 
 function renderPersonnelRecipients() {
-  const withTrackers = personnel.filter(p => p.tracker_id);
+  const radioOpts = personnel.filter(p => p.tracker_id).map(p =>
+    `<option value="${p.tracker_id}" data-name="${p.name}">${p.name}${p.station_name ? ' @ ' + p.station_name : ''}</option>`
+  ).join('');
+
+  const webUsers = onlineUsers.filter(u => u.username !== me?.username);
+  const webOpts = webUsers.map(u =>
+    `<option value="web:${u.username}" data-name="${u.username}">${u.username} (${u.role})</option>`
+  ).join('');
+
   const opts = '<option value="">— Select recipient —</option>' +
-    withTrackers.map(p =>
-      `<option value="${p.tracker_id}" data-name="${p.name}">${p.name}${p.station_name ? ' @ ' + p.station_name : ''}</option>`
-    ).join('');
+    (radioOpts ? `<optgroup label="RADIO">${radioOpts}</optgroup>` : '') +
+    (webOpts   ? `<optgroup label="ONLINE">${webOpts}</optgroup>`  : '');
 
   const sel = document.getElementById('mo-msg-to');
   if (sel) {

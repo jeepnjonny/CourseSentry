@@ -2,7 +2,8 @@
 const OP = (() => {
 // ── State ─────────────────────────────────────────────────────────────────────
 let race = null, participants = {}, stations = [], heats = {}, classes = {};
-let personnel = [], messages = [];
+let personnel = [], messages = [], onlineUsers = [];
+let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
 let leafletMap = null, currentBaseLayer = null, weatherLayersControl = null, weatherLegendControl = null;
 let activeWeatherOverlays = new Set(), wxPoller = null;
@@ -38,6 +39,7 @@ const BASE_LAYERS = {
 async function init() {
   const user = await RT.requireLogin('operator');
   if (!user) return;
+  me = user;
   if (user.role === 'admin') {
     document.getElementById('admin-btn').classList.remove('hidden');
     document.getElementById('no-race-admin-btn').classList.remove('hidden');
@@ -70,6 +72,7 @@ function handleWS(msg) {
   else if (type === 'aprs_status') updateAprsPill(data);
   else if (type === 'tracker_info') handleTrackerInfo(data);
   else if (type === 'race_update') handleRaceUpdate(data);
+  else if (type === 'users_online') { onlineUsers = data; renderPersonnelRecipients(); }
 }
 
 function handleRaceUpdate(data) {
@@ -134,6 +137,7 @@ function handleInit(data) {
   updateEndRaceBtn();
   updateStartRaceBtn();
 
+  onlineUsers = data.onlineUsers || [];
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
   classes = {}; (data.classes || []).forEach(c => classes[c.id] = c);
   stations = data.stations || [];
@@ -1769,6 +1773,7 @@ function updateAlertCount() {
 function resolveNodeIdForMessages(trackerId) {
   if (!trackerId) return [];
   const ids = new Set([trackerId]);
+  if (trackerId.startsWith('web:')) return [...ids]; // web-only ID, exact match
   if (/^![0-9a-f]{8}$/i.test(trackerId)) return [...ids]; // already a hex ID
   // Check participants' enriched registry data
   for (const p of Object.values(participants)) {
@@ -1805,11 +1810,20 @@ function renderPersonnelRecipients() {
   const sel = document.getElementById('msg-to');
   if (!sel) return;
   const prev = sel.value;
-  const msgPersonnel = personnel.filter(p => p.tracker_id);
+
+  const radioOpts = personnel.filter(p => p.tracker_id).map(p =>
+    `<option value="${p.tracker_id}" data-name="${p.name}">${p.name}${p.station_name ? ' @ ' + p.station_name : ''}</option>`
+  ).join('');
+
+  const webUsers = onlineUsers.filter(u => u.username !== me?.username);
+  const webOpts = webUsers.map(u =>
+    `<option value="web:${u.username}" data-name="${u.username}">${u.username} (${u.role})</option>`
+  ).join('');
+
   sel.innerHTML = '<option value="">— Select recipient —</option>' +
-    msgPersonnel.map(p =>
-      `<option value="${p.tracker_id}" data-name="${p.name}">${p.name}${p.station_name ? ' @ ' + p.station_name : ''}</option>`
-    ).join('');
+    (radioOpts ? `<optgroup label="RADIO">${radioOpts}</optgroup>` : '') +
+    (webOpts   ? `<optgroup label="ONLINE">${webOpts}</optgroup>`  : '');
+
   if (prev) sel.value = prev;
   sel.onchange = () => { renderMessages(); updateMsgCharCount(); };
   updateMsgCharCount();

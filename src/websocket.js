@@ -14,6 +14,42 @@ const db = require('./db');
 let wss = null;
 const clients = new Set();
 
+// raceId → Set of ws objects for non-viewer authenticated users
+const raceOnlineUsers = new Map();
+
+function _resolveConnRaceId(user, reqUrl) {
+  if (user.role === 'viewer') return user.raceId || null;
+  const rParam = parseInt(new URL(reqUrl, 'http://localhost').searchParams.get('race') || '0') || null;
+  if (rParam) return rParam;
+  const active = db.prepare("SELECT id FROM races WHERE status='active' LIMIT 1").get();
+  return active?.id ?? null;
+}
+
+function getOnlineUsers(raceId) {
+  const set = raceOnlineUsers.get(raceId);
+  if (!set) return [];
+  const seen = new Set();
+  const result = [];
+  for (const ws of set) {
+    if (ws.readyState !== 1) continue; // WebSocket.OPEN = 1
+    const u = ws.user;
+    if (!seen.has(u.username)) {
+      seen.add(u.username);
+      result.push({ username: u.username, role: u.role });
+    }
+  }
+  return result;
+}
+
+function broadcastToRace(raceId, msg) {
+  const str = JSON.stringify(msg);
+  for (const ws of clients) {
+    if (ws.readyState === 1 && ws.raceId === raceId) {
+      try { ws.send(str); } catch (e) { clients.delete(ws); }
+    }
+  }
+}
+
 // ── WebSocket server initialization and connection handling ──────────────────
 function init(server, sessionMiddleware) {
   wss = new WebSocket.Server({ server, path: '/ws' });
@@ -38,13 +74,29 @@ function init(server, sessionMiddleware) {
       }
 
       ws.user = user;
+      ws.raceId = _resolveConnRaceId(user, req.url);
       clients.add(ws);
+
+      // Track online presence for authenticated (non-viewer) users
+      if (user.role !== 'viewer' && ws.raceId) {
+        if (!raceOnlineUsers.has(ws.raceId)) raceOnlineUsers.set(ws.raceId, new Set());
+        raceOnlineUsers.get(ws.raceId).add(ws);
+        broadcastToRace(ws.raceId, { type: 'users_online', data: getOnlineUsers(ws.raceId) });
+      }
 
       // Send initial state (race data, participants, etc.)
       sendInit(ws, user, req.url);
 
-      ws.on('close', () => clients.delete(ws));
-      ws.on('error', () => clients.delete(ws));
+      function cleanup() {
+        clients.delete(ws);
+        if (user.role !== 'viewer' && ws.raceId) {
+          const set = raceOnlineUsers.get(ws.raceId);
+          if (set) { set.delete(ws); if (!set.size) raceOnlineUsers.delete(ws.raceId); }
+          broadcastToRace(ws.raceId, { type: 'users_online', data: getOnlineUsers(ws.raceId) });
+        }
+      }
+      ws.on('close', cleanup);
+      ws.on('error', cleanup);
     });
   });
 
@@ -148,6 +200,7 @@ function sendInit(ws, user, reqUrl) {
       mqtt: mqttMod.getStatus(),
       aprs: aprsMod.getStatus(),
       weatherKey: (user.role !== 'viewer' || race.weather_enabled) ? (wxRow?.value || null) : null,
+      onlineUsers: (user.role !== 'viewer' && raceId) ? getOnlineUsers(raceId) : [],
     });
   } catch (e) {
     require('./logger').log('system', 'error', `WebSocket sendInit error: ${e.message}`);
@@ -178,4 +231,4 @@ function broadcastToRole(roles, msg) {
   }
 }
 
-module.exports = { init, broadcast, broadcastToRole, send };
+module.exports = { init, broadcast, broadcastToRole, broadcastToRace, send, getOnlineUsers };

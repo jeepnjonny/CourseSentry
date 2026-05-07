@@ -138,7 +138,7 @@ router.get('/', requireAuth, (req, res) => {
  * @param {string} req.body.text - Message text (required, max 67 chars)
  * @returns {Object} JSON response with message data and send status
  */
-router.post('/', requireRole('admin', 'operator'), async (req, res) => {
+router.post('/', requireRole('admin', 'operator', 'station'), async (req, res) => {
   const { to_node_id, to_name, text } = req.body;
   if (!to_node_id || !text) return res.status(400).json({ ok: false, error: 'to_node_id and text required' });
   if (text.length > 67) return res.status(400).json({ ok: false, error: 'Message too long (max 67 chars)' });
@@ -150,10 +150,14 @@ router.post('/', requireRole('admin', 'operator'), async (req, res) => {
   const username = req.session?.user?.username || 'operator';
 
   let fromNodeId = null;
-  const isAprs = APRS_CALL_RE.test(to_node_id.trim());
   let resolvedToNodeId = to_node_id;
+  const isWeb  = to_node_id.startsWith('web:');
+  const isAprs = !isWeb && APRS_CALL_RE.test(to_node_id.trim());
 
-  if (isAprs) {
+  if (isWeb) {
+    // Web-only delivery: no radio transport needed
+    fromNodeId = `web:${username}`;
+  } else if (isAprs) {
     const aprsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'aprs_%'").all();
     const s = Object.fromEntries(aprsRows.map(r => [r.key, r.value]));
     fromNodeId = s.aprs_callsign || null;
@@ -164,17 +168,17 @@ router.post('/', requireRole('admin', 'operator'), async (req, res) => {
     }
   }
 
-  // Insert first (status=queued) so we have an ID for ACK tracking
+  const initialStatus = isWeb ? 'delivered' : 'queued';
   const result = db.prepare(`
     INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, to_name, text, timestamp, status)
-    VALUES (?,?,?,?,?,?,?,?,'queued')
-  `).run(req.params.raceId, 'out', fromNodeId, username, resolvedToNodeId, to_name || null, text, ts);
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(req.params.raceId, 'out', fromNodeId, username, resolvedToNodeId, to_name || null, text, ts, initialStatus);
   const messageId = result.lastInsertRowid;
 
-  let sent = false;
+  let sent = isWeb; // web messages are always immediately delivered via WS broadcast
   if (isAprs) {
     sent = sendAprsMessage(to_node_id, text, messageId);
-  } else {
+  } else if (!isWeb) {
     sent = await sendMeshtasticMessage(resolvedToNodeId, text, messageId);
   }
 
