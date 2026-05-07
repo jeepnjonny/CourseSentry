@@ -112,6 +112,12 @@
   .mo-extra-panel.active { display: flex; }
   body.mo-extra-active #mo-main { display: none; }
 
+  /* ── Sidebar messaging panel ── */
+  #mo-msg-sidebar { display: none; flex-direction: column; border-top: 2px solid var(--border); flex-shrink: 0; height: 210px; }
+  .msg-wrap { display: flex; flex-direction: column; gap: 2px; padding: 6px; overflow-y: auto; flex: 1; }
+  .msg-bubble-out { background: rgba(88,166,255,.12); border: 1px solid rgba(88,166,255,.3); border-radius: 6px 6px 0 6px; padding: 5px 8px; margin: 4px 0; align-self: flex-end; max-width: 85%; font-size: 13px; }
+  .msg-bubble-in  { background: rgba(63,185,80,.10);  border: 1px solid rgba(63,185,80,.3);  border-radius: 6px 6px 6px 0; padding: 5px 8px; margin: 4px 0; align-self: flex-start; max-width: 85%; font-size: 13px; }
+
   /* ── Bottom tab bar (mobile only) ── */
   #mo-tabbar { display: none; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
   .rt-tab {
@@ -276,6 +282,24 @@
       <span>#</span><span>BIB</span><span>NAME</span><span>PROG</span><span>PACE</span><span>LAST AID</span>
     </div>
     <div id="mo-lb-body"></div>
+    <!-- Messaging section — shown at bottom of sidebar when messaging_enabled -->
+    <div id="mo-msg-sidebar">
+      <div style="padding:3px 8px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-shrink:0">
+        <span style="font-size:11px;letter-spacing:2px;color:var(--text3)">MESSAGES</span>
+        <span id="mo-msg-unread" style="font-size:12px;color:var(--accent2);font-weight:bold"></span>
+      </div>
+      <div class="msg-wrap" id="mo-msg-thread"></div>
+      <div style="padding:5px 8px;border-top:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:4px">
+        <select id="mo-msg-to" style="width:100%;font-size:13px;padding:2px 4px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font)"></select>
+        <div style="display:flex;gap:5px;align-items:center">
+          <input id="mo-msg-input" placeholder="Message…" maxlength="67" style="flex:1;font-size:13px"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();sendMessage();}"
+            oninput="updateMsgCharCount()">
+          <span id="mo-msg-char-count" style="font-size:11px;color:var(--text3);min-width:26px;text-align:right"></span>
+          <button class="primary" onclick="sendMessage()" style="font-size:13px;padding:3px 10px">SEND</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -309,8 +333,16 @@
 <div class="mo-extra-panel" id="mo-msg-panel">
   <div id="mo-msg-body"></div>
   <div id="mo-msg-compose">
-    <input id="mo-msg-input" type="text" placeholder="Message…">
-    <button class="primary" onclick="sendMessage()" style="padding:10px 16px;font-size:15px">SEND</button>
+    <div style="padding:5px 8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px">
+      <select id="mo-msg-to-mobile" style="width:100%;font-size:14px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font)"></select>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="mo-msg-panel-input" placeholder="Message…" maxlength="67" style="flex:1;font-size:15px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;font-family:var(--font)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();sendMessageMobile();}"
+          oninput="updateMsgCharCountMobile()">
+        <span id="mo-msg-char-count-mobile" style="font-size:11px;color:var(--text3);min-width:26px;text-align:right"></span>
+        <button class="primary" onclick="sendMessageMobile()" style="padding:10px 16px;font-size:15px">SEND</button>
+      </div>
+    </div>
   </div>
 </div>
 

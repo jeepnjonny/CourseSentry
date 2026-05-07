@@ -1,7 +1,7 @@
 'use strict';
 
 let race, raceId, currentStation = null;
-let participants = [], heats = [], stations = [], messages = [];
+let participants = [], heats = [], stations = [], messages = [], personnel = [];
 let selectedParticipant = null;
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = true;
@@ -61,6 +61,10 @@ async function init() {
 
   if (race.messaging_enabled) {
     document.getElementById('tab-msg').classList.remove('hidden');
+    document.getElementById('mo-msg-sidebar').style.display = 'flex';
+    const pRes = await RT.get(`/api/races/${raceId}/personnel`);
+    personnel = pRes.ok ? pRes.data : [];
+    renderPersonnelRecipients();
   }
 
   const sRes = await RT.get(`/api/races/${raceId}/stations`);
@@ -83,9 +87,7 @@ async function init() {
   document.getElementById('mo-bib-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') searchBib();
   });
-  document.getElementById('mo-msg-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') sendMessage();
-  });
+  // mo-msg-input already has onkeydown inline; no extra listener needed
 }
 
 // ── Clock ────────────────────────────────────────────────────────────────────
@@ -262,7 +264,8 @@ function handleWS(msg) {
       prependEventRow(ev);
     }
   } else if (msg.type === 'message') {
-    messages.push(msg.data);
+    const isNew = !messages.find(m => m.id === msg.data.id);
+    if (isNew) messages.unshift(msg.data);
     renderMessages();
   }
 }
@@ -524,28 +527,161 @@ function buildEventRow(ev) {
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
+// Resolve a tracker_id (name or hex node_id) to all matching hex node_ids for
+// message thread filtering (mirrors operator.js exactly).
+function resolveNodeIdForMessages(trackerId) {
+  if (!trackerId) return [];
+  const ids = new Set([trackerId]);
+  if (/^![0-9a-f]{8}$/i.test(trackerId)) return [...ids];
+  for (const p of participants) {
+    const hex = p.registry?.node_id;
+    if (hex && (
+      p.tracker_id?.toLowerCase() === trackerId.toLowerCase() ||
+      p.registry?.long_name?.toLowerCase() === trackerId.toLowerCase() ||
+      p.registry?.short_name?.toLowerCase() === trackerId.toLowerCase()
+    )) ids.add(hex);
+  }
+  for (const m of messages) {
+    if (m.direction === 'out' && m.to_name === trackerId && /^![0-9a-f]{8}$/i.test(m.to_node_id))
+      ids.add(m.to_node_id);
+  }
+  return [...ids];
+}
+
+function renderPersonnelRecipients() {
+  const withTrackers = personnel.filter(p => p.tracker_id);
+  const opts = '<option value="">— Select recipient —</option>' +
+    withTrackers.map(p =>
+      `<option value="${p.tracker_id}" data-name="${p.name}">${p.name}${p.station_name ? ' @ ' + p.station_name : ''}</option>`
+    ).join('');
+
+  const sel = document.getElementById('mo-msg-to');
+  if (sel) {
+    const prev = sel.value;
+    sel.innerHTML = opts;
+    if (prev) sel.value = prev;
+    sel.onchange = () => { renderMessages(); updateMsgCharCount(); };
+    updateMsgCharCount();
+  }
+
+  const selM = document.getElementById('mo-msg-to-mobile');
+  if (selM) {
+    const prev = selM.value;
+    selM.innerHTML = opts;
+    if (prev) selM.value = prev;
+    selM.onchange = () => { renderMessages(); updateMsgCharCountMobile(); };
+    updateMsgCharCountMobile();
+  }
+}
+
+function updateMsgCharCount() {
+  const sel = document.getElementById('mo-msg-to');
+  const input = document.getElementById('mo-msg-input');
+  const counter = document.getElementById('mo-msg-char-count');
+  if (!input || !counter) return;
+  const firstName = (sel?.options[sel?.selectedIndex]?.dataset.name || '').split(' ')[0];
+  const prefixLen = firstName ? firstName.length + 2 : 0;
+  const maxTypable = 67 - prefixLen;
+  input.maxLength = maxTypable;
+  const remaining = maxTypable - (input.value?.length || 0);
+  counter.textContent = remaining;
+  counter.style.color = remaining <= 5 ? 'var(--error)' : remaining <= 15 ? 'var(--accent2)' : 'var(--text3)';
+}
+
+function updateMsgUnread() {
+  const unread = messages.filter(m => m.direction === 'in' && !m.read).length;
+  const badge = document.getElementById('mo-msg-unread');
+  if (badge) badge.textContent = unread ? `${unread} NEW` : '';
+}
+
 function renderMessages() {
-  const body = document.getElementById('mo-msg-body');
-  body.innerHTML = messages.map(m => {
-    const out = m.direction === 'out';
-    return `<div class="${out ? 'mo-msg-out' : 'mo-msg-in'}">
-      ${!out ? `<div class="mo-msg-from">${m.from_name || m.from_node_id || '?'}</div>` : ''}
-      <div class="mo-msg-text">${m.text}</div>
-      <div class="mo-msg-ts">${RT.fmtTime(m.timestamp, fmt24)}</div>
-    </div>`;
-  }).join('');
-  body.scrollTop = body.scrollHeight;
+  const sel = document.getElementById('mo-msg-to');
+  const nodeId = sel?.value;
+  const ids = new Set(resolveNodeIdForMessages(nodeId));
+  // messages array is newest-first; filter by selected thread or show recent 20
+  const thread = ids.size
+    ? messages.filter(m => ids.has(m.from_node_id) || ids.has(m.to_node_id))
+    : messages.slice(0, 20);
+  const reversed = [...thread].reverse();
+
+  // Sidebar thread (desktop)
+  const sidebar = document.getElementById('mo-msg-thread');
+  if (sidebar) {
+    sidebar.innerHTML = reversed.map(m => {
+      const cls = m.direction === 'out' ? 'msg-bubble-out' : 'msg-bubble-in';
+      const from = m.direction === 'in' ? (m.from_name || m.from_node_id) : 'You';
+      return `<div class="${cls}">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${from} · ${RT.fmtTime(m.timestamp, fmt24)}</div>
+        <div>${m.text}</div>
+      </div>`;
+    }).join('');
+    sidebar.scrollTop = sidebar.scrollHeight;
+  }
+
+  // Full-screen mobile panel
+  const panel = document.getElementById('mo-msg-body');
+  if (panel) {
+    panel.innerHTML = reversed.map(m => {
+      const out = m.direction === 'out';
+      return `<div class="${out ? 'mo-msg-out' : 'mo-msg-in'}">
+        ${!out ? `<div class="mo-msg-from">${m.from_name || m.from_node_id || '?'}</div>` : ''}
+        <div class="mo-msg-text">${m.text}</div>
+        <div class="mo-msg-ts">${RT.fmtTime(m.timestamp, fmt24)}</div>
+      </div>`;
+    }).join('');
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  updateMsgUnread();
 }
 
 async function sendMessage() {
+  const sel = document.getElementById('mo-msg-to');
+  const to_node_id = sel?.value;
+  const to_name = sel?.options[sel?.selectedIndex]?.dataset.name;
   const input = document.getElementById('mo-msg-input');
-  const text = input.value.trim();
-  if (!text) return;
-  const res = await RT.post(`/api/races/${raceId}/messages`, { text, direction: 'out' });
+  const rawText = input?.value.trim();
+  if (!to_node_id || !rawText) { RT.toast('Select a recipient and enter a message', 'warn'); return; }
+  const firstName = (to_name || '').split(' ')[0];
+  const text = firstName ? `${firstName}: ${rawText}` : rawText;
+  const res = await RT.post(`/api/races/${raceId}/messages`, { to_node_id, to_name, text });
   if (res.ok) {
     input.value = '';
-    messages.push(res.data);
-    renderMessages();
+    updateMsgCharCount();
+    if (!res.data.sent) RT.toast('Message saved — not delivered (offline)', 'warn');
+  } else {
+    RT.toast(res.error || 'Send failed', 'warn');
+  }
+}
+
+function updateMsgCharCountMobile() {
+  const sel = document.getElementById('mo-msg-to-mobile');
+  const input = document.getElementById('mo-msg-panel-input');
+  const counter = document.getElementById('mo-msg-char-count-mobile');
+  if (!input || !counter) return;
+  const firstName = (sel?.options[sel?.selectedIndex]?.dataset.name || '').split(' ')[0];
+  const prefixLen = firstName ? firstName.length + 2 : 0;
+  const maxTypable = 67 - prefixLen;
+  input.maxLength = maxTypable;
+  const remaining = maxTypable - (input.value?.length || 0);
+  counter.textContent = remaining;
+  counter.style.color = remaining <= 5 ? 'var(--error)' : remaining <= 15 ? 'var(--accent2)' : 'var(--text3)';
+}
+
+async function sendMessageMobile() {
+  const sel = document.getElementById('mo-msg-to-mobile');
+  const to_node_id = sel?.value;
+  const to_name = sel?.options[sel?.selectedIndex]?.dataset.name;
+  const input = document.getElementById('mo-msg-panel-input');
+  const rawText = input?.value.trim();
+  if (!to_node_id || !rawText) { RT.toast('Select a recipient and enter a message', 'warn'); return; }
+  const firstName = (to_name || '').split(' ')[0];
+  const text = firstName ? `${firstName}: ${rawText}` : rawText;
+  const res = await RT.post(`/api/races/${raceId}/messages`, { to_node_id, to_name, text });
+  if (res.ok) {
+    input.value = '';
+    updateMsgCharCountMobile();
+    if (!res.data.sent) RT.toast('Message saved — not delivered (offline)', 'warn');
   } else {
     RT.toast(res.error || 'Send failed', 'warn');
   }
