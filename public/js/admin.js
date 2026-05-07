@@ -182,7 +182,6 @@ async function activateRace(id) {
     RT.toast('A course is required before activating a race. Go to the race → COURSE tab and assign one.', 'warn');
     return;
   }
-  if (!confirm('Activate this race? The current active race (if any) will be set to past.')) return;
   const res = await RT.post(`/api/races/${id}/activate`);
   if (res.ok) { RT.toast('Race activated', 'ok'); await loadRaces(); renderTab(); }
   else RT.toast(res.error, 'warn');
