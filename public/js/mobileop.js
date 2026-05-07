@@ -396,10 +396,21 @@ async function sendMessage() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 
 function switchTab(name) {
-  document.querySelectorAll('.mo-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.mo-tab').forEach(t => t.classList.toggle('active', t.dataset.panel === name));
-  document.getElementById(`panel-${name}`).classList.add('active');
-  if (name === 'map') setTimeout(() => map?.invalidateSize(), 50);
+  document.querySelectorAll('.mo-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.mo-extra-panel').forEach(p => p.classList.remove('active'));
+  document.body.classList.remove('mo-lb-mode', 'mo-extra-active');
+
+  if (name === 'lb') {
+    document.body.classList.add('mo-lb-mode');
+  } else if (name === 'log') {
+    document.getElementById('mo-log-panel').classList.add('active');
+    document.body.classList.add('mo-extra-active');
+  } else if (name === 'msg') {
+    document.getElementById('mo-msg-panel').classList.add('active');
+    document.body.classList.add('mo-extra-active');
+  } else { // map
+    setTimeout(() => map?.invalidateSize(), 50);
+  }
 }
 
 init();
