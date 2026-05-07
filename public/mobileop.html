@@ -92,20 +92,20 @@
     background: var(--surface); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
   }
-  .mo-lb-head {
-    font-size: 12px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase;
-    display: grid; grid-template-columns: 48px 1fr 64px 72px;
-    gap: 4px; padding: 6px 10px;
+  #mo-sort-bar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .v-sort-btn { font-size: 13px; padding: 2px 8px; }
+  .v-sort-btn.active { border-color: var(--accent); color: var(--accent); }
+  .v-lb-cols { grid-template-columns: 22px 50px 1fr 44px 68px 72px; }
+  .v-lb-head {
+    font-size: 13px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase;
+    display: grid; gap: 4px; padding: 4px 8px;
     border-bottom: 1px solid var(--border); background: var(--surface2); flex-shrink: 0;
   }
-  #mo-lb-body { flex: 1; overflow-y: auto; }
-  .mo-lb-row {
-    display: grid; grid-template-columns: 48px 1fr 64px 72px;
-    align-items: center; gap: 4px; padding: 10px 10px;
-    border-bottom: 1px solid var(--border); font-size: 14px; cursor: pointer;
+  #mo-lb-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .v-lb-row {
+    display: grid; gap: 4px; padding: 5px 8px;
+    border-bottom: 1px solid var(--border); font-size: 16px;
   }
-  .mo-lb-row:hover { background: var(--surface2); }
-  .mo-lb-row:active { background: var(--surface3, #161b22); }
 
   /* ── Extra panels (LOG, MSG) — full-screen, mobile only ── */
   .mo-extra-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
@@ -135,7 +135,8 @@
     #mo-lb-wrap { display: none; width: 100%; border-left: none; flex-shrink: unset; }
     body.mo-lb-mode #mo-map-wrap { display: none; }
     body.mo-lb-mode #mo-lb-wrap { display: flex; width: 100%; }
-    .mo-lb-head, .mo-lb-row { padding: 4px 6px; font-size: 13px; gap: 3px; }
+    .v-lb-cols { grid-template-columns: 18px 44px 1fr 38px 58px 60px; }
+    .v-lb-row, .v-lb-head { padding: 4px 6px; font-size: 14px; gap: 3px; }
   }
 
   /* ── Map ── */
@@ -265,8 +266,16 @@
     <div id="mo-map"></div>
   </div>
   <div id="mo-lb-wrap">
-    <div class="mo-lb-head">
-      <span>BIB</span><span>NAME</span><span>STATUS</span><span>ELAPSED</span>
+    <div id="mo-sort-bar">
+      <span style="font-size:13px;color:var(--text3);align-self:center">SORT:</span>
+      <button class="v-sort-btn active" data-sort="position" onclick="setSort('position')">POSITION</button>
+      <button class="v-sort-btn" data-sort="bib" onclick="setSort('bib')">BIB</button>
+      <button class="v-sort-btn" data-sort="pace" onclick="setSort('pace')">PACE</button>
+      <button class="v-sort-btn" data-sort="name" onclick="setSort('name')">NAME</button>
+      <button class="v-sort-btn" data-sort="heat" onclick="setSort('heat')">HEAT</button>
+    </div>
+    <div class="v-lb-head v-lb-cols">
+      <span>#</span><span>BIB</span><span>NAME</span><span>PROG</span><span>PACE</span><span>LAST AID</span>
     </div>
     <div id="mo-lb-body"></div>
   </div>

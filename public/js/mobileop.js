@@ -7,6 +7,11 @@ let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = nul
 let fmt24 = true;
 let baseTiles = {}, currentBaseLayer = null;
 let clockInterval = null;
+let sortBy = 'position';
+
+// Course distance cache — cleared whenever trackPoints or stations change
+let _total = null, _cachedDists = null, _stationAlongCache = null;
+const MAX_RACE_SPEED = 8, BACK_MARGIN = 100;
 
 const BASE_LAYERS = {
   'Topo':      { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',        opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
@@ -208,24 +213,53 @@ function handleWS(msg) {
   if (msg.type === 'init') {
     participants = msg.data.participants || [];
     heats        = msg.data.heats || [];
-    if (msg.data.stations?.length) { stations = msg.data.stations; renderStationMarkers(); }
-    if (msg.data.trackPoints?.length) { trackPoints = msg.data.trackPoints; renderRoute(); }
+    // Seed _lastStation from server-supplied field
+    participants.forEach(p => { p._lastStation = p.last_station_name || null; });
+    if (msg.data.stations?.length) {
+      stations = msg.data.stations;
+      _stationAlongCache = null;
+      renderStationMarkers();
+    }
+    if (msg.data.trackPoints?.length) {
+      trackPoints = msg.data.trackPoints;
+      _cachedDists = null; _total = null; _stationAlongCache = null;
+      renderRoute();
+    }
     renderLeaderboard();
     if (msg.data.messages) { messages = msg.data.messages; renderMessages(); }
     for (const [nodeId, pos] of Object.entries(msg.data.positions || {})) {
       updateMarker(nodeId, pos);
     }
   } else if (msg.type === 'position') {
+    const p = participants.find(x => x.tracker_id === msg.data.nodeId);
+    if (p) { p.last_lat = msg.data.lat; p.last_lon = msg.data.lon; }
     updateMarker(msg.data.nodeId, msg.data);
+    renderLeaderboard();
   } else if (msg.type === 'participant_update') {
     refreshParticipants();
   } else if (msg.type === 'event') {
-    if (currentStation && msg.data.station_id === currentStation.id) {
-      prependEventRow(msg.data);
+    const ev = msg.data;
+    const p = participants.find(x => x.id === ev.participant_id);
+    if (p) {
+      if (ev.event_type === 'start')  { p.status = 'active';   p.start_time = ev.timestamp; }
+      if (ev.event_type === 'finish') { p.status = 'finished'; p.finish_time = ev.timestamp; }
+      if (ev.event_type === 'dnf')      p.status = 'dnf';
+      if (ev.has_turnaround && !p.has_turnaround) {
+        p.has_turnaround = true;
+        const td = _total || computeTotal();
+        if (td) { p._lastAlong = td; p._lastAlongTs = ev.timestamp; }
+      }
+      if (ev.station_id && !p.has_turnaround) {
+        const along = getStationAlongMap().get(ev.station_id);
+        if (along != null) p._stationFloor = Math.max(p._stationFloor ?? 0, along);
+      }
+      if (ev.event_type === 'aid_depart' && ev.station_name)
+        p._lastStation = ev.station_name;
+      renderLeaderboard();
+      if (selectedParticipant?.id === p.id) showParticipantCard(p);
     }
-    if (selectedParticipant && msg.data.participant_id === selectedParticipant.id) {
-      const updated = participants.find(p => p.id === selectedParticipant.id);
-      if (updated) showParticipantCard(updated);
+    if (currentStation && ev.station_id === currentStation.id) {
+      prependEventRow(ev);
     }
   } else if (msg.type === 'message') {
     messages.push(msg.data);
@@ -236,7 +270,9 @@ function handleWS(msg) {
 async function refreshParticipants() {
   const res = await RT.get(`/api/races/${raceId}/participants`);
   if (!res.ok) return;
-  participants = res.data;
+  // Preserve computed fields (_lastAlong, _lastStation, etc.) across refresh
+  const prev = new Map(participants.map(p => [p.id, p]));
+  participants = res.data.map(p => ({ ...p, ...{ _lastStation: p.last_station_name || null }, ...pick(prev.get(p.id), '_lastAlong', '_lastAlongTs', '_stationFloor', '_lastStation', 'has_turnaround') }));
   renderLeaderboard();
   if (selectedParticipant) {
     const updated = participants.find(p => p.id === selectedParticipant.id);
@@ -244,32 +280,154 @@ async function refreshParticipants() {
   }
 }
 
+function pick(obj, ...keys) {
+  if (!obj) return {};
+  return Object.fromEntries(keys.filter(k => obj[k] != null).map(k => [k, obj[k]]));
+}
+
 // ── Leaderboard ───────────────────────────────────────────────────────────────
 
-function renderLeaderboard() {
-  const body = document.getElementById('mo-lb-body');
-  if (!body) return;
-  const now = Math.floor(Date.now() / 1000);
-  const ORDER = { active: 0, finished: 1, dnf: 2, dns: 3 };
-  const sorted = [...participants].sort((a, b) =>
-    (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9) ||
-    (a.bib || '').localeCompare(b.bib || '', undefined, { numeric: true })
-  );
+function fmtParticipantName(name) {
+  const parts = (name || '').trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
 
-  body.innerHTML = sorted.map(p => {
+function renderLeaderboard() {
+  const el = document.getElementById('mo-lb-body');
+  if (!el) return;
+  const list = [...participants];
+  list.forEach(p => { p._pct = computePct(p); });
+
+  list.sort((a, b) => {
+    if (sortBy === 'position') return (b._pct || 0) - (a._pct || 0);
+    if (sortBy === 'bib') return String(a.bib).localeCompare(String(b.bib), undefined, { numeric: true });
+    if (sortBy === 'pace') return (a._pace || Infinity) - (b._pace || Infinity);
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'heat') {
+      const ha = heats.find(h => h.id === a.heat_id), hb = heats.find(h => h.id === b.heat_id);
+      return (ha?.name || '').localeCompare(hb?.name || '');
+    }
+    return 0;
+  });
+
+  const STATUS_COLORS = { dns: '#8b949e', active: '#58a6ff', dnf: '#f78166', finished: '#3fb950' };
+
+  el.innerHTML = list.map((p, i) => {
+    const sc = STATUS_COLORS[p.status] || '#8b949e';
     const heat = heats.find(h => h.id === p.heat_id);
-    const color = STATUS_COLORS[p.status] || '#484f58';
-    const startTs = p.start_time || heat?.start_time || race?.start_time || 0;
-    const elapsed =
-      p.status === 'active'   && startTs ? RT.fmtElapsed(now - startTs, false) :
-      p.status === 'finished' && p.finish_time && startTs ? RT.fmtElapsed(p.finish_time - startTs, false) : '--';
-    return `<div class="mo-lb-row" onclick="lookupParticipant(${p.id})">
-      <span style="font-weight:bold">${p.bib}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</span>
-      <span style="color:${color};font-size:12px;letter-spacing:.5px">${(p.status || 'dns').toUpperCase()}</span>
-      <span style="color:var(--text2);font-size:13px">${elapsed}</span>
+    const dot = heat ? `<span class="dot" style="background:${heat.color}"></span>` : '';
+    const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
+    const finished = p.status === 'finished';
+    const lastAid = p._lastStation || '--';
+    return `<div class="v-lb-row v-lb-cols ${finished ? 'text-ok' : ''}" onclick="lookupParticipant(${p.id})" style="cursor:pointer">
+      <span style="color:var(--text2)">${i + 1}</span>
+      <span style="color:${sc};font-weight:bold">${p.bib}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${fmtParticipantName(p.name)}</span>
+      <span style="color:var(--accent)">${pct}</span>
+      <span style="color:var(--text);font-size:13px">${p._pct && p.start_time ? fmtPace(p) : '--'}</span>
+      <span style="color:var(--text2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>
     </div>`;
   }).join('');
+}
+
+function setSort(key) {
+  sortBy = key;
+  document.querySelectorAll('.v-sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === key));
+  renderLeaderboard();
+}
+
+// ── Course progress computation (mirrors viewer.js exactly) ──────────────────
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function ensureDistCache() {
+  if (_cachedDists || !trackPoints || trackPoints.length < 2) return;
+  _cachedDists = [0];
+  for (let i = 1; i < trackPoints.length; i++)
+    _cachedDists.push(_cachedDists[i - 1] + haversine(
+      trackPoints[i - 1][0], trackPoints[i - 1][1], trackPoints[i][0], trackPoints[i][1]));
+  _total = _cachedDists[_cachedDists.length - 1];
+}
+
+function computeTotal() {
+  ensureDistCache();
+  return _total || 0;
+}
+
+function getStationAlongMap() {
+  if (_stationAlongCache) return _stationAlongCache;
+  if (!trackPoints || trackPoints.length < 2) return new Map();
+  ensureDistCache();
+  _stationAlongCache = new Map();
+  for (const s of stations) {
+    if (!s.lat || !s.lon) continue;
+    let minD = Infinity, best = 0;
+    for (let i = 0; i < trackPoints.length - 1; i++) {
+      const [lat1, lon1] = trackPoints[i], [lat2, lon2] = trackPoints[i + 1];
+      const ax = s.lat - lat1, ay = s.lon - lon1, bx = lat2 - lat1, by = lon2 - lon1;
+      const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / Math.max(1e-10, bx * bx + by * by)));
+      const d = haversine(s.lat, s.lon, lat1 + t * bx, lon1 + t * by);
+      if (d < minD) { minD = d; best = _cachedDists[i] + t * (_cachedDists[i + 1] - _cachedDists[i]); }
+    }
+    _stationAlongCache.set(s.id, best);
+  }
+  return _stationAlongCache;
+}
+
+function computePct(p) {
+  if (p.status === 'finished') return 100;
+  if (p.status === 'dns') return null;
+  if (!p.last_lat || !trackPoints || !trackPoints.length) return null;
+  ensureDistCache();
+  const totalDist = _total;
+  if (!totalDist) return 0;
+
+  const now = Math.floor(Date.now() / 1000);
+  const lastAlong = p._lastAlong ?? 0;
+  const lastTs = p._lastAlongTs ?? (p.start_time || now);
+  const travelDist = Math.max(0, now - lastTs) * MAX_RACE_SPEED + BACK_MARGIN;
+  const windowMin = Math.max(0, lastAlong - travelDist);
+  const windowMax = Math.min(totalDist, lastAlong + travelDist);
+
+  let minD = Infinity, bestAlong = lastAlong;
+  for (let i = 0; i < trackPoints.length - 1; i++) {
+    if (_cachedDists[i + 1] < windowMin || _cachedDists[i] > windowMax) continue;
+    const [lat1, lon1] = trackPoints[i], [lat2, lon2] = trackPoints[i + 1];
+    const segLen = _cachedDists[i + 1] - _cachedDists[i];
+    const ax = p.last_lat - lat1, ay = p.last_lon - lon1, bx = lat2 - lat1, by = lon2 - lon1;
+    const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / Math.max(1e-10, bx * bx + by * by)));
+    const d = haversine(p.last_lat, p.last_lon, lat1 + t * bx, lon1 + t * by);
+    if (d < minD) { minD = d; bestAlong = _cachedDists[i] + t * segLen; }
+  }
+
+  if (!(race?.race_format === 'out_and_back' && p.has_turnaround))
+    bestAlong = Math.max(bestAlong, p._stationFloor ?? 0);
+
+  p._lastAlong = bestAlong;
+  p._lastAlongTs = now;
+
+  if (race?.race_format === 'out_and_back') {
+    if (p.has_turnaround) return Math.min(100, (2 * totalDist - bestAlong) / (2 * totalDist) * 100);
+    return Math.min(50, bestAlong / (2 * totalDist) * 100);
+  }
+  return Math.min(100, bestAlong / totalDist * 100);
+}
+
+function fmtPace(p) {
+  if (!p.start_time || !p._pct) return '--';
+  const total = computeTotal();
+  if (!total) return '--';
+  const dist = race?.race_format === 'out_and_back' ? total * 2 : total;
+  const elapsed = (p.status === 'finished' && p.finish_time)
+    ? p.finish_time - p.start_time
+    : Math.floor(Date.now() / 1000) - p.start_time;
+  if (elapsed <= 0) return '--';
+  return RT.fmtPace(dist / elapsed);
 }
 
 // ── LOG ───────────────────────────────────────────────────────────────────────
