@@ -310,6 +310,27 @@
     </div>
     <div class="form-group"><label>TRACKER ID <span class="text-dim">(node ID, longname, or shortname)</span></label><input id="pm-tracker-id" placeholder="leave blank if none"></div>
     <div class="form-group"><label>PHONE</label><input id="pm-phone" placeholder="optional"></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>MAP ICON COLOR</label>
+        <input type="color" id="pm-color" value="#f5a623" style="height:34px;padding:2px" oninput="pmUpdatePreview()">
+      </div>
+      <div class="form-group">
+        <label>MAP ICON SHAPE</label>
+        <select id="pm-shape" onchange="pmUpdatePreview()">
+          <option value="triangle">Triangle</option>
+          <option value="circle">Circle</option>
+          <option value="square">Square</option>
+          <option value="diamond">Diamond</option>
+          <option value="star">Star</option>
+          <option value="pentagon">Pentagon</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>PREVIEW</label>
+        <div id="pm-icon-preview" style="height:34px;display:flex;align-items:center"></div>
+      </div>
+    </div>
     <div class="modal-footer">
       <button onclick="closeModal('personnel-modal')">CANCEL</button>
       <button class="primary" onclick="savePersonnel()">SAVE</button>

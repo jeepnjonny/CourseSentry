@@ -36,8 +36,13 @@ function csvParse(text) {
 
 function fetchPersonnel(raceId) {
   return db.prepare(`
-    SELECT p.*, s.name as station_name FROM personnel p
+    SELECT p.*, s.name as station_name,
+           r.last_lat, r.last_lon, r.last_seen
+    FROM personnel p
     LEFT JOIN stations s ON p.station_id = s.id
+    LEFT JOIN tracker_registry r ON p.tracker_id IS NOT NULL AND (
+      r.node_id = p.tracker_id OR r.long_name = p.tracker_id OR r.short_name = p.tracker_id
+    )
     WHERE p.race_id=? ORDER BY s.course_order, p.name
   `).all(raceId);
 }
@@ -47,11 +52,12 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
-  const { name, station_id, tracker_id, phone } = req.body;
+  const { name, station_id, tracker_id, phone, color, shape } = req.body;
   if (!name) return res.status(400).json({ ok: false, error: 'name required' });
   const result = db.prepare(
-    'INSERT INTO personnel (race_id, station_id, name, tracker_id, phone) VALUES (?,?,?,?,?)'
-  ).run(req.params.raceId, station_id || null, name, tracker_id || null, phone || null);
+    'INSERT INTO personnel (race_id, station_id, name, tracker_id, phone, color, shape) VALUES (?,?,?,?,?,?,?)'
+  ).run(req.params.raceId, station_id || null, name, tracker_id || null, phone || null,
+        color || '#f5a623', shape || 'triangle');
   const person = db.prepare(`
     SELECT p.*, s.name as station_name FROM personnel p
     LEFT JOIN stations s ON p.station_id = s.id WHERE p.id=?
@@ -63,11 +69,15 @@ router.post('/', requireRole('admin', 'operator'), (req, res) => {
 router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
   const p = db.prepare('SELECT * FROM personnel WHERE id=? AND race_id=?').get(req.params.id, req.params.raceId);
   if (!p) return res.status(404).json({ ok: false, error: 'Personnel not found' });
-  const { name, station_id, tracker_id, phone } = req.body;
-  db.prepare('UPDATE personnel SET name=?, station_id=?, tracker_id=?, phone=? WHERE id=?')
-    .run(name ?? p.name, station_id !== undefined ? station_id : p.station_id,
+  const { name, station_id, tracker_id, phone, color, shape } = req.body;
+  db.prepare('UPDATE personnel SET name=?, station_id=?, tracker_id=?, phone=?, color=?, shape=? WHERE id=?')
+    .run(name ?? p.name,
+         station_id !== undefined ? station_id : p.station_id,
          tracker_id !== undefined ? tracker_id : p.tracker_id,
-         phone !== undefined ? phone : p.phone, p.id);
+         phone !== undefined ? phone : p.phone,
+         color ?? p.color,
+         shape ?? p.shape,
+         p.id);
   const updated = db.prepare(`
     SELECT p.*, s.name as station_name FROM personnel p
     LEFT JOIN stations s ON p.station_id = s.id WHERE p.id=?

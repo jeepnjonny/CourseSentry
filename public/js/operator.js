@@ -3,7 +3,7 @@ const OP = (() => {
 // ── State ─────────────────────────────────────────────────────────────────────
 let race = null, participants = {}, stations = [], heats = {}, classes = {};
 let personnel = [], messages = [];
-let markerLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
+let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
 let leafletMap = null, currentBaseLayer = null, weatherLayersControl = null, weatherLegendControl = null;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
@@ -188,6 +188,7 @@ async function loadInitialData() {
   renderStationMarkers();
   renderStationList();
   renderAllMarkers();
+  updatePersonnelMarkers();
   renderLeaderboard();
   renderPersonnelRecipients();
   updateStats();
@@ -210,6 +211,7 @@ async function loadTrackData() {
 function initMap() {
   leafletMap = L.map('map', { zoomControl: true, maxZoom: 16 });
   markerLayer = L.layerGroup().addTo(leafletMap);
+  personnelLayer = L.layerGroup().addTo(leafletMap);
   setBaseLayer('topo');
   leafletMap.setView([39.5, -98.5], 5);
   leafletMap.on('click', onMapClick);
@@ -391,6 +393,49 @@ function updateOrCreateMarker(p) {
     m.bindTooltip(`#${p.bib} ${p.name}${isManual ? ' (last station)' : ''}`, { permanent: false });
     m.on('click', () => showParticipantInfo(p.id));
     m.addTo(markerLayer);
+  }
+}
+
+// ── Personnel markers ─────────────────────────────────────────────────────────
+function updatePersonnelMarkers() {
+  if (!personnelLayer) return;
+  const geofence = race?.geofence_radius || 50;
+  for (const p of personnel) {
+    if (!p.tracker_id || !p.last_lat || !p.last_lon) {
+      // No position — remove any existing marker
+      const ex = personnelLayer.getLayers().find(m => m._perId === p.id);
+      if (ex) personnelLayer.removeLayer(ex);
+      continue;
+    }
+    // Hide if within geofence of any station
+    const nearStation = stations.some(s => s.lat && s.lon &&
+      haversine(p.last_lat, p.last_lon, s.lat, s.lon) <= geofence);
+    if (nearStation) {
+      const ex = personnelLayer.getLayers().find(m => m._perId === p.id);
+      if (ex) personnelLayer.removeLayer(ex);
+      continue;
+    }
+    const color = p.color || '#f5a623';
+    const shape = p.shape || 'triangle';
+    const svg = RT.SHAPES[shape]?.(color, 20) || RT.SHAPES.triangle(color, 20);
+    const icon = L.divIcon({
+      html: `<div title="${p.name}">${svg}</div>`,
+      className: 'leaflet-div-icon', iconAnchor: [10, 10],
+    });
+    const existing = personnelLayer.getLayers().find(m => m._perId === p.id);
+    if (existing) {
+      existing.setLatLng([p.last_lat, p.last_lon]);
+      existing.setIcon(icon);
+    } else {
+      const m = L.marker([p.last_lat, p.last_lon], { icon });
+      m._perId = p.id;
+      m.bindTooltip(p.name, { permanent: false });
+      m.addTo(personnelLayer);
+    }
+  }
+  // Remove markers for personnel no longer in the list
+  for (const m of [...personnelLayer.getLayers()]) {
+    if (!personnel.some(p => p.id === m._perId)) personnelLayer.removeLayer(m);
   }
 }
 
@@ -1317,6 +1362,12 @@ function handlePosition(data) {
     updateOrCreateMarker(p);
     if (p.id === selectedPId) showParticipantInfo(p.id);
   }
+  // Update personnel position if tracker matches
+  const per = personnel.find(x => x.tracker_id && x.tracker_id === nodeId);
+  if (per) {
+    per.last_lat = lat; per.last_lon = lon;
+    updatePersonnelMarkers();
+  }
   renderLeaderboard();
 }
 
@@ -1458,7 +1509,15 @@ function handlePersonnelUpdate(data) {
   const p = data.personnel;
   const idx = personnel.findIndex(x => x.id === p.id);
   const prevStationId = idx >= 0 ? personnel[idx].station_id : null;
-  if (idx >= 0) personnel[idx] = p; else personnel.push(p);
+  // Preserve live position across updates (server doesn't carry it in WS payload)
+  if (idx >= 0) {
+    p.last_lat = p.last_lat ?? personnel[idx].last_lat;
+    p.last_lon = p.last_lon ?? personnel[idx].last_lon;
+    personnel[idx] = p;
+  } else {
+    personnel.push(p);
+  }
+  updatePersonnelMarkers();
   renderPersonnelRecipients();
   // Refresh station panel if it's open for the affected station (new or previous)
   if (selectedStationId && (p.station_id === selectedStationId || prevStationId === selectedStationId)) {
@@ -1477,6 +1536,7 @@ function handleStationUpdate(data) {
     stations = stations.filter(s => s.id !== data.id);
   }
   renderStationMarkers();
+  updatePersonnelMarkers();
   renderStationList();
   checkStationWarnings();
 }

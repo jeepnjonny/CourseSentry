@@ -1504,6 +1504,13 @@ async function loadPersonnel() {
 
 let editingPersonnelId = null;
 
+function pmUpdatePreview() {
+  const color = document.getElementById('pm-color')?.value || '#f5a623';
+  const shape = document.getElementById('pm-shape')?.value || 'triangle';
+  const el = document.getElementById('pm-icon-preview');
+  if (el) el.innerHTML = RT.SHAPES[shape]?.(color, 24) || '';
+}
+
 function openPersonnelModal(id) {
   editingPersonnelId = id || null;
   const p = id ? personnel.find(x => x.id === id) : null;
@@ -1511,9 +1518,12 @@ function openPersonnelModal(id) {
   document.getElementById('pm-name').value       = p?.name || '';
   document.getElementById('pm-tracker-id').value = p?.tracker_id || '';
   document.getElementById('pm-phone').value      = p?.phone || '';
+  document.getElementById('pm-color').value      = p?.color || '#f5a623';
+  document.getElementById('pm-shape').value      = p?.shape || 'triangle';
   const sel = document.getElementById('pm-station-id');
   sel.innerHTML = '<option value="">— Unassigned —</option>' +
     stations.map(s => `<option value="${s.id}"${s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
+  pmUpdatePreview();
   document.getElementById('personnel-modal').classList.remove('hidden');
   document.getElementById('pm-name').focus();
 }
@@ -1523,8 +1533,10 @@ async function savePersonnel() {
   const station_id = document.getElementById('pm-station-id').value || null;
   const tracker_id = document.getElementById('pm-tracker-id').value.trim() || null;
   const phone      = document.getElementById('pm-phone').value.trim() || null;
+  const color      = document.getElementById('pm-color').value || '#f5a623';
+  const shape      = document.getElementById('pm-shape').value || 'triangle';
   if (!name) { RT.toast('Name required', 'warn'); return; }
-  const body = { name, station_id: station_id ? parseInt(station_id) : null, tracker_id, phone };
+  const body = { name, station_id: station_id ? parseInt(station_id) : null, tracker_id, phone, color, shape };
   const res = editingPersonnelId
     ? await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body)
     : await RT.post(`/api/races/${selectedRaceId}/personnel`, body);
