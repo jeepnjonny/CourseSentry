@@ -44,14 +44,14 @@ async function login() {
     const json = await res.json();
     if (!json.ok) { document.getElementById('login-error').textContent = json.error; return; }
     const role = json.data.role;
-    window.location.href = _base + (role === 'admin' ? 'admin.html' : 'operator.html');
+    window.location.href = _base + (role === 'admin' ? 'admin.html' : 'race-select.html');
   } catch (e) {
     document.getElementById('login-error').textContent = 'Connection error.';
   }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 fetch(_base + 'api/auth/me').then(r => r.json()).then(j => {
-  if (j.ok) window.location.href = _base + (j.data.role === 'admin' ? 'admin.html' : 'operator.html');
+  if (j.ok) window.location.href = _base + (j.data.role === 'admin' ? 'admin.html' : 'race-select.html');
 }).catch(() => {});
 </script>
 </body>

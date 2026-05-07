@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RaceTracker — Select Race</title>
+<base href="/RaceTracker/">
+<link rel="stylesheet" href="css/theme.css">
+<link id="rt-theme-css" rel="stylesheet">
+<style>
+  .rs-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    gap: 24px;
+  }
+  .rs-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; color: var(--text); }
+  .rs-subtitle { color: var(--text2); font-size: 14px; margin-top: -16px; }
+  .rs-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    max-width: 800px;
+    width: 100%;
+  }
+  .rs-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 28px 36px;
+    cursor: pointer;
+    text-align: center;
+    min-width: 200px;
+    flex: 1;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .rs-card:hover { border-color: var(--accent); background: var(--surface3); }
+  .rs-card-name { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
+  .rs-card-date { font-size: 13px; color: var(--text2); margin-top: 6px; }
+  .rs-none { color: var(--text2); font-size: 15px; }
+  .rs-footer { display: flex; gap: 12px; }
+</style>
+</head>
+<body>
+<div class="rs-wrap">
+  <div class="rs-title">&#9654; SELECT RACE</div>
+  <div class="rs-subtitle" id="rs-subtitle">Loading active races…</div>
+  <div class="rs-cards" id="rs-cards"></div>
+  <div class="rs-footer">
+    <button id="rs-admin-btn" class="hidden" onclick="window.location.href=RT.BASE+'admin.html'">ADMIN</button>
+    <button onclick="RT.logout()">LOGOUT</button>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script>
+const RT = makeRT();
+RT.applyTheme();
+
+async function init() {
+  const user = await RT.requireLogin();
+  if (!user) return;
+
+  if (user.role === 'admin') {
+    document.getElementById('rs-admin-btn').classList.remove('hidden');
+  }
+
+  const res = await RT.get('/api/races');
+  if (!res.ok) {
+    document.getElementById('rs-subtitle').textContent = 'Failed to load races.';
+    return;
+  }
+
+  const active = res.data.filter(r => r.status === 'active');
+
+  if (active.length === 1) {
+    window.location.replace(RT.BASE + 'operator.html?race=' + active[0].id);
+    return;
+  }
+
+  const subtitle = document.getElementById('rs-subtitle');
+  const cards = document.getElementById('rs-cards');
+
+  if (active.length === 0) {
+    subtitle.textContent = 'No races are currently active.';
+    return;
+  }
+
+  subtitle.textContent = 'Choose a race to open the operator view.';
+  for (const race of active) {
+    const card = document.createElement('div');
+    card.className = 'rs-card';
+    card.innerHTML = `<div class="rs-card-name">${race.name}</div><div class="rs-card-date">${race.date}</div>`;
+    card.onclick = () => { window.location.href = RT.BASE + 'operator.html?race=' + race.id; };
+    cards.appendChild(card);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
