@@ -55,21 +55,146 @@ function parseDM(dm, hemi) {
   return dd;
 }
 
-// Parse uncompressed and timestamped APRS position bodies
-function parsePosition(body) {
-  // Uncompressed: [!=]DDMM.mmN[sym]DDDMM.mmE
+// ── Compressed position (APRS spec §9) ───────────────────────────────────────
+// Decode 4 consecutive Base-91 chars starting at index i
+function base91_4(s, i) {
+  return (s.charCodeAt(i)-33)*753571 + (s.charCodeAt(i+1)-33)*8281 +
+         (s.charCodeAt(i+2)-33)*91   + (s.charCodeAt(i+3)-33);
+}
+
+// data = body after the data-type/timestamp byte(s), starting at the symbol-table char
+// Layout: [sym_table][lat×4][sym_code][lon×4][c][s][t]
+function parseCompressed(data) {
+  if (data.length < 12) return null;
+  // Symbol table must be / \ or an overlay letter (A-Z); digits indicate uncompressed
+  const symTable = data.charCodeAt(0);
+  if (symTable !== 0x2f && symTable !== 0x5c &&
+      !(symTable >= 0x41 && symTable <= 0x5a)) return null;
+  // Validate Base-91 range for lat (bytes 1-4) and lon (bytes 6-9)
+  for (let i = 1; i <= 4; i++) { const c = data.charCodeAt(i); if (c < 33 || c > 124) return null; }
+  for (let i = 6; i <= 9; i++) { const c = data.charCodeAt(i); if (c < 33 || c > 124) return null; }
+
+  const lat = 90  - base91_4(data, 1) / 380926;
+  const lon = -180 + base91_4(data, 6) / 190463;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
+  const c = data.charCodeAt(10);
+  const s = data.charCodeAt(11);
+  const t = data.length > 12 ? data.charCodeAt(12) : 33;
+
+  let speed = null, heading = null, altitude = null;
+  if (c !== 0x20 && s !== 0x20) {
+    if ((t & 0x18) === 0x10) {
+      // cs bytes encode altitude (feet)
+      altitude = Math.pow(1.002, (c - 33) * 91 + (s - 33)) * 0.3048;
+    } else if (c !== 0x5f) {
+      // cs bytes encode course + speed (knots via exponential scale)
+      heading = (c - 33) * 4;
+      speed   = (Math.pow(1.08, s - 33) - 1) * 0.514444; // knots → m/s
+    }
+  }
+  return { lat, lon, speed, heading, altitude };
+}
+
+// ── Mic-E position (APRS spec §10) ───────────────────────────────────────────
+// Lookup table: ASCII char → Mic-E digit (0-9), 255 = invalid
+const MICE_DIGIT = new Uint8Array(256).fill(255);
+for (let i = 0; i <= 9; i++) MICE_DIGIT[0x30 + i] = i;   // '0'–'9'
+for (let i = 0; i <= 9; i++) MICE_DIGIT[0x41 + i] = i;   // 'A'–'J'
+for (let i = 0; i <= 9; i++) MICE_DIGIT[0x50 + i] = i;   // 'P'–'Y'
+MICE_DIGIT[0x4b] = 0; MICE_DIGIT[0x4c] = 0; MICE_DIGIT[0x5a] = 0; // K, L, Z → 0
+
+// dest = 6-char destination callsign (SSID stripped)
+// body = raw information field
+function parseMicE(dest, body) {
+  if (!dest || dest.length < 6) return null;
+  // Mic-E type indicators: ` (0x60), ' (0x27), 0x1c, 0x1d
+  const tc = body.charCodeAt(0);
+  if (tc !== 0x60 && tc !== 0x27 && tc !== 0x1c && tc !== 0x1d) return null;
+  if (body.length < 8) return null;
+
+  // Decode destination chars to latitude digits
+  const d = new Array(6);
+  for (let i = 0; i < 6; i++) {
+    const v = MICE_DIGIT[dest.charCodeAt(i)];
+    if (v === 255) return null;
+    d[i] = v;
+  }
+
+  const latDeg = d[0] * 10 + d[1];
+  const latMin = d[2] * 10 + d[3] + (d[4] * 10 + d[5]) / 100;
+  let lat = latDeg + latMin / 60;
+  if (dest.charCodeAt(3) < 80) lat = -lat; // D4 < 'P' → South
+
+  const lonOffset = dest.charCodeAt(4) >= 80 ? 100 : 0; // D5 >= 'P' → +100°
+  const lonWest   = dest.charCodeAt(5) >= 80;            // D6 >= 'P' → West
+
+  // Longitude degrees from body byte 1
+  let lonDeg = body.charCodeAt(1) - 28 + lonOffset;
+  if (lonDeg >= 180 && lonDeg <= 189) lonDeg -= 80;
+  else if (lonDeg >= 190 && lonDeg <= 199) lonDeg -= 190;
+
+  // Longitude minutes from body bytes 2–3
+  let lonMin = body.charCodeAt(2) - 28;
+  if (lonMin >= 60) lonMin -= 60;
+  const lonMinFrac = body.charCodeAt(3) - 28;
+
+  let lon = lonDeg + (lonMin + lonMinFrac / 100) / 60;
+  if (lonWest) lon = -lon;
+
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
+  // Speed (knots) and course from body bytes 4–6
+  const sp = body.charCodeAt(4) - 28;
+  const dc = body.charCodeAt(5) - 28;
+  const se = body.charCodeAt(6) - 28;
+
+  let speedKnots = sp * 10 + Math.floor(dc / 10);
+  if (speedKnots >= 800) speedKnots -= 800;
+  let course = (dc % 10) * 100 + se;
+  if (course >= 400) course -= 400;
+
+  return {
+    lat, lon,
+    speed:   speedKnots * 0.514444, // knots → m/s
+    heading: course || null,        // 0 = unknown, treat as null
+    altitude: null,
+  };
+}
+
+// Parse any APRS position format — uncompressed, compressed, or Mic-E.
+// destCall is needed for Mic-E decoding; pass null/undefined when unavailable.
+function parsePosition(body, destCall) {
+  // 1. Uncompressed: [!=]DDMM.mmN[sym]DDDMM.mmE
   const plain = /[!=](\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(body);
   if (plain) {
     const lat = parseDM(plain[1], plain[2]);
     const lon = parseDM(plain[3], plain[4]);
-    if (lat != null && lon != null) return { lat, lon };
+    if (lat != null && lon != null) return { lat, lon, speed: null, heading: null, altitude: null };
   }
-  // Timestamped: [/@]\d{6}[z/h]DDMM.mmN[sym]DDDMM.mmE
-  const ts = /[@\/]\d{6}[zZhH\/](\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(body);
-  if (ts) {
-    const lat = parseDM(ts[1], ts[2]);
-    const lon = parseDM(ts[3], ts[4]);
-    if (lat != null && lon != null) return { lat, lon };
+  // 2. Timestamped uncompressed: [/@]\d{6}[z/h]DDMM.mmN[sym]DDDMM.mmE
+  const tsu = /[@\/]\d{6}[zZhH\/](\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(body);
+  if (tsu) {
+    const lat = parseDM(tsu[1], tsu[2]);
+    const lon = parseDM(tsu[3], tsu[4]);
+    if (lat != null && lon != null) return { lat, lon, speed: null, heading: null, altitude: null };
+  }
+  // 3. Compressed (direct): [!=] + sym_table + lat×4 + sym + lon×4 + cs + t
+  const cpPlain = /^[!=]([\s\S]{11,})/.exec(body);
+  if (cpPlain) {
+    const pos = parseCompressed(cpPlain[1]);
+    if (pos) return pos;
+  }
+  // 4. Compressed (timestamped): [/@]\d{6}[z/h] + compressed data
+  const cpTs = /^[@\/]\d{6}[zZhH\/]([\s\S]{11,})/.exec(body);
+  if (cpTs) {
+    const pos = parseCompressed(cpTs[1]);
+    if (pos) return pos;
+  }
+  // 5. Mic-E: body starts with ` ' 0x1c 0x1d; lat encoded in destination field
+  if (destCall) {
+    const pos = parseMicE(destCall, body);
+    if (pos) return pos;
   }
   return null;
 }
@@ -165,6 +290,12 @@ function processLine(line) {
   const fromCall = header.slice(0, gi).toUpperCase().trim();
   if (!fromCall) return;
 
+  // Extract destination callsign (needed for Mic-E decoding)
+  const pathStart = header.indexOf(',', gi);
+  const destRaw   = header.slice(gi + 1, pathStart > 0 ? pathStart : undefined).toUpperCase().trim();
+  const destSsid  = destRaw.indexOf('-');
+  const destCall  = (destSsid > 0 ? destRaw.slice(0, destSsid) : destRaw);
+
   // APRS message packet — check before position parsing
   const aprsMsg = parseAprsMessage(body);
   if (aprsMsg) {
@@ -189,12 +320,12 @@ function processLine(line) {
     return; // message packets never carry position data
   }
 
-  const pos = parsePosition(body);
+  const pos = parsePosition(body, destCall);
   if (!pos) return;
 
-  // Altitude: APRS data extension A=XXXXXX (feet per spec)
+  // Altitude: prefer value decoded from compressed/Mic-E; fall back to A=XXXXXX comment field
   const altMatch = /\bA=(\d{1,6})\b/.exec(body);
-  const altitude = altMatch ? inferAltitudeMeters(parseInt(altMatch[1]), fromCall) : null;
+  const altitude = pos.altitude ?? (altMatch ? inferAltitudeMeters(parseInt(altMatch[1]), fromCall) : null);
 
   // Battery voltage: patterns like 3.7V, 12.5V, 4.18V in the comment/status text
   const voltMatch = /\b(\d{1,2}\.\d{1,2})V\b/i.exec(body);
@@ -202,8 +333,10 @@ function processLine(line) {
 
   logger.log('aprs', 'info',
     `position from ${fromCall} (${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)})` +
-    (altitude != null ? ` alt=${Math.round(altitude)}m` : '') +
-    (voltage  != null ? ` batt=${voltage}V` : ''));
+    (pos.speed   != null ? ` spd=${(pos.speed * 1.944).toFixed(1)}kt` : '') +
+    (pos.heading != null ? ` hdg=${pos.heading}°` : '') +
+    (altitude    != null ? ` alt=${Math.round(altitude)}m` : '') +
+    (voltage     != null ? ` batt=${voltage}V` : ''));
 
   const ts = Math.floor(Date.now() / 1000);
   try {
@@ -215,8 +348,8 @@ function processLine(line) {
       lat: pos.lat,
       lon: pos.lon,
       altitude,
-      speed: null,
-      heading: null,
+      speed:   pos.speed,
+      heading: pos.heading,
       battery: null,
       snr: null,
       rssi: null,
