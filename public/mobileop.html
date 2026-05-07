@@ -17,18 +17,16 @@
   
   Key Features:
   - WebSocket real-time participant position updates and status changes
-  - Station geofence detection: Auto-log participants entering/exiting assigned station
+  - Manual participant check-in via BIB number search (ARRIVE / DEPART / DNF)
   - Leaflet map with custom participant icons colored by heat
   - Interactive leaderboard: tap to select participants, view details
-  - Log viewer: Real-time race event stream
+  - Log viewer: Real-time station event stream
   - Map layer selection: Topo, satellite, street, dark basemaps
   - Responsive design: Automatically switches layout on viewport change
-  
+
   Key Algorithms:
-  - Marker clustering for dense participant areas
-  - Geofence detection: Circle radius around station coordinates vs participant position
-  - Leaderboard sorting: Position-based (course progress) with distance calculation
-  - Map updates: WebSocket push (rt:participant:update) triggers marker re-render
+  - Leaderboard sorting: Status-priority then BIB number
+  - Map updates: WebSocket push triggers marker re-render
   
   Responsive Breakpoints:
   - Mobile (≤700px): Vertical layout with bottom tabs, stacked topbar
