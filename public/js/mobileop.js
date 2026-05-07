@@ -5,6 +5,14 @@ let participants = [], heats = [], stations = [], messages = [];
 let selectedParticipant = null;
 let map, markersLayer, stationsLayer;
 let fmt24 = true;
+let baseTiles = {}, currentBaseLayer = null;
+
+const BASE_LAYERS = {
+  'Topo':      { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',        opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
+  'Satellite': { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
+  'Street':    { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                                              opts: { maxZoom: 19, attribution: '© OSM' } },
+  'Dark':      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',                                  opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© CartoDB' } },
+};
 
 const STATUS_COLORS = { dns: '#484f58', active: '#58a6ff', dnf: '#f78166', finished: '#3fb950' };
 const EVENT_COLORS  = {
@@ -15,6 +23,16 @@ const EVENT_COLORS  = {
 
 async function init() {
   RT.applyTheme();
+
+  // Populate theme selector
+  const themeSel = document.getElementById('mo-theme-sel');
+  const savedTheme = localStorage.getItem('rt-theme') || 'dark';
+  RT.THEMES.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id; opt.textContent = t.label; opt.selected = t.id === savedTheme;
+    themeSel.appendChild(opt);
+  });
+  themeSel.onchange = () => RT.applyTheme(themeSel.value);
 
   const user = await RT.requireLogin(['operator', 'station']);
   if (!user) return;
@@ -94,9 +112,7 @@ async function assignStation(station) {
   currentStation = station;
   sessionStorage.setItem(`mo-station-${raceId}`, station.id);
 
-  const badge = document.getElementById('mo-station-badge');
-  badge.textContent = station.name;
-  badge.classList.remove('hidden');
+  document.getElementById('mo-station-badge').textContent = station.name;
   document.getElementById('mo-no-station').classList.add('hidden');
 
   // Register station on the server (callsign matching happens here)
@@ -105,11 +121,20 @@ async function assignStation(station) {
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
+function setBaseLayer(name) {
+  if (currentBaseLayer) map.removeLayer(currentBaseLayer);
+  currentBaseLayer = baseTiles[name] || baseTiles['Street'];
+  currentBaseLayer.addTo(map);
+  const sel = document.getElementById('mo-base-layer-sel');
+  if (sel) sel.value = name;
+}
+
 function initMap() {
   map = L.map('mo-map', { zoomControl: true });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap', maxZoom: 18,
-  }).addTo(map);
+  for (const [name, cfg] of Object.entries(BASE_LAYERS)) {
+    baseTiles[name] = L.tileLayer(cfg.url, cfg.opts);
+  }
+  setBaseLayer('Street');
 
   markersLayer  = L.layerGroup().addTo(map);
   stationsLayer = L.layerGroup().addTo(map);

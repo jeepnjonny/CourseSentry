@@ -403,10 +403,11 @@ function setSort(key) {
   renderLeaderboard();
 }
 
-function toggleView() {
-  mapMode = !mapMode;
+function switchTab(name) {
+  mapMode = name === 'map';
   document.body.classList.toggle('lb-mode', !mapMode);
-  document.getElementById('vw-toggle-btn').textContent = mapMode ? 'LEADERBOARD' : 'MAP';
+  document.querySelectorAll('.vt-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  if (mapMode) setTimeout(() => leafletMap?.invalidateSize(), 50);
 }
 
 function startClock() {
@@ -420,5 +421,5 @@ function startClock() {
 }
 
 init();
-return { setSort, toggleView, setViewerBaseLayer, setViewerWeatherOpacity };
+return { setSort, switchTab, setViewerBaseLayer, setViewerWeatherOpacity };
 })();

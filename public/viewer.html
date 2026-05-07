@@ -71,17 +71,26 @@
   }
   .v-lb-row.alert-row { animation: blink 1.2s infinite; }
 
-  /* ── Mobile: stack map & leaderboard ── */
-  #view-toggle { display: flex; }
+  /* ── Bottom tab bar (mobile only) ── */
+  #viewer-tabbar { display: none; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+  .vt-tab {
+    flex: 1; padding: 10px 4px; text-align: center;
+    font-size: 11px; letter-spacing: 1px; color: var(--text3);
+    background: none; border: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    transition: color 0.15s;
+  }
+  .vt-tab-icon { font-size: 18px; line-height: 1; }
+  .vt-tab.active { color: var(--accent); }
 
   @media (min-width: 701px) {
     #viewer-lb-wrap { display: flex !important; }
-    #view-toggle { display: none; }
     #viewer-topbar h1 { display: block; }
   }
 
   @media (max-width: 700px) {
     #viewer-topbar h1 { display: none; }
+    #viewer-tabbar { display: flex; }
     #viewer-lb-wrap { display: none; width: 100%; border-left: none; flex-shrink: unset; }
     body.lb-mode #viewer-map-wrap { display: none; }
     body.lb-mode #viewer-lb-wrap { display: flex; width: 100%; }
@@ -133,9 +142,6 @@
       <option value="Street">Street</option>
       <option value="Dark">Dark</option>
     </select>
-    <div id="view-toggle">
-      <button onclick="VW.toggleView()" id="vw-toggle-btn">LEADERBOARD</button>
-    </div>
   </div>
 </div>
 <div id="viewer-main">
@@ -156,6 +162,14 @@
     </div>
     <div id="viewer-lb-body"></div>
   </div>
+</div>
+<div id="viewer-tabbar">
+  <button class="vt-tab active" data-tab="map" onclick="VW.switchTab('map')">
+    <span class="vt-tab-icon">&#x1F5FA;</span>MAP
+  </button>
+  <button class="vt-tab" data-tab="lb" onclick="VW.switchTab('lb')">
+    <span class="vt-tab-icon">&#x1F3C5;</span>LEADERBOARD
+  </button>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="js/common.js"></script>
