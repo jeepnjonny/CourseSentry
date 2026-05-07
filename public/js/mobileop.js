@@ -5,7 +5,7 @@ let participants = [], heats = [], stations = [], messages = [], personnel = [],
 let me = null; // current logged-in user, set in init()
 let selectedParticipant = null;
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
-let fmt24 = true;
+let fmt24 = false;
 let baseTiles = {}, currentBaseLayer = null;
 let clockInterval = null;
 let sortBy = 'position';
@@ -218,6 +218,7 @@ function handleWS(msg) {
     participants = msg.data.participants || [];
     heats        = msg.data.heats || [];
     onlineUsers  = msg.data.onlineUsers || [];
+    if (msg.data.race) fmt24 = msg.data.race.time_format === '24h';
     // Seed _lastStation from server-supplied field
     participants.forEach(p => { p._lastStation = p.last_station_name || null; });
     if (msg.data.stations?.length) {
@@ -265,6 +266,11 @@ function handleWS(msg) {
     }
     if (currentStation && ev.station_id === currentStation.id) {
       prependEventRow(ev);
+    }
+  } else if (msg.type === 'race_update') {
+    if (msg.data?.id === race?.id) {
+      race = msg.data;
+      fmt24 = race.time_format === '24h';
     }
   } else if (msg.type === 'message') {
     const isNew = !messages.find(m => m.id === msg.data.id);
