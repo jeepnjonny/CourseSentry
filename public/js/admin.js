@@ -649,14 +649,19 @@ async function loadAssignedCourse(courseId) {
     seedHtml += `<div style="margin-top:10px">
       <div style="font-size:13px;letter-spacing:1px;color:var(--text3);margin-bottom:6px">WAYPOINTS / POINTS OF INTEREST (${wpts.length})</div>
       <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:4px">
-        ${wpts.map((w, i) => `<div class="infra-row" style="gap:6px">
+        ${wpts.map((w, i) => `<div class="infra-row" style="gap:6px;flex-wrap:nowrap">
           <input type="checkbox" id="wpt-${i}" checked style="flex-shrink:0">
-          <label for="wpt-${i}" style="flex:1;font-size:16px;cursor:pointer">${w.name}</label>
-          <span class="text-dim" style="font-size:13px">${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}</span>
-          <select id="wpt-type-${i}" style="font-size:13px;padding:1px 4px">
-            <option value="aid">AID</option><option value="checkpoint">CHECK</option>
-            <option value="start">START</option><option value="finish">FINISH</option>
-            <option value="start_finish">S/F</option><option value="turnaround">TURN</option>
+          <label for="wpt-${i}" style="flex:1;font-size:16px;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</label>
+          <span class="text-dim" style="font-size:13px;flex-shrink:0;white-space:nowrap">${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}</span>
+          <select id="wpt-type-${i}" style="font-size:13px;padding:1px 4px;flex-shrink:0;width:auto">
+            <option value="aid">Aid Station</option>
+            <option value="checkpoint">Checkpoint</option>
+            <option value="start">Start</option>
+            <option value="finish">Finish</option>
+            <option value="start_finish">Start / Finish</option>
+            <option value="turnaround">Turnaround</option>
+            <option value="netcontrol">Net Control</option>
+            <option value="repeater">Repeater</option>
           </select>
         </div>`).join('')}
       </div>
@@ -760,23 +765,7 @@ function renderCourseDetail(el, course) {
         ${d.paths.map(p => `<option value="${p.index}"${p.index===d.pathIndex?' selected':''}>${p.name} (${p.pointCount} pts)</option>`).join('')}
       </select>
     </div>` : ''}
-    ${wpts.length ? `
-    <div style="margin-top:12px">
-      <div style="font-size:13px;letter-spacing:1px;color:var(--text3);margin-bottom:6px">WAYPOINTS / POINTS OF INTEREST (${wpts.length})</div>
-      <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:4px">
-        ${wpts.map((w, i) => `
-        <div class="infra-row" style="gap:6px">
-          <input type="checkbox" id="wpt-${i}" checked style="flex-shrink:0">
-          <label for="wpt-${i}" style="flex:1;font-size:16px;cursor:pointer">${w.name}</label>
-          <span class="text-dim" style="font-size:13px">${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}</span>
-          <select id="wpt-type-${i}" style="font-size:13px;padding:1px 4px">
-            <option value="aid">AID</option><option value="checkpoint">CHECK</option>
-            <option value="start">START</option><option value="finish">FINISH</option>
-            <option value="start_finish">S/F</option><option value="turnaround">TURN</option>
-          </select>
-        </div>`).join('')}
-      </div>
-    </div>` : `<div class="text-dim" style="font-size:14px;margin-top:10px">No waypoints/POIs in this file. Use the CSV library to import station coordinates.</div>`}`;
+    `;
 }
 
 
