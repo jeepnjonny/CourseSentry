@@ -269,9 +269,11 @@ app.get('/api/logs', (req, res) => {
   res.json({ ok: true, data: logger.getLogs(channel, limit ? parseInt(limit) : 500) });
 });
 
-// ── SPA fallback — send index.html for unknown routes (except /api and /view) ─
+// ── SPA fallback — send index.html for unknown routes (except /api, /view, /downloads) ─
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/view/')) return next();
+  if (req.path.startsWith('/api/') ||
+      req.path.startsWith('/view/') ||
+      req.path.startsWith('/downloads/')) return next();
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

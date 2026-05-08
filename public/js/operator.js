@@ -227,7 +227,9 @@ function _showRelayInfo() {
   fetch(dlUrl, { method: 'HEAD' }).then(r => {
     const dlBtn = msg.querySelector('#tnc-dl-btn');
     if (!dlBtn) return;
-    if (r.ok) {
+    // Treat as missing if: non-ok status, OR server returned HTML (SPA fallback / error page)
+    const ct = r.headers.get('content-type') || '';
+    if (r.ok && !ct.startsWith('text/html')) {
       dlBtn.style.display = '';
     } else {
       dlBtn.style.display = 'none';
