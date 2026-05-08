@@ -5,12 +5,12 @@
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
-    "build": "pkg main.js --targets node18-win-x64 --output ../../public/downloads/RaceTrackerTNC.exe",
-    "build:compress": "pkg main.js --targets node18-win-x64 --compress GZip --output ../../public/downloads/RaceTrackerTNC.exe"
+    "build": "pkg main.js --targets node18-win-x64 --no-bytecode --public-packages \"*\" --output ../../public/downloads/RaceTrackerTNC.exe",
+    "build:compress": "pkg main.js --targets node18-win-x64 --no-bytecode --public-packages \"*\" --compress GZip --output ../../public/downloads/RaceTrackerTNC.exe"
   },
   "pkg": {
     "assets": [
-      "node_modules/@serialport/bindings-cpp/prebuilds/**/*"
+      "node_modules/@serialport/bindings-cpp/prebuilds/win32-x64/**"
     ]
   },
   "dependencies": {

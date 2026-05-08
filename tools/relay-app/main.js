@@ -21,14 +21,37 @@ const path    = require('path');
 let SerialPort = null, WebSocket = null;
 let _startupError = null;
 
+// ── pkg: bypass node-gyp-build platform detection ─────────────────────────
+// When running as a packaged exe, detect-libc can misreport the libc family
+// (e.g. 'glibc' on win32) inside the pkg virtual snapshot, causing
+// node-gyp-build to look for a platform tag that doesn't exist.
+// Solution: intercept require('node-gyp-build') and replace it with a loader
+// that directly resolves the .node file by platform/arch path, skipping all
+// tag matching.
+if (process.pkg) {
+  const Module = require('module');
+  const _origLoad = Module._load;
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (request === 'node-gyp-build') {
+      return function directLoad(basedir) {
+        const nativePath = path.join(
+          basedir, 'prebuilds',
+          process.platform + '-' + process.arch,
+          'node.napi.node'
+        );
+        return _origLoad.call(this, nativePath, parent, isMain);
+      };
+    }
+    return _origLoad.apply(this, arguments);
+  };
+}
+
 try { ({ SerialPort } = require('serialport')); }
 catch (e) {
-  // Usually means the exe was built on a different OS and the native
-  // serialport binding doesn't match this platform's architecture.
   _startupError = `serialport native module failed to load: ${e.message}\n\n` +
-    'This copy of RaceTrackerTNC.exe was likely built on Linux and cannot run ' +
-    'on Windows.\nPlease ask the server administrator to rebuild it using the ' +
-    'GitHub Actions workflow (runs on Windows automatically).';
+    'If you are on Windows and this message persists, the exe may have been\n' +
+    'built incorrectly. Ask the server administrator to re-run the GitHub\n' +
+    'Actions "Build Windows TNC Relay App" workflow and re-download the exe.';
   console.error('[ERROR]', _startupError);
 }
 
