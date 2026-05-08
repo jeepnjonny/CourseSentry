@@ -218,12 +218,14 @@ function _initTncButton() {
 }
 
 function _showRelayInfo() {
-  const host = location.origin; // e.g. http://192.168.1.50:3000
+  // RT.BASE is '/RaceTracker/' behind nginx, or '/' when accessed directly.
+  // Use origin + BASE so links & commands work in both deployment modes.
+  const serverBase = location.origin + RT.BASE.replace(/\/$/, ''); // e.g. http://192.168.1.50/RaceTracker
   const msg  = document.createElement('div');
   msg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:16px';
 
   // Check whether the pre-built Windows exe is available for download
-  const dlUrl = `${host}/downloads/RaceTrackerTNC.exe`;
+  const dlUrl = `${serverBase}/downloads/RaceTrackerTNC.exe`;
   fetch(dlUrl, { method: 'HEAD' }).then(r => {
     const dlBtn = msg.querySelector('#tnc-dl-btn');
     if (!dlBtn) return;
@@ -276,7 +278,7 @@ function _showRelayInfo() {
           <span style="color:var(--text3)"># Install once</span><br>
           cd tools &amp;&amp; npm install<br><br>
           <span style="color:var(--text3)"># Run</span><br>
-          node tnc-relay.js --server ${host} --user operator --pass yourpassword --port COM3
+          node tnc-relay.js --server ${serverBase} --user operator --pass yourpassword --port COM3
         </div>
         <p style="color:var(--text3);margin:0;font-size:11.5px">
           Run <code style="color:var(--accent)">node tnc-relay.js --list</code> to list available serial ports.
