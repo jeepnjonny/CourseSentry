@@ -2,10 +2,9 @@
 
 /**
  * Station routes for a race.
- * Includes creation, updating, deletion, CSV import, and route-based ordering.
+ * Includes creation, updating, deletion, and route-based ordering.
  */
 const express = require('express');
-const { parse: csvParse } = require('csv-parse/sync');
 const fs = require('fs');
 const db = require('../db');
 const geo = require('../geo');
@@ -184,62 +183,6 @@ router.post('/seed', requireRole('admin'), (req, res) => {
   reorderStations(req.params.raceId);
   const stations = db.prepare('SELECT * FROM stations WHERE race_id = ? ORDER BY course_order').all(req.params.raceId);
   res.json({ ok: true, data: stations });
-});
-
-router.post('/import-from-lib', requireRole('admin'), (req, res) => {
-  const { csv_file_id } = req.body;
-  if (!csv_file_id) {
-    return res.status(400).json({ ok: false, error: 'csv_file_id required' });
-  }
-
-  const csvFile = db.prepare('SELECT * FROM csv_files WHERE id = ?').get(csv_file_id);
-  if (!csvFile) {
-    return res.status(404).json({ ok: false, error: 'CSV file not found' });
-  }
-
-  try {
-    const csv = fs.readFileSync(csvFile.file_path, 'utf8');
-    const rows = csvParse(csv, { columns: true, skip_empty_lines: true, trim: true });
-    const insert = db.prepare('INSERT INTO stations (race_id, name, lat, lon, type, cutoff_time) VALUES (?, ?, ?, ?, ?, ?)');
-
-    const tx = db.transaction(() => {
-      for (const row of rows) {
-        insert.run(req.params.raceId, row.name, parseFloat(row.lat), parseFloat(row.lon), row.type || 'aid', row.cutoff_time || null);
-      }
-    });
-
-    tx();
-    reorderStations(req.params.raceId);
-    const stations = db.prepare('SELECT * FROM stations WHERE race_id = ? ORDER BY course_order').all(req.params.raceId);
-    res.json({ ok: true, data: stations });
-  } catch (error) {
-    res.status(400).json({ ok: false, error: error.message });
-  }
-});
-
-router.post('/import', requireRole('admin', 'operator'), (req, res) => {
-  const { csv } = req.body;
-  if (!csv) {
-    return res.status(400).json({ ok: false, error: 'csv body required' });
-  }
-
-  try {
-    const rows = csvParse(csv, { columns: true, skip_empty_lines: true, trim: true });
-    const insert = db.prepare('INSERT OR REPLACE INTO stations (race_id, name, lat, lon, type, cutoff_time) VALUES (?, ?, ?, ?, ?, ?)');
-
-    const tx = db.transaction(() => {
-      for (const row of rows) {
-        insert.run(req.params.raceId, row.name, parseFloat(row.lat), parseFloat(row.lon), row.type || 'aid', row.cutoff_time || null);
-      }
-    });
-
-    tx();
-    reorderStations(req.params.raceId);
-    const stations = db.prepare('SELECT * FROM stations WHERE race_id = ? ORDER BY course_order').all(req.params.raceId);
-    res.json({ ok: true, data: stations });
-  } catch (error) {
-    res.status(400).json({ ok: false, error: error.message });
-  }
 });
 
 module.exports = router;

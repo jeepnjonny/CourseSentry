@@ -130,7 +130,6 @@ app.use('/api/auth',      require('./src/routes/auth'));
 app.use('/api/users',     require('./src/routes/users'));
 app.use('/api/races',     require('./src/routes/races'));
 app.use('/api/courses',   require('./src/routes/courses'));
-app.use('/api/csv-files', require('./src/routes/csv-files'));
 app.use('/api/tiles',     require('./src/routes/tiles'));
 
 // Race-scoped routes

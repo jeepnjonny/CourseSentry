@@ -488,7 +488,6 @@ async function deleteClass(id) {
 
 // ── Course File Library ───────────────────────────────────────────────────────
 let courseFiles = [], selectedCourseId = null;
-let csvFilesList = [], selectedCsvId = null;
 let courseParseData = null; // { paths, points, trackPoints, totalDistance, pathIndex }
 let _courseTabContext = 'global'; // 'global' | 'race'
 
@@ -515,27 +514,6 @@ function renderCoursesTab() {
         </div>
       </div>
     </div>
-  </div>
-  <div style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:12px;align-items:start;margin-top:12px">
-    <div>
-      <div class="card" style="margin-bottom:0;overflow:hidden">
-        <h3>STATION CSV LIBRARY</h3>
-        <div style="margin-bottom:8px">
-          <div class="upload-zone" onclick="document.getElementById('csv-lib-input').click()" style="padding:8px;cursor:pointer">
-            <span style="font-size:14px">&#8593; Upload CSV</span>
-            <input type="file" id="csv-lib-input" accept=".csv" style="display:none" onchange="uploadCsvFile(this)">
-          </div>
-        </div>
-        <div id="csv-lib-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
-      </div>
-    </div>
-    <div id="csv-detail-panel">
-      <div class="card" style="margin-bottom:0">
-        <div id="csv-detail-inner" style="color:var(--text3);font-size:16px;padding:20px;text-align:center">
-          Select a CSV file to preview
-        </div>
-      </div>
-    </div>
   </div>`;
 }
 
@@ -543,7 +521,7 @@ async function bindCoursesTab() {
   _courseTabContext = 'global';
   selectedCourseId = null;
   courseParseData = null;
-  await Promise.all([loadCourseFiles(), loadCsvLibFiles()]);
+  await loadCourseFiles();
 }
 
 function renderOfflineMapsStatus(race) {
@@ -586,18 +564,6 @@ function renderCourseTab() {
     <h3>RACE STATIONS</h3>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="primary" onclick="openStationModal()">+ ADD</button>
-      <button onclick="showInlineCsvImport()">CSV IMPORT</button>
-    </div>
-    <div id="inline-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px">
-      <div class="text-dim" style="font-size:14px;margin-bottom:6px">Columns: name, lat, lon, type (start/finish/aid/checkpoint), cutoff_time</div>
-      <div class="upload-zone" onclick="document.getElementById('inline-csv-input').click()" style="padding:8px">
-        <div id="inline-csv-label">&#8593; Select CSV file</div>
-        <input type="file" id="inline-csv-input" accept=".csv" style="display:none" onchange="inlineCsvSelected(this)">
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="primary" id="inline-csv-btn" disabled onclick="importStationsCsv()">IMPORT</button>
-        <button onclick="document.getElementById('inline-csv-panel').classList.add('hidden')">CANCEL</button>
-      </div>
     </div>
     <div id="stations-list"></div>
   </div>`;
@@ -890,103 +856,8 @@ async function seedWaypointsToRace() {
   } else RT.toast(res.error, 'warn');
 }
 
-// ── CSV file library ──────────────────────────────────────────────────────────
-async function loadCsvLibFiles() {
-  const res = await RT.get('/api/csv-files');
-  csvFilesList = res.ok ? res.data : [];
-  renderCsvLibList();
-}
-
-function renderCsvLibList() {
-  const el = document.getElementById('csv-lib-list');
-  if (!el) return;
-  if (!csvFilesList.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No CSV files uploaded yet.</div>'; return; }
-  el.style.maxHeight = '360px';
-  el.style.overflowY = 'auto';
-  el.innerHTML = csvFilesList.map(f => `
-    <div class="infra-row" style="cursor:pointer;border-radius:4px;min-width:0;${f.id===selectedCsvId?'background:var(--surface3,#161b22);':''}" onclick="selectCsvFile(${f.id})">
-      <span title="${f.name}" style="flex:1;font-size:16px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${f.name}</span>
-      <button style="font-size:13px;padding:2px 6px;flex-shrink:0" onclick="event.stopPropagation();renameCsvFile(${f.id})">REN</button>
-      <button class="danger" style="font-size:13px;padding:2px 6px;flex-shrink:0" onclick="event.stopPropagation();deleteCsvFile(${f.id})">DEL</button>
-    </div>`).join('');
-}
-
-async function selectCsvFile(id) {
-  selectedCsvId = id;
-  renderCsvLibList();
-  const el = document.getElementById('csv-detail-inner');
-  el.innerHTML = '<div class="text-dim" style="padding:20px;text-align:center;font-size:16px">Loading...</div>';
-  const res = await RT.get(`/api/csv-files/${id}/preview`);
-  if (!res.ok) { el.innerHTML = `<div class="text-dim" style="padding:20px;text-align:center;font-size:16px">Error: ${res.error}</div>`; return; }
-  const { lines, total } = res.data;
-  const raceOpts = races.map(r => `<option value="${r.id}"${r.id===selectedRaceId?' selected':''}>${r.name}</option>`).join('');
-  el.innerHTML = `
-    <div style="font-size:17px;font-weight:bold;color:var(--text);margin-bottom:8px">${csvFilesList.find(f=>f.id===id)?.name} <span class="text-dim" style="font-size:14px">(${total} rows)</span></div>
-    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:4px">
-      <table class="data-table" style="margin:0">
-        <tbody>${lines.map((l, i) => `<tr style="${i===0?'background:var(--surface2)':''}"><td style="font-size:14px;white-space:nowrap">${l.split(',').join('</td><td style="font-size:14px;white-space:nowrap">')}</td></tr>`).join('')}</tbody>
-      </table>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-      <label style="font-size:14px;color:var(--text3)">IMPORT TO RACE:</label>
-      <select id="csv-import-race-sel" style="flex:1">${raceOpts}</select>
-      <button class="primary" onclick="importCsvFromLibrary(${id})" style="font-size:13px;padding:4px 10px">IMPORT STATIONS</button>
-    </div>`;
-}
-
-async function uploadCsvFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const form = new FormData();
-  form.append('csv', file);
-  const res = await fetch(RT.BASE + 'api/csv-files/upload', { method: 'POST', body: form });
-  const json = await res.json();
-  if (json.ok) {
-    RT.toast(`Uploaded: ${file.name}`, 'ok');
-    await loadCsvLibFiles();
-    selectCsvFile(json.data.id);
-  } else RT.toast(json.error || 'Upload failed', 'warn');
-  input.value = '';
-}
-
-async function renameCsvFile(id) {
-  const f = csvFilesList.find(x => x.id === id);
-  const name = prompt('Rename CSV file:', f?.name || '');
-  if (!name || name === f?.name) return;
-  await RT.put(`/api/csv-files/${id}`, { name });
-  await loadCsvLibFiles();
-  if (selectedCsvId === id) await selectCsvFile(id);
-}
-
-async function deleteCsvFile(id) {
-  await RT.del(`/api/csv-files/${id}`);
-  if (selectedCsvId === id) {
-    selectedCsvId = null;
-    const el = document.getElementById('csv-detail-inner');
-    if (el) el.innerHTML = '<div class="text-dim" style="padding:20px;text-align:center;font-size:16px">Select a CSV file to preview</div>';
-  }
-  await loadCsvLibFiles();
-  RT.toast('CSV file deleted', 'ok');
-}
-
-async function importCsvFromLibrary(fileId) {
-  const raceId = parseInt(document.getElementById('csv-import-race-sel').value);
-  const race = races.find(r => r.id === raceId);
-  if (!confirm(`Import stations from CSV into "${race?.name}"? Existing stations are kept.`)) return;
-  const prevRes = await RT.get(`/api/csv-files/${fileId}/preview`);
-  // We need the full file — read it from the server via the import endpoint
-  // The import endpoint accepts { csv: content } but we stored the file server-side
-  // Use a multipart workaround: fetch the file content via the server
-  const res = await RT.post(`/api/races/${raceId}/stations/import-from-lib`, { csv_file_id: fileId });
-  if (res.ok) {
-    RT.toast(`Imported ${res.data.length} stations`, 'ok');
-    selectedRaceId = raceId;
-    await loadStations();
-  } else RT.toast(res.error, 'warn');
-}
-
-// ── Race stations (inline management) ────────────────────────────────────────
-let stations = [], csvInlineContent = '';
+// ── Race stations ─────────────────────────────────────────────────────────────
+let stations = [];
 
 async function loadStations() {
   if (!selectedRaceId) return;
@@ -1016,7 +887,7 @@ function stationWarningHtml() {
 function renderStationsList() {
   const el = document.getElementById('stations-list');
   if (!el) return;
-  if (!stations.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No stations yet. Seed from a course file above, import a CSV, or add manually.</div>'; return; }
+  if (!stations.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No stations yet. Seed from a course file above, or add manually.</div>'; return; }
   el.innerHTML = stationWarningHtml() + `<table class="data-table"><thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>LAT</th><th>LON</th><th>CUTOFF</th><th></th></tr></thead><tbody>
     ${stations.map((s, i) => `<tr>
       <td class="text-dim">${i + 1}</td>
@@ -1033,34 +904,6 @@ function renderStationsList() {
   </tbody></table>`;
 }
 
-function showInlineCsvImport() {
-  csvInlineContent = '';
-  document.getElementById('inline-csv-label').textContent = '↑ Select CSV file';
-  document.getElementById('inline-csv-btn').disabled = true;
-  document.getElementById('inline-csv-panel').classList.remove('hidden');
-}
-
-function inlineCsvSelected(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    csvInlineContent = e.target.result;
-    document.getElementById('inline-csv-label').textContent = `✓ ${file.name}`;
-    document.getElementById('inline-csv-btn').disabled = false;
-  };
-  reader.readAsText(file);
-}
-
-async function importStationsCsv() {
-  if (!csvInlineContent) return;
-  const res = await RT.post(`/api/races/${selectedRaceId}/stations/import`, { csv: csvInlineContent });
-  if (res.ok) {
-    RT.toast('Stations imported', 'ok');
-    document.getElementById('inline-csv-panel').classList.add('hidden');
-    await loadStations();
-  } else RT.toast(res.error, 'warn');
-}
 
 let editingStationId = null;
 
