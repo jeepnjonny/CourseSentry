@@ -471,7 +471,7 @@ input[type=password]{letter-spacing:.1em}
   <h2>TNC Serial Port</h2>
   <div class="row">
     <div>
-      <label>COM Port</label>
+      <label>COM Port <small style="color:#4a5a80">(USB or Bluetooth SPP)</small></label>
       <select id="comport"><option value="">— loading… —</option></select>
     </div>
     <div class="shrink">

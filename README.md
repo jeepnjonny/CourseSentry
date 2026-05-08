@@ -116,6 +116,37 @@ The server subscribes to `msh/{region}/2/json/{channel}/#` and `msh/{region}/2/e
 
 ---
 
+## Optional TNC relay tools
+
+RaceTracker now includes optional relay utilities for bridging a serial KISS TNC into the RaceTracker server.
+
+- `tools/tnc-relay.js` — command-line relay agent that connects a KISS serial TNC to RaceTracker over HTTP/WebSocket.
+- `tools/relay-app/main.js` — GUI launcher intended for packaging as a self-contained Windows relay app.
+- `tools/package.json` — defines the `racetracker-tnc-relay` utility package and its `start` script.
+
+Install the relay tools when needed:
+
+```bash
+cd tools
+npm install
+```
+
+Run the command-line relay:
+
+```bash
+node tnc-relay.js --server http://<host>:3000 --user operator --pass secret --port COM3
+```
+
+Build the Windows GUI relay app from `tools/relay-app` if you want a packaged local executable:
+
+```bash
+cd tools/relay-app
+npm install
+npm run build
+```
+
+---
+
 ## Data directory
 
 ```
