@@ -1,0 +1,23 @@
+{
+  "name": "racetracker-tnc-relay-app",
+  "version": "1.0.0",
+  "description": "RaceTracker TNC Relay — self-contained GUI application",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "build": "pkg main.js --targets node18-win-x64 --output ../../public/downloads/RaceTrackerTNC.exe",
+    "build:compress": "pkg main.js --targets node18-win-x64 --compress GZip --output ../../public/downloads/RaceTrackerTNC.exe"
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/@serialport/bindings-cpp/prebuilds/**/*"
+    ]
+  },
+  "dependencies": {
+    "serialport": "^12.0.0",
+    "ws": "^8.0.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

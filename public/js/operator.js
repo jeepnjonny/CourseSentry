@@ -179,21 +179,32 @@ function handleInit(data) {
 function _initTncButton() {
   const btn  = document.getElementById('tnc-btn');
   const pill = document.getElementById('tnc-pill');
-  if (!btn || !pill) return;
-  if (!KissTnc.isSupported()) return; // WebSerial not available in this browser
-  btn.style.display = '';             // reveal button only on supported browsers
+  if (!btn) return;
 
-  KissTnc.onStatus(({ connected, rxCount, txCount, portInfo }) => {
+  if (!KissTnc.isSupported()) {
+    // WebSerial unavailable (HTTP non-localhost, Firefox, Safari)
+    // Show an info button explaining the relay agent instead
+    btn.textContent    = 'TNC ⓘ';
+    btn.style.display  = '';
+    btn.style.opacity  = '0.65';
+    btn.title = 'WebSerial requires HTTPS. Click for relay agent instructions.';
+    btn.onclick = _showRelayInfo;
+    return;
+  }
+
+  btn.style.display = ''; // reveal for supported browsers
+
+  KissTnc.onStatus(({ connected, rxCount, txCount }) => {
     tncConnected = connected;
-    btn.textContent = connected ? 'DISCONNECT TNC' : 'CONNECT TNC';
-    btn.style.background = connected ? 'rgba(63,185,80,.18)' : '';
+    btn.textContent   = connected ? 'DISCONNECT TNC' : 'CONNECT TNC';
+    btn.style.background  = connected ? 'rgba(63,185,80,.18)' : '';
     btn.style.borderColor = connected ? '#3fb950' : '';
-    btn.style.color = connected ? '#3fb950' : '';
+    btn.style.color       = connected ? '#3fb950' : '';
+    btn.onclick = OP.toggleTnc;
 
     if (connected) {
       pill.style.display = '';
       _updateTncPill(rxCount, txCount);
-      // Notify server that this browser now has a TNC
       RT.wsSend({ type: 'tnc_connect' });
     } else {
       pill.style.display = 'none';
@@ -202,9 +213,85 @@ function _initTncButton() {
   });
 
   KissTnc.onFrame(({ from, to, via, text }) => {
-    // Forward decoded APRS frame to server for processing and route table update
     RT.wsSend({ type: 'local_aprs_rx', data: { from, to, via, text } });
   });
+}
+
+function _showRelayInfo() {
+  const host = location.origin; // e.g. http://192.168.1.50:3000
+  const msg  = document.createElement('div');
+  msg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:16px';
+
+  // Check whether the pre-built Windows exe is available for download
+  const dlUrl = `${host}/downloads/RaceTrackerTNC.exe`;
+  fetch(dlUrl, { method: 'HEAD' }).then(r => {
+    const dlBtn = msg.querySelector('#tnc-dl-btn');
+    if (!dlBtn) return;
+    if (r.ok) {
+      dlBtn.style.display = '';
+    } else {
+      dlBtn.style.display = 'none';
+      msg.querySelector('#tnc-dl-note').style.display = '';
+    }
+  }).catch(() => {
+    const dlBtn = msg.querySelector('#tnc-dl-btn');
+    if (dlBtn) { dlBtn.style.display = 'none'; }
+    const note = msg.querySelector('#tnc-dl-note');
+    if (note) note.style.display = '';
+  });
+
+  msg.innerHTML = `
+    <div style="background:var(--surface1);border:1px solid var(--border);border-radius:8px;padding:24px;max-width:560px;width:100%;font-size:13px;line-height:1.6">
+      <div style="font-size:15px;font-weight:600;margin-bottom:12px;color:var(--text1)">Local TNC — Relay Required</div>
+      <p style="color:var(--text2);margin:0 0 14px">
+        WebSerial requires HTTPS or localhost. Since this server is on plain HTTP,
+        use the <strong>TNC Relay</strong> — it runs on your PC, opens a setup window
+        in your browser, and bridges your serial TNC to this server automatically.
+      </p>
+
+      <!-- Windows app download -->
+      <div style="background:var(--surface2);border-radius:6px;padding:14px;margin-bottom:14px">
+        <div style="font-weight:600;color:var(--text1);margin-bottom:6px">&#x1F4E5; Windows App (recommended)</div>
+        <p style="color:var(--text3);font-size:12px;margin:0 0 10px">
+          Self-contained — no Node.js required. Double-click to run, fill in the
+          connection details, click Connect. Config is saved for next time.
+        </p>
+        <a id="tnc-dl-btn" href="${dlUrl}" download="RaceTrackerTNC.exe"
+           style="display:inline-block;background:var(--accent);color:#fff;text-decoration:none;
+                  padding:8px 18px;border-radius:4px;font-weight:600;font-size:13px">
+          Download RaceTrackerTNC.exe
+        </a>
+        <p id="tnc-dl-note" style="display:none;color:var(--text3);font-size:11px;margin:6px 0 0">
+          &#x26A0;&#xFE0F; Exe not yet built. Ask your server administrator to run
+          <code>cd tools/relay-app &amp;&amp; npm install &amp;&amp; npm run build</code>
+          then refresh this page.
+        </p>
+      </div>
+
+      <!-- CLI fallback -->
+      <div style="background:var(--surface2);border-radius:6px;padding:14px;margin-bottom:14px">
+        <div style="font-weight:600;color:var(--text1);margin-bottom:6px">&#x1F5A5; Command Line (requires Node.js)</div>
+        <div style="background:var(--surface0,#0a0e1a);border-radius:4px;padding:10px 14px;font-family:monospace;font-size:11.5px;color:var(--accent);margin-bottom:8px">
+          <span style="color:var(--text3)"># Install once</span><br>
+          cd tools &amp;&amp; npm install<br><br>
+          <span style="color:var(--text3)"># Run</span><br>
+          node tnc-relay.js --server ${host} --user operator --pass yourpassword --port COM3
+        </div>
+        <p style="color:var(--text3);margin:0;font-size:11.5px">
+          Run <code>node tnc-relay.js --list</code> to list available serial ports.
+        </p>
+      </div>
+
+      <p style="color:var(--text3);margin:0 0 16px;font-size:12px">
+        &#x1F512; Alternatively, access this server over <strong>https://</strong> (self-signed
+        cert is fine) or via <code>localhost</code> to use the WebSerial button in Chrome directly.
+      </p>
+      <div style="text-align:right">
+        <button onclick="this.closest('[style*=fixed]').remove()" class="primary">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(msg);
+  msg.addEventListener('click', e => { if (e.target === msg) msg.remove(); });
 }
 
 function _updateTncPill(rx, tx) {
