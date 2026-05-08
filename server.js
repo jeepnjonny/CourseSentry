@@ -9,6 +9,7 @@ const mqttClient = require('./src/mqtt-client');
 
 const logger = require('./src/logger');
 const aprsClient = require('./src/aprs-client');
+const localTnc = require('./src/local-tnc');
 const beacon        = require('./src/beacon');
 const inreachPoller = require('./src/inreach-poller');
 const PORT = process.env.PORT || 3000;
@@ -285,6 +286,7 @@ const server = http.createServer(app);
 const wss = wsManager.init(server, sessionMiddleware);
 mqttClient.setWs(wsManager);
 aprsClient.setWs(wsManager);
+localTnc.setWs(wsManager);
 logger.setWs(wsManager);
 
 // ── Auto-connect on startup ───────────────────────────────────────────────────

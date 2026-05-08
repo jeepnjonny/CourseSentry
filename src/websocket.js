@@ -9,10 +9,13 @@
  */
 
 const WebSocket = require('ws');
-const db = require('./db');
+const crypto    = require('crypto');
+const db        = require('./db');
 
 let wss = null;
 const clients = new Set();
+let _localTnc = null; // lazy to avoid circular dep
+function _tnc() { if (!_localTnc) _localTnc = require('./local-tnc'); return _localTnc; }
 
 // raceId → Set of ws objects for non-viewer authenticated users
 const raceOnlineUsers = new Map();
@@ -73,8 +76,10 @@ function init(server, sessionMiddleware) {
         return;
       }
 
-      ws.user = user;
+      ws.id     = crypto.randomUUID();
+      ws.user   = user;
       ws.raceId = _resolveConnRaceId(user, req.url);
+      ws.tncActive = false;
       clients.add(ws);
 
       // Track online presence for authenticated (non-viewer) users
@@ -87,7 +92,26 @@ function init(server, sessionMiddleware) {
       // Send initial state (race data, participants, etc.)
       sendInit(ws, user, req.url);
 
+      // ── Client → server messages ─────────────────────────────────────────
+      ws.on('message', (raw) => {
+        let msg;
+        try { msg = JSON.parse(raw); } catch { return; }
+        const { type, data } = msg;
+
+        if (type === 'tnc_connect') {
+          // Browser has opened a TNC serial port for this race
+          _tnc().register(ws, ws.raceId);
+        } else if (type === 'tnc_disconnect') {
+          // Browser has closed its TNC serial port
+          if (ws.tncActive) { _tnc().unregister(ws.id); ws.tncActive = false; }
+        } else if (type === 'local_aprs_rx') {
+          // Browser decoded an AX.25 frame from the TNC
+          if (ws.tncActive && data) _tnc().handleIncomingFrame(ws, data);
+        }
+      });
+
       function cleanup() {
+        if (ws.tncActive) { try { _tnc().unregister(ws.id); } catch {} }
         clients.delete(ws);
         if (user.role !== 'viewer' && ws.raceId) {
           const set = raceOnlineUsers.get(ws.raceId);
@@ -197,9 +221,10 @@ function sendInit(ws, user, reqUrl) {
       classes,
       registry,
       trackPoints,
-      mqtt: mqttMod.getStatus(),
-      aprs: aprsMod.getStatus(),
-      weatherKey: (user.role !== 'viewer' || race.weather_enabled) ? (wxRow?.value || null) : null,
+      mqtt:        mqttMod.getStatus(),
+      aprs:        aprsMod.getStatus(),
+      tnc:         (user.role !== 'viewer' && raceId) ? _tnc().getStatus(raceId) : null,
+      weatherKey:  (user.role !== 'viewer' || race.weather_enabled) ? (wxRow?.value || null) : null,
       onlineUsers: (user.role !== 'viewer' && raceId) ? getOnlineUsers(raceId) : [],
     });
   } catch (e) {
@@ -231,4 +256,9 @@ function broadcastToRole(roles, msg) {
   }
 }
 
-module.exports = { init, broadcast, broadcastToRole, broadcastToRace, send, getOnlineUsers };
+function getClientById(id) {
+  for (const ws of clients) if (ws.id === id) return ws;
+  return null;
+}
+
+module.exports = { init, broadcast, broadcastToRole, broadcastToRace, send, getOnlineUsers, getClientById };

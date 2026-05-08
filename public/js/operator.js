@@ -6,6 +6,7 @@ let personnel = [], messages = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
 let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
+let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
 let wxData = null, wxError = null, wxDataTs = 0, wxForecast = null, wxAlerts = [];
@@ -15,6 +16,7 @@ let wxSetupInProgress = false;
 let sortBy = 'position', selectedPId = null, selectedStationId = null;
 let alerts = [], rightTab = 'info', leftTab = 'participants';
 let batchStationId = null;
+let _wsConn = null; // WS connection handle for client→server sends
 
 const LAYER_LEGENDS = {
 'Precipitation': { label:'PRECIP (mm/h)',    grad:'#c8e6fa,#64b4fa,#1464d2,#00be00,#fafa00,#fa8c32,#fa3232', ticks:['0.1','1','5','25','100','140'] },
@@ -48,7 +50,9 @@ async function init() {
 
   const urlRaceId = new URLSearchParams(location.search).get('race') || null;
   initMap();
-  RT.connectWS(handleWS, null, urlRaceId);
+  _wsConn = RT.connectWS(handleWS, null, urlRaceId);
+  RT.wsSend = d => _wsConn?.send(d); // expose for TNC module callbacks
+  _initTncButton();
   await loadInitialData(urlRaceId);
   startClock();
   missingCheckInterval = setInterval(checkMissing, 30000);
@@ -73,6 +77,8 @@ function handleWS(msg) {
   else if (type === 'tracker_info') handleTrackerInfo(data);
   else if (type === 'race_update') handleRaceUpdate(data);
   else if (type === 'users_online') { onlineUsers = data; renderPersonnelRecipients(); }
+  else if (type === 'tnc_status')  handleTncStatus(data);
+  else if (type === 'tnc_tx')      handleTncTx(data);
 }
 
 function handleRaceUpdate(data) {
@@ -165,6 +171,83 @@ function handleInit(data) {
   // If offline tiles are already ready, restrict selector and switch to offline URLs
   updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
+  // Reflect any TNC already active for this race (e.g. another tab on same browser)
+  if (data.tnc) handleTncStatus(data.tnc);
+}
+
+// ── Local TNC ─────────────────────────────────────────────────────────────────
+function _initTncButton() {
+  const btn  = document.getElementById('tnc-btn');
+  const pill = document.getElementById('tnc-pill');
+  if (!btn || !pill) return;
+  if (!KissTnc.isSupported()) return; // WebSerial not available in this browser
+  btn.style.display = '';             // reveal button only on supported browsers
+
+  KissTnc.onStatus(({ connected, rxCount, txCount, portInfo }) => {
+    tncConnected = connected;
+    btn.textContent = connected ? 'DISCONNECT TNC' : 'CONNECT TNC';
+    btn.style.background = connected ? 'rgba(63,185,80,.18)' : '';
+    btn.style.borderColor = connected ? '#3fb950' : '';
+    btn.style.color = connected ? '#3fb950' : '';
+
+    if (connected) {
+      pill.style.display = '';
+      _updateTncPill(rxCount, txCount);
+      // Notify server that this browser now has a TNC
+      RT.wsSend({ type: 'tnc_connect' });
+    } else {
+      pill.style.display = 'none';
+      RT.wsSend({ type: 'tnc_disconnect' });
+    }
+  });
+
+  KissTnc.onFrame(({ from, to, via, text }) => {
+    // Forward decoded APRS frame to server for processing and route table update
+    RT.wsSend({ type: 'local_aprs_rx', data: { from, to, via, text } });
+  });
+}
+
+function _updateTncPill(rx, tx) {
+  const pill = document.getElementById('tnc-pill');
+  if (!pill) return;
+  const star = tncIsPrimary ? ' ★TX' : '';
+  pill.textContent = `TNC  RX:${rx}  TX:${tx}${star}`;
+}
+
+async function toggleTnc() {
+  if (KissTnc.isConnected()) {
+    await KissTnc.disconnect();
+  } else {
+    try {
+      await KissTnc.connect(9600);
+    } catch (e) {
+      if (e.name !== 'NotFoundError') RT.toast(`TNC connect failed: ${e.message}`, 'warn');
+    }
+  }
+}
+
+function handleTncStatus(data) {
+  if (!data) return;
+  // Find if this browser's ws.id is the TX primary
+  tncIsPrimary = !!(data.clients?.some(c => c.isPrimary));
+  const pill = document.getElementById('tnc-pill');
+  if (pill && pill.style.display !== 'none') {
+    _updateTncPill(
+      data.clients?.find(c => c.isPrimary)?.rxCount ?? 0,
+      data.clients?.find(c => c.isPrimary)?.txCount ?? 0,
+    );
+  }
+}
+
+function handleTncTx({ from, to, via, text }) {
+  // Server instructed this browser to transmit a frame over RF
+  if (!KissTnc.isConnected()) {
+    RT.toast('TNC TX requested but no TNC connected', 'warn');
+    return;
+  }
+  KissTnc.transmit({ from, to, via, text }).then(ok => {
+    if (!ok) RT.toast('TNC transmit failed', 'warn');
+  });
 }
 
 async function loadInitialData(urlRaceId) {
@@ -2232,5 +2315,5 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          openEditEvent, saveEditEvent, deleteStationEvent,
          openPersonnelModal, renderPersonnelTable, editPersonnelRow, savePersonnelRow,
          addPersonnel, deletePersonnel, assignPersonnel,
-         startRace, setWeatherOpacity };
+         startRace, setWeatherOpacity, toggleTnc };
 })();

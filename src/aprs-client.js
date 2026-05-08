@@ -13,6 +13,7 @@ const net = require('net');
 const db = require('./db');
 const geo = require('./geo');
 const logger = require('./logger');
+const routeTable = require('./route-table');
 
 // ── APRS callsign validation ──────────────────────────────────────────────────
 // Matches bare callsign or callsign-SSID (1–6 alphanum chars, SSID 1–15)
@@ -349,6 +350,9 @@ function processLine(line) {
   const pos = parsePosition(body, destCall);
   if (!pos) return;
 
+  // Record that this callsign was last heard via APRS-IS
+  routeTable.update(fromCall, 'aprs_is');
+
   // Altitude: prefer value decoded from compressed/Mic-E; fall back to A=XXXXXX comment field
   const altMatch = /\bA=(\d{1,6})\b/.exec(body);
   const altitude = pos.altitude ?? (altMatch ? inferAltitudeMeters(parseInt(altMatch[1]), fromCall) : null);
@@ -666,4 +670,6 @@ function previewFilter(filterType) {
   return buildFilter(filterType);
 }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, setMessagingCallsign, getActiveCallsign };
+function isConnected() { return _connected; }
+
+module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, setMessagingCallsign, getActiveCallsign, processAprsLine: processLine };

@@ -16,6 +16,7 @@ const path = require('path');
 const db = require('./db');
 const geo = require('./geo');
 const logger = require('./logger');
+const routeTable = require('./route-table');
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let protoRoot = null;
@@ -192,6 +193,9 @@ function broadcast(type, data) {
 // Persist position, update registry, check geofences & alerts
 function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi, battery, timestamp, rfSource }) {
   if (!nodeId || isNaN(lat) || isNaN(lon)) return;
+
+  // Record routing: this node is reachable via MQTT/Meshtastic
+  routeTable.update(nodeId, 'mqtt');
 
   // Update registry — battery_level uses COALESCE so a position without battery data
   // doesn't overwrite a previously stored value from a telemetry or position packet.

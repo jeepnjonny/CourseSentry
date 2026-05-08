@@ -139,6 +139,8 @@
       <option value="osm">Street</option>
       <option value="dark">Dark</option>
     </select>
+    <div id="tnc-pill" style="display:none;font-size:12px;padding:3px 8px;border-radius:4px;background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.3);color:#58a6ff;white-space:nowrap"></div>
+    <button id="tnc-btn" style="display:none" onclick="OP.toggleTnc()">CONNECT TNC</button>
     <button onclick="OP.showViewerLink()" id="viewer-link-btn" class="hidden">VIEWER LINK</button>
     <button onclick="window.location.href=RT.BASE+'admin.html'" id="admin-btn" class="hidden">ADMIN</button>
     <button onclick="RT.logout()">LOGOUT</button>
@@ -438,6 +440,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="js/common.js"></script>
+<script src="js/kiss-tnc.js"></script>
 <script src="js/operator.js"></script>
 </body>
 </html>

@@ -395,6 +395,7 @@ try { db.prepare("ALTER TABLE personnel ADD COLUMN shape TEXT NOT NULL DEFAULT '
 try { db.prepare('ALTER TABLE participants ADD COLUMN inreach_url TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN offline_maps INTEGER NOT NULL DEFAULT 0').run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN offline_maps_status TEXT DEFAULT NULL').run(); } catch {}
+try { db.prepare("ALTER TABLE races ADD COLUMN rf_path TEXT NOT NULL DEFAULT 'WIDE1-1'").run(); } catch {}
 
 // Seed default admin on first run
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();
