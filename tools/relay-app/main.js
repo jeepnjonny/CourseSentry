@@ -18,13 +18,24 @@ const { exec } = require('child_process');
 const fs      = require('fs');
 const path    = require('path');
 
-let SerialPort, WebSocket;
-try {
-  ({ SerialPort } = require('serialport'));
-  WebSocket = require('ws');
-} catch (e) {
-  console.error('\n[ERROR] Missing dependencies. Run: npm install\n');
-  process.exit(1);
+let SerialPort = null, WebSocket = null;
+let _startupError = null;
+
+try { ({ SerialPort } = require('serialport')); }
+catch (e) {
+  // Usually means the exe was built on a different OS and the native
+  // serialport binding doesn't match this platform's architecture.
+  _startupError = `serialport native module failed to load: ${e.message}\n\n` +
+    'This copy of RaceTrackerTNC.exe was likely built on Linux and cannot run ' +
+    'on Windows.\nPlease ask the server administrator to rebuild it using the ' +
+    'GitHub Actions workflow (runs on Windows automatically).';
+  console.error('[ERROR]', _startupError);
+}
+
+try { WebSocket = require('ws'); }
+catch (e) {
+  if (!_startupError) _startupError = `ws module failed to load: ${e.message}`;
+  console.error('[ERROR] ws:', e.message);
 }
 
 // ── Config persistence ────────────────────────────────────────────────────
@@ -301,6 +312,11 @@ async function reconnectRelay(cfg) {
 }
 
 async function startRelay(cfg) {
+  if (_startupError) {
+    addLog('Cannot connect — startup error prevents operation. See log above.');
+    appState.phase = 'error';
+    return;
+  }
   if (shouldReconnect) stopRelay(); // stop any existing session
   currentConfig       = cfg;
   shouldReconnect     = true;
@@ -675,6 +691,12 @@ function findFreePort(preferred, cb) {
   s.listen(preferred, '127.0.0.1');
 }
 
+// Surface any startup error in the UI immediately (don't silently die)
+if (_startupError) {
+  appState.phase = 'error';
+  addLog('STARTUP ERROR: ' + _startupError);
+}
+
 findFreePort(9753, port => {
   server.listen(port, '127.0.0.1', () => {
     const url = `http://localhost:${port}`;
@@ -682,6 +704,7 @@ findFreePort(9753, port => {
     console.log('║   RaceTracker TNC Relay (GUI)        ║');
     console.log('╚══════════════════════════════════════╝');
     console.log(`\n  UI → ${url}\n`);
+    if (_startupError) console.error('  STARTUP ERROR — see browser UI for details\n');
     // Open browser (Windows, macOS, Linux)
     const open = process.platform === 'win32'  ? `start "" "${url}"` :
                  process.platform === 'darwin' ? `open "${url}"` :

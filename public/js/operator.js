@@ -245,49 +245,34 @@ function _showRelayInfo() {
   });
 
   msg.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;max-width:560px;width:100%;font-size:13px;line-height:1.6">
-      <div style="font-size:15px;font-weight:600;margin-bottom:12px;color:var(--text)">Local TNC — Relay Required</div>
-      <p style="color:var(--text2);margin:0 0 14px">
-        WebSerial requires HTTPS or localhost. Since this server is on plain HTTP,
-        use the <strong style="color:var(--text)">TNC Relay</strong> — it runs on your PC, opens a setup window
-        in your browser, and bridges your serial TNC to this server automatically.
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;max-width:520px;width:100%;font-size:13px;line-height:1.6">
+      <div style="font-size:15px;font-weight:600;margin-bottom:10px;color:var(--text)">&#x1F4E1; Local TNC — Relay Required</div>
+      <p style="color:var(--text2);margin:0 0 16px">
+        WebSerial requires HTTPS. Since this server is on plain HTTP, download the
+        <strong style="color:var(--text)">TNC Relay app</strong> — it runs on your
+        Windows PC, opens a setup page in your browser, and bridges your serial TNC
+        to this server.
       </p>
 
-      <!-- Windows app download -->
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:12px">
-        <div style="font-weight:600;color:var(--text);margin-bottom:6px">&#x1F4E5; Windows App <span style="font-weight:400;color:var(--text2)">(recommended — no Node.js needed)</span></div>
-        <p style="color:var(--text2);font-size:12px;margin:0 0 10px">
-          Self-contained exe — double-click to run, fill in the connection details, click Connect.
-          Config is saved for next time.
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:16px">
+        <p style="color:var(--text2);font-size:12px;margin:0 0 12px">
+          No installation or Node.js required.
+          Double-click to run &rarr; fill in server URL &amp; credentials &rarr; select COM port &rarr; Connect.
+          Settings are saved for next time.
         </p>
-        <a id="tnc-dl-btn" href="${dlUrl}" download="RaceTrackerTNC.exe"
+        <a id="tnc-dl-btn" href="${dlUrl}"
            style="display:inline-block;background:var(--accent);color:#0d1117;text-decoration:none;
-                  padding:8px 18px;border-radius:4px;font-weight:700;font-size:13px">
+                  padding:9px 20px;border-radius:4px;font-weight:700;font-size:13px">
           &#x2B07; Download RaceTrackerTNC.exe
         </a>
-        <p id="tnc-dl-note" style="display:none;color:var(--text3);font-size:11px;margin:8px 0 0">
-          &#x26A0;&#xFE0F; Not yet built. Ask your server admin to run:<br>
-          <code style="color:var(--accent)">cd tools/relay-app &amp;&amp; npm install &amp;&amp; npm run build</code>
+        <p id="tnc-dl-note" style="display:none;color:var(--accent3);font-size:12px;margin:10px 0 0">
+          &#x26A0;&#xFE0F; Windows app not yet available — contact the server administrator.
         </p>
       </div>
 
-      <!-- CLI fallback -->
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:14px;margin-bottom:12px">
-        <div style="font-weight:600;color:var(--text);margin-bottom:6px">&#x1F5A5;&#xFE0F; Command Line <span style="font-weight:400;color:var(--text2)">(requires Node.js)</span></div>
-        <div style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:10px 14px;font-family:monospace;font-size:11.5px;color:var(--accent);margin-bottom:8px;word-break:break-all">
-          <span style="color:var(--text3)"># Install once</span><br>
-          cd tools &amp;&amp; npm install<br><br>
-          <span style="color:var(--text3)"># Run</span><br>
-          node tnc-relay.js --server ${serverBase} --user operator --pass yourpassword --port COM3
-        </div>
-        <p style="color:var(--text3);margin:0;font-size:11.5px">
-          Run <code style="color:var(--accent)">node tnc-relay.js --list</code> to list available serial ports.
-        </p>
-      </div>
-
-      <p style="color:var(--text3);margin:0 0 16px;font-size:12px">
-        &#x1F512; Alternatively, access this server over <strong style="color:var(--text2)">https://</strong> (self-signed cert is fine)
-        or via <code style="color:var(--accent)">localhost</code> to enable WebSerial directly in Chrome.
+      <p style="color:var(--text3);font-size:12px;margin:0 0 16px">
+        When prompted by your browser, keep the downloaded file — Windows may warn
+        about an unsigned exe from the internet, which is expected.
       </p>
       <div style="text-align:right">
         <button onclick="this.closest('[style*=fixed]').remove()" class="primary">Close</button>

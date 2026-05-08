@@ -56,6 +56,16 @@ app.use((req, res, next) => {
 // ── Static files ─────────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── TNC relay exe — fall back to GitHub Release if not built locally ──────────
+app.get('/downloads/RaceTrackerTNC.exe', (req, res) => {
+  // express.static already handled this if the file exists; we only reach
+  // here when it doesn't.  Redirect to the latest GitHub Release asset so
+  // operators can always download even before a local build is present.
+  res.redirect(302,
+    'https://github.com/jeepnjonny/RaceTracker/releases/download/tnc-relay-latest/RaceTrackerTNC.exe'
+  );
+});
+
 // ── Viewer page (token-gated, no login) ──────────────────────────────────────
 app.get('/view/:token', (req, res) => {
   const race = db.prepare('SELECT id FROM races WHERE viewer_token=?').get(req.params.token);
