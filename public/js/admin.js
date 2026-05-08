@@ -1854,7 +1854,63 @@ function renderSettingsTab() {
       <button onclick="testWeather()" id="s-weather-test-btn">TEST KEY</button>
       <span id="s-weather-status" style="font-size:14px;color:var(--text3)"></span>
     </div>
+  </div>
+
+  <div class="card">
+    <h3>TNC RELAY APP</h3>
+    <p class="text-dim" style="font-size:14px;margin-bottom:10px">
+      Windows exe operators download to bridge a serial KISS TNC over plain HTTP.
+      Keeping a local copy allows offline / field distribution without internet access.
+    </p>
+    <div style="font-size:14px;margin-bottom:10px" id="relay-exe-status">Checking…</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="primary" onclick="syncRelayExe()" id="relay-exe-btn">DOWNLOAD FROM GITHUB</button>
+      <span id="relay-exe-msg" style="font-size:14px;color:var(--text3)"></span>
+    </div>
   </div>`;
+}
+
+async function loadRelayExeStatus() {
+  const el  = document.getElementById('relay-exe-status');
+  const btn = document.getElementById('relay-exe-btn');
+  if (!el) return;
+  try {
+    const r = await fetch(RT.BASE + 'api/admin/relay-exe/status');
+    const d = await r.json();
+    if (d.present) {
+      const mb   = (d.size / 1024 / 1024).toFixed(1);
+      const date = new Date(d.mtime).toLocaleDateString();
+      el.innerHTML = `<span style="color:var(--accent2)">&#x2713; Present</span> &nbsp;${mb} MB &nbsp;&middot;&nbsp; ${date}`;
+      if (btn) btn.textContent = 'UPDATE FROM GITHUB';
+    } else {
+      el.innerHTML = `<span style="color:var(--accent3)">&#x26A0; Not present</span> &nbsp;&mdash;&nbsp; server will redirect downloads to GitHub`;
+      if (btn) btn.textContent = 'DOWNLOAD FROM GITHUB';
+    }
+  } catch {
+    el.textContent = 'Status unavailable';
+  }
+}
+
+async function syncRelayExe() {
+  const btn = document.getElementById('relay-exe-btn');
+  const msg = document.getElementById('relay-exe-msg');
+  if (btn) { btn.disabled = true; btn.textContent = 'DOWNLOADING…'; }
+  if (msg) msg.textContent = '';
+  try {
+    const r = await fetch(RT.BASE + 'api/admin/relay-exe/sync', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      const mb = (d.size / 1024 / 1024).toFixed(1);
+      if (msg) { msg.style.color = 'var(--accent2)'; msg.textContent = `Downloaded — ${mb} MB`; }
+      loadRelayExeStatus();
+    } else {
+      if (msg) { msg.style.color = 'var(--accent3)'; msg.textContent = d.error || 'Download failed'; }
+    }
+  } catch (e) {
+    if (msg) { msg.style.color = 'var(--accent3)'; msg.textContent = e.message; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function updateMqttPortDefault() {
@@ -1891,6 +1947,7 @@ async function bindSettingsTab() {
 
   if (aprsRes.ok) updateAprsPill(aprsRes.data);
   await updateAprsFilterPreview();
+  loadRelayExeStatus();
 }
 
 async function saveMqttSettings() {
