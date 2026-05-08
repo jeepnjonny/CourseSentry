@@ -149,6 +149,20 @@ async function assignStation(station) {
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
+function updateBaseLayerSelector() {
+  const sel = document.getElementById('mo-base-layer-sel');
+  if (!sel) return;
+  const offlineOnly = !!(race?.offline_maps && race?.offline_maps_status === 'ready');
+  for (const opt of sel.options) {
+    const capable = opt.value === 'Topo' || opt.value === 'Satellite';
+    opt.hidden   = offlineOnly && !capable;
+    opt.disabled = offlineOnly && !capable;
+  }
+  if (offlineOnly && sel.value !== 'Topo' && sel.value !== 'Satellite') {
+    setBaseLayer('Topo');
+  }
+}
+
 function setBaseLayer(name) {
   if (currentBaseLayer) map.removeLayer(currentBaseLayer);
   currentBaseLayerName = name;
@@ -247,7 +261,8 @@ function handleWS(msg) {
     for (const [nodeId, pos] of Object.entries(msg.data.positions || {})) {
       updateMarker(nodeId, pos);
     }
-    // Switch to offline tile URLs if already ready
+    // Restrict selector and switch to offline URLs if already ready
+    updateBaseLayerSelector();
     if (race?.offline_maps && race?.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
   } else if (msg.type === 'position') {
     const p = participants.find(x => x.tracker_id === msg.data.nodeId);
@@ -286,6 +301,7 @@ function handleWS(msg) {
       race = msg.data;
       fmt24 = race.time_format === '24h';
       if (!wasOfflineReady && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
+      updateBaseLayerSelector();
     }
   } else if (msg.type === 'message') {
     const isNew = !messages.find(m => m.id === msg.data.id);

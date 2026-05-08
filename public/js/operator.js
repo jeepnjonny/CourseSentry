@@ -83,8 +83,9 @@ function handleRaceUpdate(data) {
   updateEndRaceBtn();
   updateStartRaceBtn();
   tickClock(); // re-evaluate freeze immediately
-  // Re-apply base layer when offline tiles finish downloading
+  // Re-apply base layer and restrict selector when offline tiles finish downloading
   if (!wasOfflineReady && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
+  updateBaseLayerSelector();
 }
 
 function updateEndRaceBtn() {
@@ -161,7 +162,8 @@ function handleInit(data) {
   checkStationWarnings();
   if (!trackPoints) loadTrackData(); // fallback API fetch if WS didn't include track
   setupWeatherLayers(data.weatherKey);
-  // If offline tiles are already ready, switch to offline URLs
+  // If offline tiles are already ready, restrict selector and switch to offline URLs
+  updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
 }
 
@@ -229,6 +231,21 @@ function initMap() {
   leafletMap.on('click', onMapClick);
   leafletMap.on('overlayadd',    e => { activeWeatherOverlays.add(e.name);    updateWeatherLegend(); setWeatherOpacity(Math.round(weatherOpacity * 100)); });
   leafletMap.on('overlayremove', e => { activeWeatherOverlays.delete(e.name); updateWeatherLegend(); });
+}
+
+function updateBaseLayerSelector() {
+  const sel = document.getElementById('base-layer-sel');
+  if (!sel) return;
+  const offlineOnly = !!(race?.offline_maps && race?.offline_maps_status === 'ready');
+  for (const opt of sel.options) {
+    const capable = opt.value === 'topo' || opt.value === 'satellite';
+    opt.hidden   = offlineOnly && !capable;
+    opt.disabled = offlineOnly && !capable;
+  }
+  // If current selection is now unavailable, switch to topo
+  if (offlineOnly && sel.value !== 'topo' && sel.value !== 'satellite') {
+    setBaseLayer('topo');
+  }
 }
 
 function setBaseLayer(name) {

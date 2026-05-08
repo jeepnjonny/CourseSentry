@@ -47,6 +47,20 @@ function initMap() {
   leafletMap.on('overlayremove', e => { activeViewerOverlays.delete(e.name); updateViewerLegend(); });
 }
 
+function updateBaseLayerSelector() {
+  const sel = document.getElementById('vw-base-layer-sel');
+  if (!sel) return;
+  const offlineOnly = !!(race?.offline_maps && race?.offline_maps_status === 'ready');
+  for (const opt of sel.options) {
+    const capable = opt.value === 'Topo' || opt.value === 'Satellite';
+    opt.hidden   = offlineOnly && !capable;
+    opt.disabled = offlineOnly && !capable;
+  }
+  if (offlineOnly && sel.value !== 'Topo' && sel.value !== 'Satellite') {
+    setViewerBaseLayer('Topo');
+  }
+}
+
 function setViewerBaseLayer(name) {
   if (currentViewerBaseLayer) leafletMap.removeLayer(currentViewerBaseLayer);
   currentViewerBaseLayerName = name;
@@ -147,6 +161,7 @@ function handleWS(msg) {
       const wasOfflineReady = race.offline_maps_status === 'ready';
       race = data;
       if (!wasOfflineReady && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
+      updateBaseLayerSelector();
     }
   }
 }
@@ -175,7 +190,8 @@ function handleInit(data) {
   renderAllMarkers();
   renderLeaderboard();
   if (race.weather_enabled) setupWeatherLayers(data.weatherKey);
-  // Switch to offline tile URLs if already ready
+  // Restrict selector and switch to offline URLs if already ready
+  updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
 }
 
