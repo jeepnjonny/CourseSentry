@@ -76,15 +76,19 @@ function configureRace(id) {
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 let _infraRefreshTimer = null;
 function handleWS(msg) {
-  if (msg.type === 'mqtt_status') updateMqttPill(msg.data);
-  if (msg.type === 'aprs_status') updateAprsPill(msg.data);
+  if (msg.type === 'mqtt_status')    updateMqttPill(msg.data);
+  if (msg.type === 'aprs_status')    updateAprsPill(msg.data);
+  if (msg.type === 'tnc_status')     updateTncLight(msg.data);
+  if (msg.type === 'inreach_status') updateInreachLight(msg.data);
   if ((msg.type === 'tracker_info' || msg.type === 'position') && currentTab === 'infra') {
     // Throttle: at most one refresh per 5 s so bursts of MQTT/APRS packets don't flood GET /api/trackers
     if (!_infraRefreshTimer) _infraRefreshTimer = setTimeout(() => { _infraRefreshTimer = null; refreshInfra(); }, 5000);
   }
   if (msg.type === 'init') {
-    if (msg.data.mqtt) updateMqttPill(msg.data.mqtt);
-    if (msg.data.aprs) updateAprsPill(msg.data.aprs);
+    if (msg.data.mqtt)    updateMqttPill(msg.data.mqtt);
+    if (msg.data.aprs)    updateAprsPill(msg.data.aprs);
+    if (msg.data.tnc)     updateTncLight(msg.data.tnc);
+    if (msg.data.inreach) updateInreachLight(msg.data.inreach);
   }
   if (msg.type === 'race_update') {
     // Update the race in memory and refresh the offline-maps status badge
@@ -107,6 +111,34 @@ function updateMqttPill(status) {
   } else {
     light.className = 'ds-light ds-light-idle';
     light.title = 'MQTT: Offline';
+  }
+}
+
+function updateTncLight(data) {
+  const light = document.getElementById('tnc-light');
+  if (!light) return;
+  const count = data?.count ?? 0;
+  if (count > 0) {
+    light.className = 'ds-light ds-light-ok';
+    light.title = `KISS TNC: ${count} client${count !== 1 ? 's' : ''} connected${data.hasPrimary ? ' · TX ready' : ''}`;
+  } else {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'KISS TNC: No client connected';
+  }
+}
+
+function updateInreachLight(status) {
+  const light = document.getElementById('inreach-light');
+  if (!light) return;
+  if (status?.active && status.count > 0) {
+    light.className = 'ds-light ds-light-ok';
+    light.title = `InReach: Polling ${status.count} feed${status.count !== 1 ? 's' : ''}`;
+  } else if (status?.active) {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'InReach: Active — no feeds configured';
+  } else {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'InReach: Inactive';
   }
 }
 

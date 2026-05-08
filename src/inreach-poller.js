@@ -17,7 +17,9 @@ const FIRST_FIRE_MS = 60 * 1000;         // 60s after startup
 // Track last-seen position timestamp per participant to skip stale re-broadcasts
 const lastSeenTs = new Map();
 
-let _timer = null;
+let _timer        = null;
+let _lastPollTime = null;   // unix seconds of most recent pollAll() start
+let _lastFeedCount = 0;     // number of inReach feeds found at last poll
 
 /**
  * Fetch URL with timeout and redirect handling.
@@ -199,6 +201,10 @@ async function pollAll() {
       AND status NOT IN ('dnf', 'finished')
   `).all(...activeRaceIds);
 
+  _lastPollTime  = Math.floor(Date.now() / 1000);
+  _lastFeedCount = participants.length;
+  wsManager.broadcast({ type: 'inreach_status', data: getStatus() });
+
   if (!participants.length) return;
 
   logger.log('inreach', 'info', `Polling ${participants.length} inReach feed(s)…`);
@@ -210,11 +216,20 @@ async function pollAll() {
   }
 }
 
+function getStatus() {
+  return {
+    active:    !!_timer,
+    count:     _lastFeedCount,
+    lastPoll:  _lastPollTime,
+  };
+}
+
 function start() {
   if (_timer) return;
   _timer = setInterval(pollAll, POLL_INTERVAL_MS);
   setTimeout(pollAll, FIRST_FIRE_MS);
   logger.log('system', 'info', 'inReach MapShare poller started (10-min interval, first poll in 60s)');
+  wsManager.broadcast({ type: 'inreach_status', data: getStatus() });
 }
 
 function stop() {
@@ -222,6 +237,7 @@ function stop() {
     clearInterval(_timer);
     _timer = null;
   }
+  wsManager.broadcast({ type: 'inreach_status', data: getStatus() });
 }
 
-module.exports = { start, stop, pollAll };
+module.exports = { start, stop, pollAll, getStatus };

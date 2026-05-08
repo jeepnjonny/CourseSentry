@@ -116,12 +116,13 @@
   <h1>&#9654; RaceTracker</h1>
   <!-- Race pill shows selected race name or "NO RACE" if not started -->
   <div class="pill pill-idle" id="race-pill">NO RACE</div>
-  <!-- Datasource status lights: MQTT (Meshtastic), APRS, and reserved for future datasources -->
+  <!-- Datasource status lights: MQTT, APRS, KISS TNC client, InReach, Client Mesh (reserved) -->
   <div class="ds-lights">
-    <span class="ds-light ds-light-idle" id="mqtt-light"  title="MQTT: Offline"></span>
-    <span class="ds-light ds-light-idle" id="aprs-light"  title="APRS: Offline"></span>
-    <span class="ds-light ds-light-off"  id="ds3-light"   title="—"></span>
-    <span class="ds-light ds-light-off"  id="ds4-light"   title="—"></span>
+    <span class="ds-light ds-light-idle" id="mqtt-light"    title="MQTT: Offline"></span>
+    <span class="ds-light ds-light-idle" id="aprs-light"    title="APRS: Offline"></span>
+    <span class="ds-light ds-light-idle" id="tnc-light"     title="KISS TNC: No client connected"></span>
+    <span class="ds-light ds-light-idle" id="inreach-light" title="InReach: Inactive"></span>
+    <span class="ds-light ds-light-off"  id="mesh-light"    title="Client Mesh: Not configured"></span>
   </div>
   <!-- Live race clock display showing elapsed time -->
   <div id="race-clock" style="font-size:24px;font-weight:bold;color:var(--accent2);letter-spacing:2px">--:--:--</div>

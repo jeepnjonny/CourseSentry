@@ -72,13 +72,14 @@ function handleWS(msg) {
   else if (type === 'participant_update') handleParticipantUpdate(data);
   else if (type === 'station_update') handleStationUpdate(data);
   else if (type === 'personnel_update') handlePersonnelUpdate(data);
-  else if (type === 'mqtt_status') updateMqttPill(data);
-  else if (type === 'aprs_status') updateAprsPill(data);
-  else if (type === 'tracker_info') handleTrackerInfo(data);
-  else if (type === 'race_update') handleRaceUpdate(data);
-  else if (type === 'users_online') { onlineUsers = data; renderPersonnelRecipients(); }
-  else if (type === 'tnc_status')  handleTncStatus(data);
-  else if (type === 'tnc_tx')      handleTncTx(data);
+  else if (type === 'mqtt_status')    updateMqttPill(data);
+  else if (type === 'aprs_status')    updateAprsPill(data);
+  else if (type === 'tnc_status')     { updateTncLight(data); handleTncStatus(data); }
+  else if (type === 'inreach_status') updateInreachLight(data);
+  else if (type === 'tracker_info')   handleTrackerInfo(data);
+  else if (type === 'race_update')    handleRaceUpdate(data);
+  else if (type === 'users_online')   { onlineUsers = data; renderPersonnelRecipients(); }
+  else if (type === 'tnc_tx')         handleTncTx(data);
 }
 
 function handleRaceUpdate(data) {
@@ -140,7 +141,9 @@ function handleInit(data) {
   fmt24 = race.time_format === '24h';
   updateRacePill(race);
   updateMqttPill(data.mqtt);
-  if (data.aprs) updateAprsPill(data.aprs);
+  if (data.aprs)    updateAprsPill(data.aprs);
+  if (data.tnc)     updateTncLight(data.tnc);
+  if (data.inreach) updateInreachLight(data.inreach);
   applyMessagingFlag();
   applyWeatherFlag();
   updateStartWindowBtn();
@@ -1778,6 +1781,34 @@ function updateAprsPill(status) {
   } else {
     light.className = 'ds-light ds-light-idle';
     light.title = 'APRS: Offline';
+  }
+}
+
+function updateTncLight(data) {
+  const light = document.getElementById('tnc-light');
+  if (!light) return;
+  const count = data?.count ?? 0;
+  if (count > 0) {
+    light.className = 'ds-light ds-light-ok';
+    light.title = `KISS TNC: ${count} client${count !== 1 ? 's' : ''} connected${data.hasPrimary ? ' · TX ready' : ''}`;
+  } else {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'KISS TNC: No client connected';
+  }
+}
+
+function updateInreachLight(status) {
+  const light = document.getElementById('inreach-light');
+  if (!light) return;
+  if (status?.active && status.count > 0) {
+    light.className = 'ds-light ds-light-ok';
+    light.title = `InReach: Polling ${status.count} feed${status.count !== 1 ? 's' : ''}`;
+  } else if (status?.active) {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'InReach: Active — no feeds configured';
+  } else {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'InReach: Inactive';
   }
 }
 
