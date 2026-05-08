@@ -3,7 +3,7 @@
 /**
  * Offline tile cache for USGS Topo and Satellite base layers.
  *
- * Downloads all tiles for a race bounding box (zoom 8–14) and stores them in
+ * Downloads all tiles for a race bounding box with buffer (zoom 8–14) and stores them in
  * per-race SQLite databases under data/tiles/. Serves cached tiles directly
  * so the map works without an internet connection on race day.
  *
@@ -20,10 +20,11 @@ const Database = require('better-sqlite3');
 const db   = require('./db');
 
 const TILES_DIR  = path.join(__dirname, '..', 'data', 'tiles');
-const MIN_ZOOM   = 8;
-const MAX_ZOOM   = 14;
-const CONCURRENCY = 6;   // simultaneous USGS requests
-const BBOX_MARGIN = 0.15; // 15% padding around the course bounding box
+const MIN_ZOOM    = 8;
+const MAX_ZOOM    = 14;
+const CONCURRENCY = 6;    // simultaneous USGS requests
+const BBOX_MARGIN = 0.35; // 35% of bbox span added to each side
+const BBOX_MIN_DEG = 0.15; // minimum absolute buffer in degrees (~11 km lat, ~8 km lon@45°N)
 
 const LAYER_BASE_URLS = {
   topo:      'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile',
@@ -189,11 +190,13 @@ async function downloadTiles(raceId, trackPoints) {
   _inProgress.set(raceId, true);
 
   try {
-    // Compute bounding box with margin
+    // Compute bounding box with margin.
+    // Use the larger of a percentage of the bbox span or a fixed minimum buffer,
+    // so even narrow/linear courses get meaningful coverage at high zoom levels.
     const lats = trackPoints.map(p => p[0]);
     const lons = trackPoints.map(p => p[1]);
-    const dLat = (Math.max(...lats) - Math.min(...lats)) * BBOX_MARGIN;
-    const dLon = (Math.max(...lons) - Math.min(...lons)) * BBOX_MARGIN;
+    const dLat = Math.max((Math.max(...lats) - Math.min(...lats)) * BBOX_MARGIN, BBOX_MIN_DEG);
+    const dLon = Math.max((Math.max(...lons) - Math.min(...lons)) * BBOX_MARGIN, BBOX_MIN_DEG);
     const bbox = {
       minLat: Math.min(...lats) - dLat,  maxLat: Math.max(...lats) + dLat,
       minLon: Math.min(...lons) - dLon,  maxLon: Math.max(...lons) + dLon,
