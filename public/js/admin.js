@@ -494,26 +494,20 @@ let _courseTabContext = 'global'; // 'global' | 'race'
 // ── Global COURSES tab ────────────────────────────────────────────────────────
 function renderCoursesTab() {
   return `
-  <div style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:12px;align-items:start">
-    <div>
-      <div class="card" style="margin-bottom:0;overflow:hidden">
-        <h3>KML / GPX LIBRARY</h3>
-        <div style="margin-bottom:8px">
-          <div class="upload-zone" onclick="document.getElementById('course-upload-input').click()" style="padding:8px;cursor:pointer">
-            <span style="font-size:14px">&#8593; Upload KML or GPX</span>
-            <input type="file" id="course-upload-input" accept=".kml,.gpx" style="display:none" onchange="uploadCourseFile(this)">
-          </div>
-        </div>
-        <div id="course-file-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
+  <div class="card" style="margin-bottom:12px">
+    <div id="course-detail-inner" style="color:var(--text3);font-size:16px;padding:20px;text-align:center">
+      Select a course file to preview
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <h3>KML / GPX LIBRARY</h3>
+    <div style="margin-bottom:8px">
+      <div class="upload-zone" onclick="document.getElementById('course-upload-input').click()" style="padding:8px;cursor:pointer">
+        <span style="font-size:14px">&#8593; Upload KML or GPX</span>
+        <input type="file" id="course-upload-input" accept=".kml,.gpx" style="display:none" onchange="uploadCourseFile(this)">
       </div>
     </div>
-    <div id="course-detail-panel">
-      <div class="card" style="margin-bottom:0">
-        <div id="course-detail-inner" style="color:var(--text3);font-size:16px;padding:20px;text-align:center">
-          Select a course file to preview
-        </div>
-      </div>
-    </div>
+    <div id="course-file-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
   </div>`;
 }
 
@@ -679,8 +673,8 @@ function renderCourseFileList() {
   const el = document.getElementById('course-file-list');
   if (!el) return;
   if (!courseFiles.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No course files uploaded yet.</div>'; return; }
-  el.style.maxHeight = '360px';
-  el.style.overflowY = 'auto';
+  el.style.maxHeight = '';
+  el.style.overflowY = '';
   el.innerHTML = courseFiles.map(c => `
     <div class="infra-row" style="cursor:pointer;border-radius:4px;min-width:0;${c.id===selectedCourseId?'background:var(--surface3,#161b22);':''}" onclick="selectCourse(${c.id})">
       <span title="${c.name}" style="flex:1;font-size:16px;font-weight:bold;color:var(--accent4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${c.name}</span>
@@ -745,7 +739,7 @@ function renderCourseDetail(el, course) {
   const hasPaths = d.paths?.length > 1;
   const dist = d.totalDistance ? RT.fmtDist(d.totalDistance) : '—';
   const wpts = d.points || [];
-  const svg = buildCourseSVG(d.trackPoints, 520, 200, wpts);
+  const svg = buildCourseSVG(d.trackPoints, 900, 280, wpts);
 
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
