@@ -86,6 +86,12 @@ function handleWS(msg) {
     if (msg.data.mqtt) updateMqttPill(msg.data.mqtt);
     if (msg.data.aprs) updateAprsPill(msg.data.aprs);
   }
+  if (msg.type === 'race_update') {
+    // Update the race in memory and refresh the offline-maps status badge
+    const idx = races.findIndex(r => r.id === msg.data.id);
+    if (idx !== -1) races[idx] = msg.data;
+    if (msg.data.id === selectedRaceId) renderOfflineMapsStatus(msg.data);
+  }
   if (msg.type === 'log_entry' && currentTab === 'logs') appendLogEntry(msg.data);
 }
 
@@ -290,6 +296,7 @@ async function openRaceModal(id) {
   document.getElementById('rm-feat-off-course').checked = !!(race?.feat_off_course ?? 1);
   document.getElementById('rm-feat-stopped').checked    = !!(race?.feat_stopped    ?? 1);
   document.getElementById('rm-messaging').checked    = !!(race?.messaging_enabled);
+  document.getElementById('rm-offline-maps').checked = !!(race?.offline_maps);
   document.getElementById('rm-viewer-map').checked   = !!(race?.viewer_map_enabled ?? 1);
   document.getElementById('rm-leaderboard').checked  = !!(race?.leaderboard_enabled ?? 1);
   document.getElementById('rm-weather').checked      = !!(race?.weather_enabled);
@@ -325,6 +332,7 @@ async function saveRace() {
     feat_off_course:     document.getElementById('rm-feat-off-course').checked ? 1 : 0,
     feat_stopped:        document.getElementById('rm-feat-stopped').checked    ? 1 : 0,
     messaging_enabled:   document.getElementById('rm-messaging').checked ? 1 : 0,
+    offline_maps:        document.getElementById('rm-offline-maps').checked ? 1 : 0,
     viewer_map_enabled:  document.getElementById('rm-viewer-map').checked ? 1 : 0,
     leaderboard_enabled: document.getElementById('rm-leaderboard').checked ? 1 : 0,
     weather_enabled:     document.getElementById('rm-weather').checked ? 1 : 0,
@@ -536,6 +544,23 @@ async function bindCoursesTab() {
   await Promise.all([loadCourseFiles(), loadCsvLibFiles()]);
 }
 
+function renderOfflineMapsStatus(race) {
+  const el = document.getElementById('offline-maps-status');
+  if (!el) return;
+  if (!race?.offline_maps) { el.innerHTML = ''; return; }
+  const s = race.offline_maps_status || null;
+  if (!s) {
+    el.innerHTML = '<span style="color:var(--text3)">&#x23F3; Offline maps enabled — tiles will download when a course is assigned.</span>';
+  } else if (s.startsWith('downloading')) {
+    const pct = parseInt(s.split(':')[1]) || 0;
+    el.innerHTML = `<span style="color:var(--accent2)">&#x25BC; Downloading tiles&hellip; ${pct}%</span>`;
+  } else if (s === 'ready') {
+    el.innerHTML = '<span style="color:var(--accent2)">&#x2713; Offline tiles ready (Topo &amp; Satellite, z8&ndash;14)</span>';
+  } else if (s === 'error') {
+    el.innerHTML = '<span style="color:var(--accent3)">&#x2717; Tile download failed &mdash; check server logs. Retry by re-assigning the course.</span>';
+  }
+}
+
 function renderCourseTab() {
   const race = races.find(r => r.id === selectedRaceId);
   const courseOpts = '<option value="">— None —</option>' +
@@ -550,6 +575,7 @@ function renderCourseTab() {
         <a href="#" onclick="showTab('courses');return false;" style="color:var(--accent)">COURSES</a> tab
       </span>
     </div>
+    <div id="offline-maps-status" style="margin-top:8px;font-size:13px"></div>
     <div id="race-course-preview" style="margin-top:10px"></div>
     <div id="race-course-seed"></div>
   </div>
@@ -585,6 +611,7 @@ async function bindCourseTab() {
     sel.innerHTML = '<option value="">— None —</option>' +
       courseFiles.map(c => `<option value="${c.id}"${c.id === race?.course_id ? ' selected' : ''}>${c.name} (${c.file_type.toUpperCase()})</option>`).join('');
   }
+  renderOfflineMapsStatus(race);
   if (race?.course_id) await loadAssignedCourse(race.course_id);
 }
 

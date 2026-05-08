@@ -5,7 +5,7 @@ let race = null, participants = {}, stations = [], heats = {}, classes = {};
 let personnel = [], messages = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
-let leafletMap = null, currentBaseLayer = null, weatherLayersControl = null, weatherLegendControl = null;
+let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
 let wxData = null, wxError = null, wxDataTs = 0, wxForecast = null, wxAlerts = [];
@@ -77,11 +77,14 @@ function handleWS(msg) {
 
 function handleRaceUpdate(data) {
   if (!race || data.id !== race.id) return;
+  const wasOfflineReady = race.offline_maps_status === 'ready';
   race = data;
   updateStartWindowBtn();
   updateEndRaceBtn();
   updateStartRaceBtn();
   tickClock(); // re-evaluate freeze immediately
+  // Re-apply base layer when offline tiles finish downloading
+  if (!wasOfflineReady && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
 }
 
 function updateEndRaceBtn() {
@@ -158,6 +161,8 @@ function handleInit(data) {
   checkStationWarnings();
   if (!trackPoints) loadTrackData(); // fallback API fetch if WS didn't include track
   setupWeatherLayers(data.weatherKey);
+  // If offline tiles are already ready, switch to offline URLs
+  if (race.offline_maps && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
 }
 
 async function loadInitialData(urlRaceId) {
@@ -228,8 +233,19 @@ function initMap() {
 
 function setBaseLayer(name) {
   if (currentBaseLayer) leafletMap.removeLayer(currentBaseLayer);
-  const cfg = BASE_LAYERS[name] || BASE_LAYERS.topo;
-  currentBaseLayer = L.tileLayer(cfg.url, cfg.opts).addTo(leafletMap);
+  currentBaseLayerName = name;
+  const OFFLINE_CAPABLE = { topo: true, satellite: true };
+  const useOffline = race?.offline_maps && race?.offline_maps_status === 'ready' && OFFLINE_CAPABLE[name];
+  let url, opts;
+  if (useOffline) {
+    url  = `${RT.BASE}api/tiles/${race.id}/${name}/{z}/{x}/{y}`;
+    opts = { maxZoom: 16, maxNativeZoom: 14, attribution: 'USGS (offline)' };
+  } else {
+    const cfg = BASE_LAYERS[name] || BASE_LAYERS.topo;
+    url  = cfg.url;
+    opts = cfg.opts;
+  }
+  currentBaseLayer = L.tileLayer(url, opts).addTo(leafletMap);
   document.getElementById('base-layer-sel').value = name;
 }
 

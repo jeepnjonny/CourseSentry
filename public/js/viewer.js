@@ -5,7 +5,7 @@ let leafletMap, markerLayer, routeLayer, stationMarkers = {};
 let sortBy = 'position', clockInterval;
 let fmt24 = false;
 let mapMode = true; // vs leaderboard on mobile
-let viewerLayersControl = null, viewerBaseTiles = null, currentViewerBaseLayer = null;
+let viewerLayersControl = null, viewerBaseTiles = null, currentViewerBaseLayer = null, currentViewerBaseLayerName = 'Topo';
 let viewerLegendControl = null, activeViewerOverlays = new Set(), viewerWeatherOpacity = 0.55;
 
 const LAYER_LEGENDS = {
@@ -49,7 +49,18 @@ function initMap() {
 
 function setViewerBaseLayer(name) {
   if (currentViewerBaseLayer) leafletMap.removeLayer(currentViewerBaseLayer);
-  currentViewerBaseLayer = viewerBaseTiles[name] || viewerBaseTiles['Topo'];
+  currentViewerBaseLayerName = name;
+  const layerKey = name.toLowerCase(); // 'Topo' → 'topo', 'Satellite' → 'satellite'
+  const OFFLINE_CAPABLE = { topo: true, satellite: true };
+  const useOffline = race?.offline_maps && race?.offline_maps_status === 'ready' && OFFLINE_CAPABLE[layerKey];
+  if (useOffline) {
+    currentViewerBaseLayer = L.tileLayer(
+      `${RT.BASE}api/tiles/${race.id}/${layerKey}/{z}/{x}/{y}`,
+      { maxZoom: 16, maxNativeZoom: 14, attribution: 'USGS (offline)' }
+    );
+  } else {
+    currentViewerBaseLayer = viewerBaseTiles[name] || viewerBaseTiles['Topo'];
+  }
   currentViewerBaseLayer.addTo(leafletMap);
   const sel = document.getElementById('vw-base-layer-sel');
   if (sel) sel.value = name;
@@ -131,6 +142,13 @@ function handleWS(msg) {
   else if (type === 'position') handlePosition(data);
   else if (type === 'event') handleEvent(data);
   else if (type === 'participant_update') handleParticipantUpdate(data);
+  else if (type === 'race_update') {
+    if (race && data.id === race.id) {
+      const wasOfflineReady = race.offline_maps_status === 'ready';
+      race = data;
+      if (!wasOfflineReady && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
+    }
+  }
 }
 
 function handleInit(data) {
@@ -157,6 +175,8 @@ function handleInit(data) {
   renderAllMarkers();
   renderLeaderboard();
   if (race.weather_enabled) setupWeatherLayers(data.weatherKey);
+  // Switch to offline tile URLs if already ready
+  if (race.offline_maps && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
 }
 
 function enrichParticipant(p, registry) {

@@ -6,7 +6,7 @@ let me = null; // current logged-in user, set in init()
 let selectedParticipant = null;
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = false;
-let baseTiles = {}, currentBaseLayer = null;
+let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
 let clockInterval = null;
 let sortBy = 'position';
 
@@ -151,7 +151,18 @@ async function assignStation(station) {
 
 function setBaseLayer(name) {
   if (currentBaseLayer) map.removeLayer(currentBaseLayer);
-  currentBaseLayer = baseTiles[name] || baseTiles['Street'];
+  currentBaseLayerName = name;
+  const layerKey = name.toLowerCase(); // 'Topo' → 'topo', 'Satellite' → 'satellite'
+  const OFFLINE_CAPABLE = { topo: true, satellite: true };
+  const useOffline = race?.offline_maps && race?.offline_maps_status === 'ready' && OFFLINE_CAPABLE[layerKey];
+  if (useOffline) {
+    currentBaseLayer = L.tileLayer(
+      `${RT.BASE}api/tiles/${race.id}/${layerKey}/{z}/{x}/{y}`,
+      { maxZoom: 16, maxNativeZoom: 14, attribution: 'USGS (offline)' }
+    );
+  } else {
+    currentBaseLayer = baseTiles[name] || baseTiles['Street'];
+  }
   currentBaseLayer.addTo(map);
   const sel = document.getElementById('mo-base-layer-sel');
   if (sel) sel.value = name;
@@ -218,7 +229,7 @@ function handleWS(msg) {
     participants = msg.data.participants || [];
     heats        = msg.data.heats || [];
     onlineUsers  = msg.data.onlineUsers || [];
-    if (msg.data.race) fmt24 = msg.data.race.time_format === '24h';
+    if (msg.data.race) { race = msg.data.race; fmt24 = race.time_format === '24h'; }
     // Seed _lastStation from server-supplied field
     participants.forEach(p => { p._lastStation = p.last_station_name || null; });
     if (msg.data.stations?.length) {
@@ -236,6 +247,8 @@ function handleWS(msg) {
     for (const [nodeId, pos] of Object.entries(msg.data.positions || {})) {
       updateMarker(nodeId, pos);
     }
+    // Switch to offline tile URLs if already ready
+    if (race?.offline_maps && race?.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
   } else if (msg.type === 'position') {
     const p = participants.find(x => x.tracker_id === msg.data.nodeId);
     if (p) { p.last_lat = msg.data.lat; p.last_lon = msg.data.lon; }
@@ -269,8 +282,10 @@ function handleWS(msg) {
     }
   } else if (msg.type === 'race_update') {
     if (msg.data?.id === race?.id) {
+      const wasOfflineReady = race.offline_maps_status === 'ready';
       race = msg.data;
       fmt24 = race.time_format === '24h';
+      if (!wasOfflineReady && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
     }
   } else if (msg.type === 'message') {
     const isNew = !messages.find(m => m.id === msg.data.id);

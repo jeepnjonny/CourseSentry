@@ -18,13 +18,56 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const fs     = require('fs');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../auth');
 const mqttClient = require('../mqtt-client');
 const wsManager = require('../websocket');
 const logger = require('../logger');
+const tileCache = require('../tile-cache');
 
 const router = express.Router();
+
+// ── Offline tile download trigger ─────────────────────────────────────────────
+
+/**
+ * Parse track points from a race's assigned course (or legacy track file).
+ * Returns [[lat,lon], ...] or null.
+ */
+function _getTrackPoints(race) {
+  try {
+    if (race.course_id) {
+      const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
+      if (course) {
+        const text = fs.readFileSync(course.file_path, 'utf8');
+        const { parseCourse } = require('./courses');
+        const { trackPoints } = parseCourse(text, course.file_path, course.path_index);
+        if (trackPoints?.length) return trackPoints;
+      }
+    }
+    if (race.track_file) {
+      const text = fs.readFileSync(race.track_file, 'utf8');
+      const { parseTrack } = require('./tracks');
+      return parseTrack(text, race.track_file, race.track_path_index) || null;
+    }
+  } catch (e) {
+    logger.log('system', 'warn', `[tiles] could not parse course for race ${race.id}: ${e.message}`);
+  }
+  return null;
+}
+
+/**
+ * Kick off a background tile download for the given race.
+ * Fires-and-forgets; errors are logged inside tileCache.downloadTiles().
+ */
+function _triggerTileDownload(race) {
+  const trackPoints = _getTrackPoints(race);
+  if (!trackPoints?.length) {
+    logger.log('system', 'warn', `[tiles] race ${race.id}: no track points found, skipping tile download`);
+    return;
+  }
+  tileCache.downloadTiles(race.id, trackPoints).catch(() => {});
+}
 
 // Constants for race fields and speed units
 const RACE_FIELDS = [
@@ -32,7 +75,8 @@ const RACE_FIELDS = [
   'off_course_distance', 'stopped_time', 'missing_timer', 'alerts_enabled', 'messaging_enabled',
   'viewer_map_enabled', 'leaderboard_enabled', 'weather_enabled', 'course_id', 'race_format',
   'feat_missing', 'feat_auto_log', 'feat_auto_start', 'feat_off_course', 'feat_stopped',
-  'start_time', 'start_clearance', 'mqtt_rf_tech', 'units', 'speed_display', 'tactical_callsign'
+  'start_time', 'start_clearance', 'mqtt_rf_tech', 'units', 'speed_display', 'tactical_callsign',
+  'offline_maps',
 ];
 
 const SPEED_UNITS = {
@@ -175,7 +219,17 @@ router.put('/:id', requireRole('admin'), (req, res) => {
   }
   mqttClient.invalidateRouteCache(parseInt(req.params.id));
 
-  res.json({ ok: true, data: db.prepare('SELECT * FROM races WHERE id = ?').get(req.params.id) });
+  // Trigger offline tile download when:
+  //  (a) offline_maps was just switched ON and a course is assigned, OR
+  //  (b) a new course was assigned and offline_maps is already ON
+  const updatedRace = db.prepare('SELECT * FROM races WHERE id=?').get(req.params.id);
+  const courseChanged = updates.course_id !== undefined && updates.course_id != race.course_id;
+  const offlineMapsEnabled = updates.offline_maps === 1 && !race.offline_maps;
+  if (updatedRace.offline_maps && updatedRace.course_id && (courseChanged || offlineMapsEnabled)) {
+    _triggerTileDownload(updatedRace);
+  }
+
+  res.json({ ok: true, data: updatedRace });
 });
 
 /**
