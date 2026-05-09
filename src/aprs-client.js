@@ -74,6 +74,10 @@ function parseDM(dm, hemi) {
   if (isNaN(deg) || isNaN(min)) return null;
   let dd = deg + min / 60;
   if (hemi === 'S' || hemi === 'W') dd = -dd;
+  // Adjust for possible longitude offset in some trackers
+  if ((hemi === 'E' || hemi === 'W') && Math.abs(dd) > 140) {
+    dd -= Math.sign(dd) * 36;
+  }
   return dd;
 }
 
