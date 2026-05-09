@@ -193,10 +193,10 @@ function parsePosition(body, destCall) {
     const objectName = objMatch[1].toUpperCase().trim();
     const posData = objMatch[2];
     // Uncompressed object: DDMM.mmN[sym]DDDMM.mmE
-    const plain = /^(\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(posData);
+    const plain = /^(\d{4}\.\d+)([NS])([\S]?)(\d{5}\.\d+)([EW])/.exec(posData);
     if (plain) {
       const lat = parseDM(plain[1], plain[2]);
-      const lon = parseDM(plain[3], plain[4]);
+      const lon = parseDM(plain[4], plain[5]);
       if (lat != null && lon != null) return { objectName, lat, lon, speed: null, heading: null, altitude: null };
     }
     // Compressed object: sym_table + lat×4 + sym + lon×4 + cs + t
@@ -206,10 +206,10 @@ function parsePosition(body, destCall) {
       if (pos) return { ...pos, objectName };
     }
     // Timestamped uncompressed object: \d{6}[z/h]DDMM.mmN[sym]DDDMM.mmE
-    const tsu = /^\d{6}[zZhH\/](\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(posData);
+    const tsu = /^\d{6}[zZhH\/](\d{4}\.\d+)([NS])([\S]?)(\d{5}\.\d+)([EW])/.exec(posData);
     if (tsu) {
       const lat = parseDM(tsu[1], tsu[2]);
-      const lon = parseDM(tsu[3], tsu[4]);
+      const lon = parseDM(tsu[4], tsu[5]);
       if (lat != null && lon != null) return { objectName, lat, lon, speed: null, heading: null, altitude: null };
     }
     // Timestamped compressed object: \d{6}[z/h] + compressed data
