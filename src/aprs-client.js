@@ -187,6 +187,39 @@ function parseMicE(dest, body) {
 // Parse any APRS position format — uncompressed, compressed, or Mic-E.
 // destCall is needed for Mic-E decoding; pass null/undefined when unavailable.
 function parsePosition(body, destCall) {
+  // 0. Object: ;OBJECTNAME*position_data
+  const objMatch = /^;([^*]+)\*([\s\S]*)/.exec(body);
+  if (objMatch) {
+    const objectName = objMatch[1].toUpperCase().trim();
+    const posData = objMatch[2];
+    // Uncompressed object: DDMM.mmN[sym]DDDMM.mmE
+    const plain = /^(\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(posData);
+    if (plain) {
+      const lat = parseDM(plain[1], plain[2]);
+      const lon = parseDM(plain[3], plain[4]);
+      if (lat != null && lon != null) return { objectName, lat, lon, speed: null, heading: null, altitude: null };
+    }
+    // Compressed object: sym_table + lat×4 + sym + lon×4 + cs + t
+    const cp = /^([\s\S]{11,})/.exec(posData);
+    if (cp) {
+      const pos = parseCompressed(cp[1]);
+      if (pos) return { ...pos, objectName };
+    }
+    // Timestamped uncompressed object: \d{6}[z/h]DDMM.mmN[sym]DDDMM.mmE
+    const tsu = /^\d{6}[zZhH\/](\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(posData);
+    if (tsu) {
+      const lat = parseDM(tsu[1], tsu[2]);
+      const lon = parseDM(tsu[3], tsu[4]);
+      if (lat != null && lon != null) return { objectName, lat, lon, speed: null, heading: null, altitude: null };
+    }
+    // Timestamped compressed object: \d{6}[z/h] + compressed data
+    const cpTs = /^\d{6}[zZhH\/]([\s\S]{11,})/.exec(posData);
+    if (cpTs) {
+      const pos = parseCompressed(cpTs[1]);
+      if (pos) return { ...pos, objectName };
+    }
+    return null;
+  }
   // 1. Uncompressed: [!=]DDMM.mmN[sym]DDDMM.mmE
   const plain = /[!=](\d{4}\.\d+)([NS])[\S](\d{5}\.\d+)([EW])/.exec(body);
   if (plain) {
@@ -350,19 +383,21 @@ function processLine(line) {
   const pos = parsePosition(body, destCall);
   if (!pos) return;
 
+  const nodeId = pos.objectName || fromCall;
+
   // Record that this callsign was last heard via APRS-IS
-  routeTable.update(fromCall, 'aprs_is');
+  routeTable.update(nodeId, 'aprs_is');
 
   // Altitude: prefer value decoded from compressed/Mic-E; fall back to A=XXXXXX comment field
   const altMatch = /\bA=(\d{1,6})\b/.exec(body);
-  const altitude = pos.altitude ?? (altMatch ? inferAltitudeMeters(parseInt(altMatch[1]), fromCall) : null);
+  const altitude = pos.altitude ?? (altMatch ? inferAltitudeMeters(parseInt(altMatch[1]), nodeId) : null);
 
   // Battery voltage: patterns like 3.7V, 12.5V, 4.18V in the comment/status text
   const voltMatch = /\b(\d{1,2}\.\d{1,2})V\b/i.exec(body);
   const voltage = voltMatch ? parseFloat(voltMatch[1]) : null;
 
   logger.log('aprs', 'info',
-    `position from ${fromCall} (${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)})` +
+    `position from ${nodeId} (${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)})` +
     (pos.speed   != null ? ` spd=${(pos.speed * 1.944).toFixed(1)}kt` : '') +
     (pos.heading != null ? ` hdg=${pos.heading}°` : '') +
     (altitude    != null ? ` alt=${Math.round(altitude)}m` : '') +
@@ -372,9 +407,9 @@ function processLine(line) {
   try {
     const mqttClient = require('./mqtt-client');
     // Store callsign as long_name so it appears in infrastructure and triggers tracker_info broadcast
-    mqttClient.handleNodeInfo({ nodeId: fromCall, longName: fromCall, shortName: null, hwModel: 'APRS', timestamp: ts });
+    mqttClient.handleNodeInfo({ nodeId, longName: nodeId, shortName: null, hwModel: 'APRS', timestamp: ts });
     mqttClient.handlePosition({
-      nodeId: fromCall,
+      nodeId,
       lat: pos.lat,
       lon: pos.lon,
       altitude,
@@ -387,7 +422,7 @@ function processLine(line) {
       rfSource: 'aprs',
     });
     if (voltage != null) {
-      mqttClient.handleTelemetry({ nodeId: fromCall, battery: null, voltage, timestamp: ts });
+      mqttClient.handleTelemetry({ nodeId, battery: null, voltage, timestamp: ts });
     }
   } catch (e) {
     logger.log('aprs', 'error', `handlePosition: ${e.message}`);
