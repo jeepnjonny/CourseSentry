@@ -86,6 +86,7 @@ function handleRaceUpdate(data) {
   if (!race || data.id !== race.id) return;
   const wasOfflineReady = race.offline_maps_status === 'ready';
   race = data;
+  applySpeedDisplayLabels();
   updateStartWindowBtn();
   updateEndRaceBtn();
   updateStartRaceBtn();
@@ -108,6 +109,17 @@ function updateStartRaceBtn() {
     (!p.tracker_id) && !p.start_time && p.status !== 'dnf' && p.status !== 'finished'
   );
   btn.classList.toggle('hidden', !(race && race.status === 'active' && hasUnstarted));
+}
+
+function getSpeedDisplayLabel() {
+  return race?.speed_display === 'speed' ? 'SPEED' : 'PACE';
+}
+
+function applySpeedDisplayLabels() {
+  const headerLabel = document.querySelector('.lb-head span:nth-child(5)');
+  if (headerLabel) headerLabel.textContent = getSpeedDisplayLabel();
+  const sortBtn = document.querySelector('#sort-bar .sort-btn[data-sort="pace"]');
+  if (sortBtn) sortBtn.textContent = getSpeedDisplayLabel();
 }
 
 async function startRace() {
@@ -139,6 +151,7 @@ function handleInit(data) {
   if (!data.race) { updateRacePill(null); return; }
   race = data.race;
   fmt24 = race.time_format === '24h';
+  applySpeedDisplayLabels();
   updateRacePill(race);
   updateMqttPill(data.mqtt);
   if (data.aprs)    updateAprsPill(data.aprs);

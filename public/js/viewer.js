@@ -61,6 +61,17 @@ function updateBaseLayerSelector() {
   }
 }
 
+function getSpeedDisplayLabel() {
+  return race?.speed_display === 'speed' ? 'SPEED' : 'PACE';
+}
+
+function applySpeedDisplayLabels() {
+  const headerLabel = document.querySelector('#viewer-lb-wrap .v-lb-head span:nth-child(5)');
+  if (headerLabel) headerLabel.textContent = getSpeedDisplayLabel();
+  const sortBtn = document.querySelector('#viewer-sort-bar .v-sort-btn[data-sort="pace"]');
+  if (sortBtn) sortBtn.textContent = getSpeedDisplayLabel();
+}
+
 function setViewerBaseLayer(name) {
   if (currentViewerBaseLayer) leafletMap.removeLayer(currentViewerBaseLayer);
   currentViewerBaseLayerName = name;
@@ -160,6 +171,7 @@ function handleWS(msg) {
     if (race && data.id === race.id) {
       const wasOfflineReady = race.offline_maps_status === 'ready';
       race = data;
+      applySpeedDisplayLabels();
       if (!wasOfflineReady && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
       updateBaseLayerSelector();
     }
@@ -173,6 +185,7 @@ function handleInit(data) {
   }
   race = data.race;
   fmt24 = race.time_format === '24h';
+  applySpeedDisplayLabels();
   document.getElementById('vw-race-pill').className = 'pill pill-ok';
   document.getElementById('vw-race-pill').textContent = race.name.toUpperCase();
   document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
@@ -331,7 +344,7 @@ function renderLeaderboard() {
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${fmtParticipantName(p.name)}</span>
       <span style="color:var(--accent)">${pct}</span>
-      <span style="color:var(--text);font-size:13px">${p._pct && p.start_time ? fmtPace(p) : '--'}</span>
+      <span style="color:var(--text);font-size:13px">${p._pct && p.start_time ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--'}</span>
       <span style="color:var(--text2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>
     </div>`;
   }).join('');
