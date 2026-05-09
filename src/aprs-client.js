@@ -460,7 +460,7 @@ function buildCallsignFilter(raceId) {
   db.prepare('SELECT tracker_id FROM personnel WHERE race_id=? AND tracker_id IS NOT NULL').all(race.id)
     .forEach(p => addId(p.tracker_id));
 
-  return calls.size ? 'b/' + [...calls].join('/') : '';
+  return calls.size ? 'b/' + [...calls].join('/') + ' o/' + [...calls].join('/') : '';
 }
 
 function buildFilter(filterType) {
