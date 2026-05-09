@@ -74,10 +74,6 @@ function parseDM(dm, hemi) {
   if (isNaN(deg) || isNaN(min)) return null;
   let dd = deg + min / 60;
   if (hemi === 'S' || hemi === 'W') dd = -dd;
-  // Adjust for possible longitude offset in some trackers
-  if ((hemi === 'E' || hemi === 'W') && Math.abs(dd) > 140) {
-    dd -= Math.sign(dd) * 36;
-  }
   return dd;
 }
 
@@ -96,12 +92,12 @@ function parseCompressed(data) {
   const symTable = data.charCodeAt(0);
   if (symTable !== 0x2f && symTable !== 0x5c &&
       !(symTable >= 0x41 && symTable <= 0x5a)) return null;
-  // Validate Base-91 range for lat (bytes 1-4) and lon (bytes 6-9)
+  // Validate Base-91 range for lat (bytes 1-4) and lon (bytes 5-8)
   for (let i = 1; i <= 4; i++) { const c = data.charCodeAt(i); if (c < 33 || c > 124) return null; }
-  for (let i = 6; i <= 9; i++) { const c = data.charCodeAt(i); if (c < 33 || c > 124) return null; }
+  for (let i = 5; i <= 8; i++) { const c = data.charCodeAt(i); if (c < 33 || c > 124) return null; }
 
   const lat = 90  - base91_4(data, 1) / 380926;
-  const lon = -180 + base91_4(data, 6) / 190463;
+  const lon = -180 + base91_4(data, 5) / 190463;
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
 
   const c = data.charCodeAt(10);
