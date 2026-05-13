@@ -211,6 +211,7 @@ function _initTncButton() {
 
   btn.style.display = ''; // reveal for supported browsers
 
+  let _tncWasConnected = false;
   KissTnc.onStatus(({ connected, rxCount, txCount }) => {
     tncConnected = connected;
     btn.textContent   = connected ? 'DISCONNECT TNC' : 'CONNECT TNC';
@@ -222,11 +223,12 @@ function _initTncButton() {
     if (connected) {
       pill.style.display = '';
       _updateTncPill(rxCount, txCount);
-      RT.wsSend({ type: 'tnc_connect' });
+      if (!_tncWasConnected) RT.wsSend({ type: 'tnc_connect' });
     } else {
       pill.style.display = 'none';
-      RT.wsSend({ type: 'tnc_disconnect' });
+      if (_tncWasConnected) RT.wsSend({ type: 'tnc_disconnect' });
     }
+    _tncWasConnected = connected;
   });
 
   KissTnc.onFrame(({ from, to, via, text }) => {
