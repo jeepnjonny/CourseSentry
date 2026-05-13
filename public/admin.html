@@ -240,14 +240,14 @@
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
       <label for="rm-tactical-callsign" style="font-size:13px;white-space:nowrap;min-width:130px">Tactical Callsign</label>
-      <input id="rm-tactical-callsign" type="text" style="flex:1;font-size:13px" placeholder="Net Control" maxlength="20">
+      <input id="rm-tactical-callsign" type="text" style="flex:1;font-size:13px;text-transform:uppercase" placeholder="NETCTL" maxlength="9" pattern="[A-Za-z0-9]{1,6}(-[0-9]{1,2})?">
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
       <label for="rm-rf-path" style="font-size:13px;white-space:nowrap;min-width:130px">RF Path</label>
       <input id="rm-rf-path" type="text" style="flex:1;font-size:13px" placeholder="WIDE1-1" maxlength="40">
     </div>
     <div style="font-size:12px;color:var(--text3);margin-top:3px">
-      Tactical callsign is sent as APRS object beacon and Meshtastic NodeInfo every 10 min. RF Path controls the AX.25 digipeater path for local TNC outbound messages (e.g. <code>WIDE1-1</code> or <code>WIDE1-1,WIDE2-1</code>).
+      Tactical callsign must be a valid APRS callsign: 1–6 alphanumeric characters with optional -SSID (e.g. <code>NETCTL</code> or <code>W1AW-5</code>). No spaces. Sent as APRS object beacon and Meshtastic NodeInfo every 10 min. RF Path controls the AX.25 digipeater path (e.g. <code>WIDE1-1</code>).
     </div>
     <div class="section-header">FEATURES</div>
     <div style="margin-bottom:12px">

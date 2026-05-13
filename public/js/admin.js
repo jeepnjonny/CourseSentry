@@ -342,7 +342,7 @@ async function openRaceModal(id) {
   const settings = sRes.ok ? sRes.data : {};
   document.getElementById('rm-mqtt-enabled').checked = settings.mqtt_enabled !== '0';
   document.getElementById('rm-aprs-enabled').checked = settings.aprs_enabled === '1';
-  document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || 'Net Control';
+  document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || 'NETCTL';
   document.getElementById('rm-rf-path').value           = race?.rf_path || 'WIDE1-1';
   document.getElementById('race-modal').classList.remove('hidden');
 }
@@ -373,12 +373,16 @@ async function saveRace() {
     viewer_show_names:   document.getElementById('rm-show-names').checked ? 1 : 0,
     viewer_nametags:     document.getElementById('rm-viewer-nametags').checked ? 1 : 0,
     race_format:         document.getElementById('rm-race-format').value,
-    tactical_callsign:   document.getElementById('rm-tactical-callsign').value.trim() || 'Net Control',
+    tactical_callsign:   document.getElementById('rm-tactical-callsign').value.trim().toUpperCase() || 'NETCTL',
     rf_path:             document.getElementById('rm-rf-path').value.trim() || 'WIDE1-1',
     start_time:          parseTimeToUnix(document.getElementById('rm-start-time').value, document.getElementById('rm-date').value) ?? null,
     start_clearance:     _displayToM(parseInt(document.getElementById('rm-start-clearance').value) || 0, _raceModalDistUnit) || 400,
   };
   if (!body.name || !body.date) { RT.toast('Name and date required', 'warn'); return; }
+  if (!/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(body.tactical_callsign)) {
+    RT.toast('Tactical callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.', 'warn');
+    return;
+  }
   const res = editingRaceId
     ? await RT.put(`/api/races/${editingRaceId}`, body)
     : await RT.post('/api/races', body);

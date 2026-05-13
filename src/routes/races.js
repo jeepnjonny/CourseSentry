@@ -204,6 +204,14 @@ router.put('/:id', requireRole('admin'), (req, res) => {
     }
   }
 
+  if (updates.tactical_callsign !== undefined) {
+    const call = String(updates.tactical_callsign).toUpperCase().trim();
+    if (!/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(call)) {
+      return res.status(400).json({ ok: false, error: 'tactical_callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.' });
+    }
+    updates.tactical_callsign = call;
+  }
+
   if (Object.keys(updates).length === 0) {
     return res.json({ ok: true, data: race });
   }
