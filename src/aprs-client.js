@@ -27,7 +27,7 @@ let lineBuffer = '';
 let reconnectTimer = null;
 let _connected = false;
 let _messagingCallsign = null; // set to logged-in user's callsign when available
-const _pendingAcks = new Map(); // key: "CALLSIGN:seqNum" → { messageId, timer }
+const _pendingAcks = new Map(); // key: "CALLSIGN:seqNum" → { messageId, timer, attempt, toCallsign, packet }
 
 // ── Byham APRS passcode algorithm ────────────────────────────────────────────
 // Generates the 16-bit passcode required for authenticated APRS-IS connections
@@ -651,6 +651,38 @@ function sendObjectBeacon(lat, lon, name) {
 // ── Outbound messaging ────────────────────────────────────────────────────────
 // Send APRS text messages with sequence number ACK tracking
 
+const RETRY_DELAYS_MS = [30_000, 60_000, 90_000]; // 3 retries: 30s, 60s, 90s
+
+function _armAprsRetry(key, entry) {
+  const { messageId, attempt, toCallsign, packet } = entry;
+  if (attempt >= RETRY_DELAYS_MS.length) {
+    _pendingAcks.delete(key);
+    updateMessageStatus(messageId, 'error');
+    logger.log('aprs', 'warn', `MSG→${toCallsign.trim()} unacknowledged after ${RETRY_DELAYS_MS.length} retries`);
+    return;
+  }
+  entry.timer = setTimeout(() => {
+    if (!_pendingAcks.has(key)) return;
+    if (!socket || !_connected) {
+      _pendingAcks.delete(key);
+      updateMessageStatus(messageId, 'error');
+      logger.log('aprs', 'warn', `MSG→${toCallsign.trim()} retry ${attempt + 1}: APRS-IS disconnected`);
+      return;
+    }
+    try {
+      socket.write(packet);
+      logger.log('aprs', 'info', `MSG→${toCallsign.trim()} retry ${attempt + 1}/${RETRY_DELAYS_MS.length}`);
+    } catch (e) {
+      logger.log('aprs', 'error', `retry ${attempt + 1} failed: ${e.message}`);
+      _pendingAcks.delete(key);
+      updateMessageStatus(messageId, 'error');
+      return;
+    }
+    entry.attempt++;
+    _armAprsRetry(key, entry);
+  }, RETRY_DELAYS_MS[attempt]);
+}
+
 let _msgSeq = 0;
 
 function sendMessage(toCallsign, text, messageId) {
@@ -665,12 +697,10 @@ function sendMessage(toCallsign, text, messageId) {
     logger.log('aprs', 'info', `MSG→${toCallsign.trim()}: ${text}`);
     if (messageId) {
       updateMessageStatus(messageId, 'enroute');
-      const key = `${toCallsign.toUpperCase().trim()}:${parseInt(seq)}`;
-      const timer = setTimeout(() => {
-        _pendingAcks.delete(key);
-        updateMessageStatus(messageId, 'error');
-      }, 60000);
-      _pendingAcks.set(key, { messageId, timer });
+      const key   = `${toCallsign.toUpperCase().trim()}:${parseInt(seq)}`;
+      const entry = { messageId, timer: null, attempt: 0, toCallsign: toCallsign.toUpperCase().trim(), packet };
+      _pendingAcks.set(key, entry);
+      _armAprsRetry(key, entry);
     }
     return seq;
   } catch (e) {

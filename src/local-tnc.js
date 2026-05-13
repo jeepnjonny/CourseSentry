@@ -33,9 +33,54 @@ function _aprs() {
 }
 
 // ── Pending outbound ACK tracking ─────────────────────────────────────────────
-// key: "CALLSIGN:seq" → { messageId, timer }
+// key: "CALLSIGN:seq" → { messageId, timer, attempt, raceId, toCallsign, aprsText }
 const _pendingAcks = new Map();
 let _msgSeq = 0;
+
+const RETRY_DELAYS_MS = [30_000, 60_000, 90_000]; // 3 retries: 30s, 60s, 90s
+
+function _armRetry(key, entry) {
+  const { messageId, attempt, raceId, toCallsign, aprsText } = entry;
+  if (attempt >= RETRY_DELAYS_MS.length) {
+    _pendingAcks.delete(key);
+    _updateMsgStatus(messageId, 'error');
+    logger.log('tnc', 'warn', `MSG→${toCallsign.trim()} unacknowledged after ${RETRY_DELAYS_MS.length} retries`, `TNC-${raceId}`);
+    return;
+  }
+  entry.timer = setTimeout(() => {
+    if (!_pendingAcks.has(key)) return;
+    const ws = getPrimary(raceId);
+    if (!ws) {
+      _pendingAcks.delete(key);
+      _updateMsgStatus(messageId, 'error');
+      logger.log('tnc', 'warn', `MSG→${toCallsign.trim()} retry ${attempt + 1}: no TNC primary`, `TNC-${raceId}`);
+      return;
+    }
+    const race = db.prepare('SELECT tactical_callsign, rf_path FROM races WHERE id=?').get(raceId);
+    try {
+      ws.send(JSON.stringify({
+        type: 'tnc_tx',
+        data: {
+          from: race?.tactical_callsign || 'NOCALL',
+          to:   'APRS',
+          via:  (race?.rf_path || 'WIDE1-1').split(',').map(s => s.trim()).filter(Boolean),
+          text: aprsText,
+        },
+      }));
+      const client = _clients.get(ws.id);
+      if (client) client.txCount++;
+      _broadcastStatus(raceId);
+      logger.log('tnc', 'info', `MSG→${toCallsign.trim()} retry ${attempt + 1}/${RETRY_DELAYS_MS.length}`, `TNC-${raceId}`);
+    } catch (e) {
+      logger.log('tnc', 'error', `retry ${attempt + 1} failed: ${e.message}`, `TNC-${raceId}`);
+      _pendingAcks.delete(key);
+      _updateMsgStatus(messageId, 'error');
+      return;
+    }
+    entry.attempt++;
+    _armRetry(key, entry);
+  }, RETRY_DELAYS_MS[attempt]);
+}
 
 function _updateMsgStatus(messageId, status) {
   try {
@@ -288,12 +333,10 @@ function sendMessage(raceId, { toCallsign, text, messageId }) {
     logger.log('tnc', 'info', `MSG→${toCallsign.trim()} seq=${seqStr}: ${text}`, `TNC-${raceId}`);
     _updateMsgStatus(messageId, 'enroute');
 
-    // Track ACK (90-second timeout for RF delivery)
-    const key = `${toCallsign.toUpperCase().trim()}:${_msgSeq}`;
-    const timer = setTimeout(() => {
-      if (_pendingAcks.delete(key)) _updateMsgStatus(messageId, 'error');
-    }, 90_000);
-    _pendingAcks.set(key, { messageId, timer });
+    const key   = `${toCallsign.toUpperCase().trim()}:${_msgSeq}`;
+    const entry = { messageId, timer: null, attempt: 0, raceId, toCallsign: toCallsign.toUpperCase().trim(), aprsText };
+    _pendingAcks.set(key, entry);
+    _armRetry(key, entry);
 
     return true;
   } catch (e) {
