@@ -5,6 +5,7 @@ let race = null, participants = {}, stations = [], heats = {}, classes = {};
 let personnel = [], messages = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
+let showNametags = false, showPersonnelMarkers = true;
 let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
 let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
@@ -592,8 +593,10 @@ function updateOrCreateMarker(p) {
 
   // Manual markers rendered with reduced opacity and a dashed ring to signal "last known"
   const wrapStyle = isManual ? 'opacity:0.65;filter:grayscale(30%)' : '';
+  const label = RT.fmtLabel(p.name);
+  const tooltipText = `#${p.bib} ${label}${isManual ? ' (last station)' : ''}`;
   const icon = L.divIcon({
-    html: `<div class="${cls}" style="${wrapStyle}" title="Bib ${p.bib}: ${p.name} (last known station)">${svg}</div>`,
+    html: `<div class="${cls}" style="${wrapStyle}" title="Bib ${p.bib}: ${label}">${svg}</div>`,
     className: 'leaflet-div-icon', iconAnchor: [10, 10],
   });
 
@@ -604,7 +607,9 @@ function updateOrCreateMarker(p) {
   } else {
     const m = L.marker([lat, lon], { icon });
     m._pid = p.id;
-    m.bindTooltip(`#${p.bib} ${p.name}${isManual ? ' (last station)' : ''}`, { permanent: false });
+    m.bindTooltip(tooltipText, {
+      permanent: showNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag',
+    });
     m.on('click', () => showParticipantInfo(p.id));
     m.addTo(markerLayer);
   }
@@ -632,8 +637,9 @@ function updatePersonnelMarkers() {
     const color = p.color || '#f5a623';
     const shape = p.shape || 'triangle';
     const svg = RT.SHAPES[shape]?.(color, 20) || RT.SHAPES.triangle(color, 20);
+    const perLabel = RT.fmtLabel(p.name);
     const icon = L.divIcon({
-      html: `<div title="${p.name}">${svg}</div>`,
+      html: `<div title="${perLabel}">${svg}</div>`,
       className: 'leaflet-div-icon', iconAnchor: [10, 10],
     });
     const existing = personnelLayer.getLayers().find(m => m._perId === p.id);
@@ -643,7 +649,9 @@ function updatePersonnelMarkers() {
     } else {
       const m = L.marker([p.last_lat, p.last_lon], { icon });
       m._perId = p.id;
-      m.bindTooltip(p.name, { permanent: false });
+      m.bindTooltip(perLabel, {
+        permanent: showNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag',
+      });
       m.addTo(personnelLayer);
     }
   }
@@ -2423,6 +2431,23 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── Map layer toggles ─────────────────────────────────────────────────────────
+function toggleNametags(on) {
+  showNametags = !!on;
+  // Rebuild all markers so tooltip permanent state matches the new setting
+  renderAllMarkers();
+  updatePersonnelMarkers();
+}
+
+function togglePersonnel(on) {
+  showPersonnelMarkers = !!on;
+  if (showPersonnelMarkers) {
+    if (!leafletMap.hasLayer(personnelLayer)) personnelLayer.addTo(leafletMap);
+  } else {
+    if (leafletMap.hasLayer(personnelLayer)) leafletMap.removeLayer(personnelLayer);
+  }
+}
+
 init();
 
 return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipant,
@@ -2434,5 +2459,6 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          openEditEvent, saveEditEvent, deleteStationEvent,
          openPersonnelModal, renderPersonnelTable, editPersonnelRow, savePersonnelRow,
          addPersonnel, deletePersonnel, assignPersonnel,
-         startRace, setWeatherOpacity, toggleTnc };
+         startRace, setWeatherOpacity, toggleTnc,
+         toggleNametags, togglePersonnel };
 })();

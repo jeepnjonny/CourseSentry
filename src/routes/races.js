@@ -76,7 +76,7 @@ const RACE_FIELDS = [
   'viewer_map_enabled', 'leaderboard_enabled', 'weather_enabled', 'course_id', 'race_format',
   'feat_missing', 'feat_auto_log', 'feat_auto_start', 'feat_off_course', 'feat_stopped',
   'start_time', 'start_clearance', 'mqtt_rf_tech', 'units', 'speed_display', 'tactical_callsign',
-  'offline_maps', 'rf_path',
+  'offline_maps', 'rf_path', 'viewer_show_names', 'viewer_nametags',
 ];
 
 const SPEED_UNITS = {

@@ -170,10 +170,13 @@ function handleWS(msg) {
   else if (type === 'race_update') {
     if (race && data.id === race.id) {
       const wasOfflineReady = race.offline_maps_status === 'ready';
+      const prevNametags = race.viewer_nametags;
       race = data;
       applySpeedDisplayLabels();
       if (!wasOfflineReady && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
       updateBaseLayerSelector();
+      // Redraw markers if nametag setting changed
+      if (race.viewer_nametags !== prevNametags) renderAllMarkers();
     }
   }
 }
@@ -256,12 +259,16 @@ function renderAllMarkers() {
 }
 
 function createMarker(p) {
+  const label = RT.fmtLabel(p.name);
   const heat = p.heat_id ? heats[p.heat_id] : null;
   const { svg } = RT.trackerIcon(heat, false, false);
-  const icon = L.divIcon({ html: `<div title="#${p.bib} ${p.name}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
+  const nametags = !!(race?.viewer_nametags);
+  const icon = L.divIcon({ html: `<div title="#${p.bib} ${label}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
   const m = L.marker([p.last_lat, p.last_lon], { icon });
   m._pid = p.id;
-  m.bindTooltip(`#${p.bib} ${p.name}`, { permanent: false });
+  m.bindTooltip(`#${p.bib} ${label}`, {
+    permanent: nametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag',
+  });
   m.addTo(markerLayer);
 }
 

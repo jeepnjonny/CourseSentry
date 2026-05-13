@@ -75,6 +75,18 @@ const RT = (() => {
   }
 
   // ── Formatting ────────────────────────────────────────────────────────────
+
+  /**
+   * Format a full name as "Firstname L." for compact map labels / tooltips.
+   * "John Smith" → "John S."   "Mary Jane Watson" → "Mary W."   "John" → "John"
+   */
+  function fmtLabel(name) {
+    if (!name) return '';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length < 2) return parts[0] || '';
+    return parts[0] + ' ' + parts[parts.length - 1][0].toUpperCase() + '.';
+  }
+
   function fmtTime(unixSec, fmt24) {
     if (!unixSec) return '--';
     const d = new Date(unixSec * 1000);
@@ -229,6 +241,6 @@ const RT = (() => {
   }
 
   return { BASE, getMe, logout, requireLogin, api, get, post, put, del, connectWS,
-           fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo,
+           fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo, fmtLabel,
            trackerIcon, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES };
 })();

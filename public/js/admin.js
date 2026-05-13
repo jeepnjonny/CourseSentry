@@ -329,10 +329,11 @@ async function openRaceModal(id) {
   document.getElementById('rm-feat-stopped').checked    = !!(race?.feat_stopped    ?? 1);
   document.getElementById('rm-messaging').checked    = !!(race?.messaging_enabled);
   document.getElementById('rm-offline-maps').checked = !!(race?.offline_maps);
-  document.getElementById('rm-viewer-map').checked   = !!(race?.viewer_map_enabled ?? 1);
-  document.getElementById('rm-leaderboard').checked  = !!(race?.leaderboard_enabled ?? 1);
-  document.getElementById('rm-weather').checked      = !!(race?.weather_enabled);
-  document.getElementById('rm-show-names').checked   = !!(race?.viewer_show_names ?? 1);
+  document.getElementById('rm-viewer-map').checked       = !!(race?.viewer_map_enabled ?? 1);
+  document.getElementById('rm-leaderboard').checked      = !!(race?.leaderboard_enabled ?? 1);
+  document.getElementById('rm-weather').checked          = !!(race?.weather_enabled);
+  document.getElementById('rm-show-names').checked       = !!(race?.viewer_show_names ?? 1);
+  document.getElementById('rm-viewer-nametags').checked  = !!(race?.viewer_nametags);
   document.getElementById('rm-race-format').value    = race?.race_format || 'point_to_point';
   document.getElementById('rm-start-time').value      = unixToTimeStr(race?.start_time);
   document.getElementById('rm-start-clearance').value  = _mToDisplay(race?.start_clearance ?? 400, modalUnits);
@@ -370,6 +371,7 @@ async function saveRace() {
     leaderboard_enabled: document.getElementById('rm-leaderboard').checked ? 1 : 0,
     weather_enabled:     document.getElementById('rm-weather').checked ? 1 : 0,
     viewer_show_names:   document.getElementById('rm-show-names').checked ? 1 : 0,
+    viewer_nametags:     document.getElementById('rm-viewer-nametags').checked ? 1 : 0,
     race_format:         document.getElementById('rm-race-format').value,
     tactical_callsign:   document.getElementById('rm-tactical-callsign').value.trim() || 'Net Control',
     rf_path:             document.getElementById('rm-rf-path').value.trim() || 'WIDE1-1',

@@ -153,6 +153,19 @@
     color: var(--text) !important; font-family: var(--font) !important;
   }
   .leaflet-control-zoom a:hover { background: var(--surface2) !important; }
+  .map-nametag {
+    background: rgba(13,17,23,0.82) !important;
+    border: 1px solid rgba(255,255,255,.12) !important;
+    border-radius: 3px !important;
+    color: #c9d1d9 !important;
+    font-size: 11px !important;
+    font-family: var(--font) !important;
+    padding: 1px 5px !important;
+    white-space: nowrap !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,.5) !important;
+    pointer-events: none !important;
+  }
+  .map-nametag::before { border: none !important; }
 </style>
 </head>
 <body>
