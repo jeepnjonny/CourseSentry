@@ -134,7 +134,10 @@ function getPrimary(raceId) {
 // ── Inbound message to our tactical callsign ──────────────────────────────────
 function _handleInboundMessage(raceId, fromCall, text) {
   const race = db.prepare('SELECT * FROM races WHERE id=?').get(raceId);
-  if (!race?.messaging_enabled) return;
+  if (!race?.messaging_enabled) {
+    logger.log('tnc', 'debug', `MSG from ${fromCall} dropped: messaging_enabled=false for race ${raceId}`, `TNC-${raceId}`);
+    return;
+  }
   const person = db.prepare(
     "SELECT * FROM personnel WHERE race_id=? AND UPPER(tracker_id)=? LIMIT 1"
   ).get(raceId, fromCall.toUpperCase());
@@ -194,6 +197,12 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
 
       const raceRow = db.prepare('SELECT tactical_callsign FROM races WHERE id=?').get(ws.tncRaceId);
       const myCall = raceRow?.tactical_callsign?.toUpperCase().trim();
+
+      if (!myCall) {
+        logger.log('tnc', 'debug', `MSG from ${from}: no tactical callsign for race ${ws.tncRaceId}`, `TNC-${ws.tncRaceId}`);
+      } else if (addressee !== myCall) {
+        logger.log('tnc', 'debug', `MSG from ${from} to ${addressee} (not us: ${myCall}) — passing to processAprsLine`, `TNC-${ws.tncRaceId}`);
+      }
 
       if (myCall && addressee === myCall) {
         // Strip optional trailing '}' some clients append to ack/rej lines

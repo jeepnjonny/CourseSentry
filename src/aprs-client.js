@@ -324,8 +324,8 @@ function handleInboundMessage(fromCall, text) {
   ).get(race.id, fromCall.toUpperCase());
   const ts = Math.floor(Date.now() / 1000);
   const result = db.prepare(`
-    INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, text, timestamp)
-    VALUES (?,?,?,?,?,?,?)
+    INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, text, timestamp, status)
+    VALUES (?,?,?,?,?,?,?,'delivered')
   `).run(race.id, 'in', fromCall, person?.name || fromCall, currentConfig?.callsign || null, text, ts);
   const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(result.lastInsertRowid);
   logger.log('aprs', 'info', `MSG from ${fromCall}${person ? ' (' + person.name + ')' : ''}: ${text}`);
@@ -364,9 +364,10 @@ function processLine(line) {
   if (aprsMsg) {
     const myCall = currentConfig?.callsign?.toUpperCase();
     if (myCall && aprsMsg.addressee === myCall) {
-      if (/^(ack|rej)\d+$/i.test(aprsMsg.text)) {
-        const ackType = aprsMsg.text.slice(0, 3).toUpperCase();
-        const ackSeq  = parseInt(aprsMsg.text.slice(3));
+      const msgTextNorm = aprsMsg.text.replace(/\}$/, '');
+      if (/^(ack|rej)\d+$/i.test(msgTextNorm)) {
+        const ackType = msgTextNorm.slice(0, 3).toUpperCase();
+        const ackSeq  = parseInt(msgTextNorm.slice(3));
         logger.log('aprs', 'info', `${ackType} from ${fromCall}: seq=${ackSeq}`);
         const key = `${fromCall.toUpperCase().trim()}:${ackSeq}`;
         const pending = _pendingAcks.get(key);
@@ -376,7 +377,7 @@ function processLine(line) {
           updateMessageStatus(pending.messageId, ackType === 'ACK' ? 'delivered' : 'error');
         }
       } else {
-        handleInboundMessage(fromCall, aprsMsg.text);
+        handleInboundMessage(fromCall, msgTextNorm);
         if (aprsMsg.seq) sendAck(fromCall, aprsMsg.seq);
       }
     }
