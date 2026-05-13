@@ -149,6 +149,11 @@ function applyWeatherFlag() {
 }
 
 function handleInit(data) {
+  // Re-register TNC on WebSocket reconnect — the new server-side ws object
+  // starts with tncActive=false, so local_aprs_rx frames would be dropped
+  // without this re-registration.
+  if (KissTnc.isConnected()) RT.wsSend({ type: 'tnc_connect' });
+
   if (!data.race) { updateRacePill(null); return; }
   race = data.race;
   fmt24 = race.time_format === '24h';

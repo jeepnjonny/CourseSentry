@@ -174,6 +174,8 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
 
   if (_isDuplicate(from, text)) return; // same packet heard by multiple TNCs
 
+  logger.log('tnc', 'debug', `RX ${from}: ${text.slice(0, 60)}`, `TNC-${ws.tncRaceId}`);
+
   const client = _clients.get(ws.id);
   if (client) client.rxCount++;
 
@@ -194,9 +196,11 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
       const myCall = raceRow?.tactical_callsign?.toUpperCase().trim();
 
       if (myCall && addressee === myCall) {
-        if (/^ack\d+$/i.test(body)) {
+        // Strip optional trailing '}' some clients append to ack/rej lines
+        const bodyNorm = body.replace(/\}$/, '');
+        if (/^ack\d+$/i.test(bodyNorm)) {
           // ACK for an outbound message we sent via TNC
-          const ackSeq = parseInt(body.slice(3));
+          const ackSeq = parseInt(bodyNorm.slice(3));
           const key = `${from.toUpperCase().trim()}:${ackSeq}`;
           const pending = _pendingAcks.get(key);
           if (pending) {
@@ -204,17 +208,20 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
             _pendingAcks.delete(key);
             _updateMsgStatus(pending.messageId, 'delivered');
             logger.log('tnc', 'info', `ACK from ${from} seq=${ackSeq}`, `TNC-${ws.tncRaceId}`);
+          } else {
+            logger.log('tnc', 'debug', `ACK from ${from} seq=${ackSeq} (no pending)`, `TNC-${ws.tncRaceId}`);
           }
           return;
         }
-        if (/^rej\d+$/i.test(body)) {
-          const rejSeq = parseInt(body.slice(3));
+        if (/^rej\d+$/i.test(bodyNorm)) {
+          const rejSeq = parseInt(bodyNorm.slice(3));
           const key = `${from.toUpperCase().trim()}:${rejSeq}`;
           const pending = _pendingAcks.get(key);
           if (pending) {
             clearTimeout(pending.timer);
             _pendingAcks.delete(key);
             _updateMsgStatus(pending.messageId, 'error');
+            logger.log('tnc', 'info', `REJ from ${from} seq=${rejSeq}`, `TNC-${ws.tncRaceId}`);
           }
           return;
         }
