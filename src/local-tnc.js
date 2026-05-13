@@ -156,10 +156,12 @@ function _sendAckViaTnc(ws, raceId, toCallsign, seq) {
   try {
     ws.send(JSON.stringify({
       type: 'tnc_tx',
-      from: race.tactical_callsign,
-      to:   'APRS',
-      via:  (race.rf_path || 'WIDE1-1').split(',').map(s => s.trim()).filter(Boolean),
-      text: `:${paddedTo}:ack${seq}`,
+      data: {
+        from: race.tactical_callsign,
+        to:   'APRS',
+        via:  (race.rf_path || 'WIDE1-1').split(',').map(s => s.trim()).filter(Boolean),
+        text: `:${paddedTo}:ack${seq}`,
+      },
     }));
   } catch (e) {
     logger.log('tnc', 'error', `sendAck failed: ${e.message}`, `TNC-${raceId}`);
@@ -255,10 +257,12 @@ function sendMessage(raceId, { toCallsign, text, messageId }) {
   try {
     ws.send(JSON.stringify({
       type: 'tnc_tx',
-      from,
-      to:   'APRS',
-      via:  rfPath.split(',').map(s => s.trim()).filter(Boolean),
-      text: aprsText,
+      data: {
+        from,
+        to:  'APRS',
+        via: rfPath.split(',').map(s => s.trim()).filter(Boolean),
+        text: aprsText,
+      },
     }));
 
     const client = _clients.get(ws.id);
@@ -317,10 +321,12 @@ function sendBeacon(raceId, lat, lon, name) {
   try {
     ws.send(JSON.stringify({
       type: 'tnc_tx',
-      from,
-      to:  'APRS',
-      via: rfPath.split(',').map(s => s.trim()).filter(Boolean),
-      text,
+      data: {
+        from,
+        to:  'APRS',
+        via: rfPath.split(',').map(s => s.trim()).filter(Boolean),
+        text,
+      },
     }));
     const client = _clients.get(ws.id);
     if (client) client.txCount++;
