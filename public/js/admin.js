@@ -1970,7 +1970,7 @@ document.addEventListener('change', e => {
 });
 
 // ── Logs Tab ──────────────────────────────────────────────────────────────────
-const LOG_CHANNELS = ['mqtt', 'aprs', 'race', 'system', 'console'];
+const LOG_CHANNELS = ['mqtt', 'aprs', 'tnc', 'race', 'system', 'console'];
 const LOG_LEVEL_COLORS = { info: 'var(--text)', warn: '#d2a679', error: '#f78166', debug: 'var(--text3)' };
 let logsChannel = 'mqtt';
 let logsPaused = false;
@@ -2004,14 +2004,26 @@ async function loadLogs() {
   el.scrollTop = el.scrollHeight;
 }
 
+const LOG_SOURCE_COLORS = { 'APRS-IS': '#58a6ff', TNC: '#3fb950' };
+function _sourceColor(src) {
+  if (!src) return 'var(--text3)';
+  if (src.startsWith('TNC')) return LOG_SOURCE_COLORS.TNC;
+  return LOG_SOURCE_COLORS[src] || 'var(--text3)';
+}
+
 function buildLogRow(entry) {
   const d = new Date(entry.ts * 1000);
   const time = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const color = LOG_LEVEL_COLORS[entry.level] || 'var(--text)';
+  const src = entry.source || '';
+  const srcBadge = src
+    ? `<span style="color:${_sourceColor(src)};min-width:72px;font-size:12px;letter-spacing:.5px">[${src}]</span>`
+    : `<span style="min-width:72px"></span>`;
   const row = document.createElement('div');
   row.style.cssText = `display:flex;gap:8px;padding:2px 4px;border-radius:3px;line-height:1.5`;
   row.innerHTML = `<span style="color:var(--text3);min-width:64px">${time}</span>`
     + `<span style="color:var(--accent4);min-width:48px">${(entry.level||'info').toUpperCase()}</span>`
+    + srcBadge
     + `<span style="color:${color};word-break:break-all">${entry.msg}</span>`;
   return row;
 }

@@ -7,6 +7,7 @@
 const db = require('./db');
 const logger = require('./logger');
 const aprsClient = require('./aprs-client');
+const localTnc   = require('./local-tnc');
 const mqttClient = require('./mqtt-client');
 
 const INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -37,12 +38,19 @@ function sendBeacons() {
     const name = (race.tactical_callsign || 'Net Control').trim();
     const station = getNetControlStation(race.id);
 
-    // Send APRS beacon if connected
+    // Send beacon via APRS-IS if connected
     if (aprsClient.getStatus().connected) {
       if (station) {
         aprsClient.sendObjectBeacon(station.lat, station.lon, name);
       } else {
-        logger.log('system', 'info', `Beacon: APRS connected but no Net Control station for "${race.name}" — skipping beacon`);
+        logger.log('system', 'info', `Beacon: APRS-IS connected but no Net Control station for "${race.name}" — skipping`);
+      }
+    }
+
+    // Send beacon via all TNC primaries for this race
+    if (station) {
+      for (const raceId of localTnc.getConnectedRaceIds()) {
+        localTnc.sendBeacon(raceId, station.lat, station.lon, name);
       }
     }
 

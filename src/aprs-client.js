@@ -276,8 +276,11 @@ function inferAltitudeMeters(rawFt, nodeId) {
 
 function updateMessageStatus(messageId, status) {
   try {
-    db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, messageId);
-    broadcast('message_status', { id: messageId, status });
+    const sql = status === 'error'
+      ? "UPDATE messages SET status = ? WHERE id = ? AND status NOT IN ('delivered','error')"
+      : 'UPDATE messages SET status = ? WHERE id = ?';
+    const changed = db.prepare(sql).run(status, messageId).changes;
+    if (changed) broadcast('message_status', { id: messageId, status });
   } catch (e) {
     logger.log('aprs', 'error', `updateMessageStatus failed: ${e.message}`);
   }

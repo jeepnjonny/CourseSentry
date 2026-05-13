@@ -5,8 +5,10 @@
  * Broadcasts new entries to admin WebSocket clients.
  */
 
-const CHANNELS = ['mqtt', 'aprs', 'race', 'system', 'console'];
+const CHANNELS = ['mqtt', 'aprs', 'tnc', 'race', 'system', 'console'];
 const MAX_ENTRIES = 1000;
+
+const CHANNEL_SOURCE = { aprs: 'APRS-IS', tnc: 'TNC', mqtt: 'MQTT', race: 'RACE', system: 'SYS', console: 'CON' };
 
 const store = new Map(CHANNELS.map(c => [c, []]));
 let _wsManager = null;
@@ -23,7 +25,7 @@ function setWs(ws) {
  * Log an event to a channel with a level (info, warn, error, debug).
  * Maintains circular buffer per channel (max 1000 entries).
  */
-function log(channel, level, msg) {
+function log(channel, level, msg, source) {
   const ch = CHANNELS.includes(channel) ? channel : 'system';
   const entry = {
     id: ++_seq,
@@ -31,6 +33,7 @@ function log(channel, level, msg) {
     channel: ch,
     level,
     msg,
+    source: source || CHANNEL_SOURCE[ch] || ch.toUpperCase(),
   };
 
   const arr = store.get(ch);

@@ -22,7 +22,6 @@ const wsManager  = require('../websocket');
 const mqttClient = require('../mqtt-client');
 const aprsClient = require('../aprs-client');
 const localTnc   = require('../local-tnc');
-const routeTable = require('../route-table');
 
 const router = express.Router({ mergeParams: true });
 
@@ -94,17 +93,6 @@ function buildMessageQuery(raceId, nodeId, limit) {
 }
 
 /**
- * Sends a message via APRS
- * @param {string} toCallsign - APRS callsign to send to
- * @param {string} text - Message text
- * @param {number} messageId - Message ID for tracking
- * @returns {boolean} True if sent successfully
- */
-function sendAprsMessage(toCallsign, text, messageId) {
-  return aprsClient.sendMessage(toCallsign.trim(), text, messageId) !== false;
-}
-
-/**
  * Sends a message via Meshtastic MQTT
  * @param {string} toNodeId - Meshtastic node ID
  * @param {string} text - Message text
@@ -152,82 +140,60 @@ router.post('/', requireRole('admin', 'operator', 'station'), async (req, res) =
   const username = req.session?.user?.username || 'operator';
   const isWeb    = to_node_id.startsWith('web:');
 
-  // ── Route table lookup ────────────────────────────────────────────────────
-  // Determines which path to use based on how we last heard this node.
-  // Falls back to heuristic (APRS callsign regex / Meshtastic hex) if unknown.
-  const route = !isWeb ? routeTable.resolve(to_node_id.trim()) : null;
-
-  let fromNodeId       = null;
-  let resolvedToNodeId = to_node_id;
-  let initialStatus    = 'queued';
-  let sent             = false;
-  let dispatchPath     = 'none';
-
   if (isWeb) {
     // ── Web (browser-to-browser via WebSocket) ────────────────────────────
-    fromNodeId    = `web:${username}`;
-    initialStatus = 'delivered';
-    sent          = true;
-    dispatchPath  = 'web';
-
-  } else if (route?.source === 'tnc_local') {
-    // ── Local TNC (RF via operator's serial KISS TNC) ─────────────────────
-    fromNodeId   = race.tactical_callsign;
-    dispatchPath = 'tnc_local';
     const result = db.prepare(`
       INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, to_name, text, timestamp, status)
       VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(race.id, 'out', fromNodeId, username, to_node_id, to_name || null, text, ts, 'queued');
-    const messageId = result.lastInsertRowid;
-    sent = localTnc.sendMessage(race.id, { toCallsign: to_node_id, text, messageId });
-    const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
+    `).run(race.id, 'out', `web:${username}`, username, to_node_id, to_name || null, text, ts, 'delivered');
+    const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(result.lastInsertRowid);
     wsManager.broadcast({ type: 'message', data: msg });
-    return res.json({ ok: true, data: { ...msg, sent, path: dispatchPath } });
-
-  } else if (route?.source === 'mqtt') {
-    // ── Meshtastic via MQTT ───────────────────────────────────────────────
-    resolvedToNodeId = resolveMeshtasticNodeId(to_node_id);
-    if (!resolvedToNodeId) return res.status(400).json({ ok: false, error: 'Invalid Meshtastic node ID' });
-    dispatchPath = 'mqtt';
-
-  } else {
-    // ── No route or stale — heuristic fallback ────────────────────────────
-    const isAprs = APRS_CALL_RE.test(to_node_id.trim());
-    if (isAprs) {
-      // Try APRS-IS if connected, otherwise no path
-      if (!aprsClient.isConnected()) {
-        return res.status(503).json({ ok: false, error: 'No path to recipient: APRS-IS not connected and no local TNC has heard this station' });
-      }
-      const aprsRows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'aprs_%'").all();
-      const s = Object.fromEntries(aprsRows.map(r => [r.key, r.value]));
-      fromNodeId   = s.aprs_callsign || null;
-      dispatchPath = 'aprs_is';
-    } else {
-      // Try Meshtastic
-      resolvedToNodeId = resolveMeshtasticNodeId(to_node_id);
-      if (!resolvedToNodeId) return res.status(400).json({ ok: false, error: 'Invalid node ID or unknown tracker name' });
-      dispatchPath = 'mqtt';
-    }
+    return res.json({ ok: true, data: { ...msg, sent: true, path: 'web' } });
   }
 
-  // ── Insert message row and dispatch ───────────────────────────────────────
+  if (APRS_CALL_RE.test(to_node_id.trim())) {
+    // ── APRS: flood to APRS-IS and every connected TNC simultaneously ─────
+    const aprsConnected = aprsClient.isConnected();
+    const tncRaceIds    = localTnc.getConnectedRaceIds();
+
+    if (!aprsConnected && tncRaceIds.length === 0) {
+      return res.status(503).json({ ok: false, error: 'No APRS path available: APRS-IS not connected and no local TNCs active' });
+    }
+
+    const result = db.prepare(`
+      INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, to_name, text, timestamp, status)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).run(race.id, 'out', race.tactical_callsign, username, to_node_id.trim(), to_name || null, text, ts, 'queued');
+    const messageId = result.lastInsertRowid;
+
+    const paths = [];
+    if (aprsConnected) {
+      aprsClient.sendMessage(to_node_id.trim(), text, messageId);
+      paths.push('aprs_is');
+    }
+    for (const rId of tncRaceIds) {
+      localTnc.sendMessage(rId, { toCallsign: to_node_id, text, messageId });
+      paths.push(`tnc_${rId}`);
+    }
+
+    const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
+    wsManager.broadcast({ type: 'message', data: msg });
+    return res.json({ ok: true, data: { ...msg, sent: true, path: paths.join('+') } });
+  }
+
+  // ── Meshtastic via MQTT ───────────────────────────────────────────────────
+  const resolvedToNodeId = resolveMeshtasticNodeId(to_node_id);
+  if (!resolvedToNodeId) return res.status(400).json({ ok: false, error: 'Invalid node ID or unknown tracker name' });
+
   const result = db.prepare(`
     INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, to_name, text, timestamp, status)
     VALUES (?,?,?,?,?,?,?,?,?)
-  `).run(race.id, 'out', fromNodeId, username, resolvedToNodeId, to_name || null, text, ts, initialStatus);
+  `).run(race.id, 'out', null, username, resolvedToNodeId, to_name || null, text, ts, 'queued');
   const messageId = result.lastInsertRowid;
-
-  if (dispatchPath === 'aprs_is') {
-    sent = sendAprsMessage(to_node_id, text, messageId);
-  } else if (dispatchPath === 'mqtt') {
-    sent = await sendMeshtasticMessage(resolvedToNodeId, text, messageId);
-  } else if (dispatchPath === 'web') {
-    sent = true; // delivered via WS broadcast below
-  }
-
+  const sent = await sendMeshtasticMessage(resolvedToNodeId, text, messageId);
   const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
   wsManager.broadcast({ type: 'message', data: msg });
-  res.json({ ok: true, data: { ...msg, sent, path: dispatchPath } });
+  res.json({ ok: true, data: { ...msg, sent, path: 'mqtt' } });
 });
 
 router.put('/:id/read', requireAuth, (req, res) => {

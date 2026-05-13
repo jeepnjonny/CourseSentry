@@ -39,8 +39,11 @@ let _msgSeq = 0;
 
 function _updateMsgStatus(messageId, status) {
   try {
-    db.prepare('UPDATE messages SET status=? WHERE id=?').run(status, messageId);
-    if (_wsRef) _wsRef.broadcast({ type: 'message_status', data: { id: messageId, status } });
+    const sql = status === 'error'
+      ? "UPDATE messages SET status=? WHERE id=? AND status NOT IN ('delivered','error')"
+      : 'UPDATE messages SET status=? WHERE id=?';
+    const changed = db.prepare(sql).run(status, messageId).changes;
+    if (changed && _wsRef) _wsRef.broadcast({ type: 'message_status', data: { id: messageId, status } });
   } catch (e) {
     logger.log('tnc', 'error', `updateMsgStatus: ${e.message}`);
   }
@@ -93,9 +96,9 @@ function register(ws, raceId) {
 
   if (!_txPrimary.has(raceId)) {
     _txPrimary.set(raceId, ws);
-    logger.log('tnc', 'info', `TX primary: ws=${ws.id} race=${raceId}`);
+    logger.log('tnc', 'info', `TX primary: ws=${ws.id} race=${raceId}`, `TNC-${raceId}`);
   }
-  logger.log('tnc', 'info', `TNC registered: ws=${ws.id} race=${raceId}`);
+  logger.log('tnc', 'info', `TNC registered: ws=${ws.id} race=${raceId}`, `TNC-${raceId}`);
   _broadcastStatus(raceId);
 }
 
@@ -112,12 +115,12 @@ function unregister(wsId) {
     for (const [, c] of _clients) {
       if (c.raceId === raceId && c.ws.readyState === 1) {
         _txPrimary.set(raceId, c.ws);
-        logger.log('tnc', 'info', `TX primary promoted: ws=${c.ws.id} race=${raceId}`);
+        logger.log('tnc', 'info', `TX primary promoted: ws=${c.ws.id} race=${raceId}`, `TNC-${raceId}`);
         break;
       }
     }
   }
-  logger.log('tnc', 'info', `TNC unregistered: ws=${wsId} race=${raceId}`);
+  logger.log('tnc', 'info', `TNC unregistered: ws=${wsId} race=${raceId}`, `TNC-${raceId}`);
   _broadcastStatus(raceId);
 }
 
@@ -141,7 +144,7 @@ function _handleInboundMessage(raceId, fromCall, text) {
     VALUES (?,?,?,?,?,?,?,'delivered')
   `).run(raceId, 'in', fromCall, person?.name || fromCall, race.tactical_callsign, text, ts);
   const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(result.lastInsertRowid);
-  logger.log('tnc', 'info', `MSG in from ${fromCall}${person ? ' (' + person.name + ')' : ''}: ${text}`);
+  logger.log('tnc', 'info', `MSG in from ${fromCall}${person ? ' (' + person.name + ')' : ''}: ${text}`, `TNC-${raceId}`);
   if (_wsRef) _wsRef.broadcastToRace(raceId, { type: 'message', data: msg });
 }
 
@@ -159,7 +162,7 @@ function _sendAckViaTnc(ws, raceId, toCallsign, seq) {
       text: `:${paddedTo}:ack${seq}`,
     }));
   } catch (e) {
-    logger.log('tnc', 'error', `sendAck failed: ${e.message}`);
+    logger.log('tnc', 'error', `sendAck failed: ${e.message}`, `TNC-${raceId}`);
   }
 }
 
@@ -198,7 +201,7 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
             clearTimeout(pending.timer);
             _pendingAcks.delete(key);
             _updateMsgStatus(pending.messageId, 'delivered');
-            logger.log('tnc', 'info', `ACK from ${from} seq=${ackSeq}`);
+            logger.log('tnc', 'info', `ACK from ${from} seq=${ackSeq}`, `TNC-${ws.tncRaceId}`);
           }
           return;
         }
@@ -228,7 +231,7 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
   try {
     _aprs().processAprsLine(line);
   } catch (e) {
-    logger.log('tnc', 'error', `processAprsLine: ${e.message}`);
+    logger.log('tnc', 'error', `processAprsLine: ${e.message}`, `TNC-${ws.tncRaceId}`);
   }
 }
 
@@ -236,7 +239,7 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
 function sendMessage(raceId, { toCallsign, text, messageId }) {
   const ws = getPrimary(raceId);
   if (!ws) {
-    logger.log('tnc', 'warn', `sendMessage: no TNC primary for race ${raceId}`);
+    logger.log('tnc', 'warn', `sendMessage: no TNC primary for race ${raceId}`, `TNC-${raceId}`);
     return false;
   }
 
@@ -262,7 +265,7 @@ function sendMessage(raceId, { toCallsign, text, messageId }) {
     if (client) client.txCount++;
     _broadcastStatus(raceId);
 
-    logger.log('tnc', 'info', `MSG→${toCallsign.trim()} seq=${seqStr}: ${text}`);
+    logger.log('tnc', 'info', `MSG→${toCallsign.trim()} seq=${seqStr}: ${text}`, `TNC-${raceId}`);
     _updateMsgStatus(messageId, 'enroute');
 
     // Track ACK (90-second timeout for RF delivery)
@@ -274,10 +277,60 @@ function sendMessage(raceId, { toCallsign, text, messageId }) {
 
     return true;
   } catch (e) {
-    logger.log('tnc', 'error', `sendMessage failed: ${e.message}`);
+    logger.log('tnc', 'error', `sendMessage failed: ${e.message}`, `TNC-${raceId}`);
     _updateMsgStatus(messageId, 'error');
     return false;
   }
 }
 
-module.exports = { setWs, register, unregister, getPrimary, getStatus, handleIncomingFrame, sendMessage };
+// ── Multi-path helpers ────────────────────────────────────────────────────────
+function getConnectedRaceIds() {
+  const ids = [];
+  for (const [raceId, ws] of _txPrimary) {
+    if (ws && ws.readyState === 1) ids.push(raceId);
+  }
+  return ids;
+}
+
+function _toAprsLat(deg) {
+  const abs = Math.abs(deg), d = Math.floor(abs), m = (abs - d) * 60;
+  return `${String(d).padStart(2,'0')}${m.toFixed(2).padStart(5,'0')}${deg >= 0 ? 'N' : 'S'}`;
+}
+function _toAprsLon(deg) {
+  const abs = Math.abs(deg), d = Math.floor(abs), m = (abs - d) * 60;
+  return `${String(d).padStart(3,'0')}${m.toFixed(2).padStart(5,'0')}${deg >= 0 ? 'E' : 'W'}`;
+}
+
+function sendBeacon(raceId, lat, lon, name) {
+  const ws = getPrimary(raceId);
+  if (!ws) return false;
+  const race = db.prepare('SELECT tactical_callsign, rf_path FROM races WHERE id=?').get(raceId);
+  if (!race) return false;
+  const from    = race.tactical_callsign || 'NOCALL';
+  const rfPath  = race.rf_path || 'WIDE1-1';
+  const objName = name.slice(0, 9).padEnd(9, ' ');
+  const now     = new Date();
+  const ts      = String(now.getUTCDate()).padStart(2,'0') +
+                  String(now.getUTCHours()).padStart(2,'0') +
+                  String(now.getUTCMinutes()).padStart(2,'0') + 'z';
+  const text    = `;${objName}*${ts}${_toAprsLat(lat)}/${_toAprsLon(lon)}o${name}`;
+  try {
+    ws.send(JSON.stringify({
+      type: 'tnc_tx',
+      from,
+      to:  'APRS',
+      via: rfPath.split(',').map(s => s.trim()).filter(Boolean),
+      text,
+    }));
+    const client = _clients.get(ws.id);
+    if (client) client.txCount++;
+    _broadcastStatus(raceId);
+    logger.log('tnc', 'info', `Beacon: "${name.trim()}" @ ${lat.toFixed(5)},${lon.toFixed(5)}`, `TNC-${raceId}`);
+    return true;
+  } catch (e) {
+    logger.log('tnc', 'error', `sendBeacon failed: ${e.message}`, `TNC-${raceId}`);
+    return false;
+  }
+}
+
+module.exports = { setWs, register, unregister, getPrimary, getConnectedRaceIds, getStatus, handleIncomingFrame, sendMessage, sendBeacon };
