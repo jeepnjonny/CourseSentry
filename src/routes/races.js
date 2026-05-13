@@ -76,7 +76,7 @@ const RACE_FIELDS = [
   'viewer_map_enabled', 'leaderboard_enabled', 'weather_enabled', 'course_id', 'race_format',
   'feat_missing', 'feat_auto_log', 'feat_auto_start', 'feat_off_course', 'feat_stopped',
   'start_time', 'start_clearance', 'mqtt_rf_tech', 'units', 'speed_display', 'tactical_callsign',
-  'offline_maps', 'rf_path', 'viewer_show_names', 'viewer_nametags',
+  'offline_maps', 'rf_path', 'viewer_show_names', 'viewer_nametags', 'tnc_enabled',
 ];
 
 const SPEED_UNITS = {
@@ -205,11 +205,11 @@ router.put('/:id', requireRole('admin'), (req, res) => {
   }
 
   if (updates.tactical_callsign !== undefined) {
-    const call = String(updates.tactical_callsign).toUpperCase().trim();
-    if (!/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(call)) {
-      return res.status(400).json({ ok: false, error: 'tactical_callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.' });
+    const call = String(updates.tactical_callsign || '').toUpperCase().trim();
+    if (call && !/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(call)) {
+      return res.status(400).json({ ok: false, error: 'Race callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.' });
     }
-    updates.tactical_callsign = call;
+    updates.tactical_callsign = call || null;
   }
 
   if (Object.keys(updates).length === 0) {

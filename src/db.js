@@ -397,6 +397,7 @@ try { db.prepare('ALTER TABLE races ADD COLUMN offline_maps INTEGER NOT NULL DEF
 try { db.prepare('ALTER TABLE races ADD COLUMN offline_maps_status TEXT DEFAULT NULL').run(); } catch {}
 try { db.prepare("ALTER TABLE races ADD COLUMN rf_path TEXT NOT NULL DEFAULT 'WIDE1-1'").run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN viewer_nametags INTEGER NOT NULL DEFAULT 0').run(); } catch {}
+try { db.prepare('ALTER TABLE races ADD COLUMN tnc_enabled INTEGER NOT NULL DEFAULT 1').run(); } catch {}
 
 // Seed default admin on first run
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();

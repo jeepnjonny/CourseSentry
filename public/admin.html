@@ -237,9 +237,10 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
       <div class="checkbox-row"><input type="checkbox" id="rm-mqtt-enabled"><label for="rm-mqtt-enabled">MQTT / Meshtastic</label></div>
       <div class="checkbox-row"><input type="checkbox" id="rm-aprs-enabled"><label for="rm-aprs-enabled">APRS-IS</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="rm-tnc-enabled"><label for="rm-tnc-enabled">APRS-TNC</label></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-      <label for="rm-tactical-callsign" style="font-size:13px;white-space:nowrap;min-width:130px">Tactical Callsign</label>
+      <label for="rm-tactical-callsign" style="font-size:13px;white-space:nowrap;min-width:130px">Race Callsign <span id="rm-callsign-required" style="color:var(--danger);display:none">*</span></label>
       <input id="rm-tactical-callsign" type="text" style="flex:1;font-size:13px;text-transform:uppercase" placeholder="NETCTL" maxlength="9" pattern="[A-Za-z0-9]{1,6}(-[0-9]{1,2})?">
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
@@ -247,7 +248,7 @@
       <input id="rm-rf-path" type="text" style="flex:1;font-size:13px" placeholder="WIDE1-1" maxlength="40">
     </div>
     <div style="font-size:12px;color:var(--text3);margin-top:3px">
-      Tactical callsign must be a valid APRS callsign: 1–6 alphanumeric characters with optional -SSID (e.g. <code>NETCTL</code> or <code>W1AW-5</code>). No spaces. Sent as APRS object beacon and Meshtastic NodeInfo every 10 min. RF Path controls the AX.25 digipeater path (e.g. <code>WIDE1-1</code>).
+      Race callsign is required when APRS-IS or APRS-TNC is enabled. Must be a valid APRS callsign: 1–6 alphanumeric characters with optional -SSID (e.g. <code>NETCTL</code> or <code>W1AW-5</code>). No spaces. Sent as APRS object beacon and Meshtastic NodeInfo every 10 min. RF Path controls the AX.25 digipeater path (e.g. <code>WIDE1-1</code>).
     </div>
     <div class="section-header">FEATURES</div>
     <div style="margin-bottom:12px">

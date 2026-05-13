@@ -100,6 +100,11 @@ function init(server, sessionMiddleware) {
 
         if (type === 'tnc_connect') {
           // Browser has opened a TNC serial port for this race
+          const raceRow = ws.raceId ? db.prepare('SELECT tnc_enabled FROM races WHERE id=?').get(ws.raceId) : null;
+          if (!raceRow?.tnc_enabled) {
+            require('./logger').log('tnc', 'warn', `TNC connect rejected: tnc_enabled=false for race ${ws.raceId}`);
+            return;
+          }
           _tnc().register(ws, ws.raceId);
         } else if (type === 'tnc_disconnect') {
           // Browser has closed its TNC serial port

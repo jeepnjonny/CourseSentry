@@ -342,12 +342,36 @@ async function openRaceModal(id) {
   const settings = sRes.ok ? sRes.data : {};
   document.getElementById('rm-mqtt-enabled').checked = settings.mqtt_enabled !== '0';
   document.getElementById('rm-aprs-enabled').checked = settings.aprs_enabled === '1';
-  document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || 'NETCTL';
+  document.getElementById('rm-tnc-enabled').checked  = !!(race?.tnc_enabled ?? 1);
+  document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || currentUser?.callsign || '';
   document.getElementById('rm-rf-path').value           = race?.rf_path || 'WIDE1-1';
+  _updateCallsignRequired();
   document.getElementById('race-modal').classList.remove('hidden');
 }
 
+function _updateCallsignRequired() {
+  const aprsOn = document.getElementById('rm-aprs-enabled')?.checked;
+  const tncOn  = document.getElementById('rm-tnc-enabled')?.checked;
+  const req    = aprsOn || tncOn;
+  const marker = document.getElementById('rm-callsign-required');
+  if (marker) marker.style.display = req ? '' : 'none';
+  const input = document.getElementById('rm-tactical-callsign');
+  if (input) input.required = req;
+}
+
 async function saveRace() {
+  const aprsEnabled = document.getElementById('rm-aprs-enabled').checked;
+  const tncEnabled  = document.getElementById('rm-tnc-enabled').checked;
+  const callsign    = document.getElementById('rm-tactical-callsign').value.trim().toUpperCase();
+  if (!document.getElementById('rm-name').value.trim() || !document.getElementById('rm-date').value) {
+    RT.toast('Name and date required', 'warn'); return;
+  }
+  if ((aprsEnabled || tncEnabled) && !callsign) {
+    RT.toast('Race callsign is required when APRS-IS or APRS-TNC is enabled.', 'warn'); return;
+  }
+  if (callsign && !/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(callsign)) {
+    RT.toast('Race callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.', 'warn'); return;
+  }
   const body = {
     name:                document.getElementById('rm-name').value.trim(),
     date:                document.getElementById('rm-date').value,
@@ -373,16 +397,12 @@ async function saveRace() {
     viewer_show_names:   document.getElementById('rm-show-names').checked ? 1 : 0,
     viewer_nametags:     document.getElementById('rm-viewer-nametags').checked ? 1 : 0,
     race_format:         document.getElementById('rm-race-format').value,
-    tactical_callsign:   document.getElementById('rm-tactical-callsign').value.trim().toUpperCase() || 'NETCTL',
+    tactical_callsign:   callsign || null,
+    tnc_enabled:         tncEnabled ? 1 : 0,
     rf_path:             document.getElementById('rm-rf-path').value.trim() || 'WIDE1-1',
     start_time:          parseTimeToUnix(document.getElementById('rm-start-time').value, document.getElementById('rm-date').value) ?? null,
     start_clearance:     _displayToM(parseInt(document.getElementById('rm-start-clearance').value) || 0, _raceModalDistUnit) || 400,
   };
-  if (!body.name || !body.date) { RT.toast('Name and date required', 'warn'); return; }
-  if (!/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(body.tactical_callsign)) {
-    RT.toast('Tactical callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.', 'warn');
-    return;
-  }
   const res = editingRaceId
     ? await RT.put(`/api/races/${editingRaceId}`, body)
     : await RT.post('/api/races', body);
@@ -1971,6 +1991,7 @@ document.addEventListener('keydown', e => {
 // Bind heat preview updates
 document.addEventListener('change', e => {
   if (e.target.id === 'hm-color' || e.target.id === 'hm-shape') updateHeatPreview();
+  if (e.target.id === 'rm-aprs-enabled' || e.target.id === 'rm-tnc-enabled') _updateCallsignRequired();
 });
 
 // ── Logs Tab ──────────────────────────────────────────────────────────────────
