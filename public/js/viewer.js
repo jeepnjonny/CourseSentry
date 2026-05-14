@@ -171,12 +171,13 @@ function handleWS(msg) {
     if (race && data.id === race.id) {
       const wasOfflineReady = race.offline_maps_status === 'ready';
       const prevNametags = race.viewer_nametags;
+      const prevShowNames = race.viewer_show_names;
       race = data;
       applySpeedDisplayLabels();
       if (!wasOfflineReady && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
       updateBaseLayerSelector();
-      // Redraw markers if nametag setting changed
-      if (race.viewer_nametags !== prevNametags) renderAllMarkers();
+      document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
+      if (race.viewer_nametags !== prevNametags || race.viewer_show_names !== prevShowNames) renderAllMarkers();
     }
   }
 }
@@ -263,10 +264,12 @@ function createMarker(p) {
   const heat = p.heat_id ? heats[p.heat_id] : null;
   const { svg } = RT.trackerIcon(heat, false, false);
   const nametags = !!(race?.viewer_nametags);
-  const icon = L.divIcon({ html: `<div title="#${p.bib} ${label}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
+  const showNames = !!(race?.viewer_show_names ?? 1);
+  const tooltipText = showNames ? `#${p.bib} ${label}` : `#${p.bib}`;
+  const icon = L.divIcon({ html: `<div title="${tooltipText}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
   const m = L.marker([p.last_lat, p.last_lon], { icon });
   m._pid = p.id;
-  m.bindTooltip(`#${p.bib} ${label}`, {
+  m.bindTooltip(tooltipText, {
     permanent: nametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag',
   });
   m.addTo(markerLayer);

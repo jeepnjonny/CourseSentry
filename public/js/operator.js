@@ -653,6 +653,8 @@ function updatePersonnelMarkers() {
     if (existing) {
       existing.setLatLng([p.last_lat, p.last_lon]);
       existing.setIcon(icon);
+      existing.unbindTooltip();
+      existing.bindTooltip(perLabel, { permanent: showNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
     } else {
       const m = L.marker([p.last_lat, p.last_lon], { icon });
       m._perId = p.id;
@@ -2047,8 +2049,8 @@ function updateMsgCharCount() {
   const input = document.getElementById('msg-input');
   const counter = document.getElementById('msg-char-count');
   if (!input || !counter) return;
-  const firstName = (sel?.options[sel?.selectedIndex]?.dataset.name || '').split(' ')[0];
-  const prefixLen = firstName ? firstName.length + 2 : 0;
+  const firstName = (sel?.options[sel?.selectedIndex]?.dataset.name || '').split(' ')[0].slice(0, 6);
+  const prefixLen = firstName ? firstName.length + 1 : 0;
   const maxTypable = 67 - prefixLen;
   input.maxLength = maxTypable;
   const remaining = maxTypable - (input.value?.length || 0);
@@ -2108,8 +2110,8 @@ async function sendMessage() {
   const to_name = sel?.options[sel.selectedIndex]?.dataset.name;
   const rawText = document.getElementById('msg-input').value.trim();
   if (!to_node_id || !rawText) { RT.toast('Select a recipient and enter a message', 'warn'); return; }
-  const firstName = (to_name || '').split(' ')[0];
-  const text = firstName ? `${firstName}: ${rawText}` : rawText;
+  const firstName = (to_name || '').split(' ')[0].slice(0, 6);
+  const text = firstName ? `${firstName}<${rawText}` : rawText;
   const res = await RT.post(`/api/races/${race.id}/messages`, { to_node_id, to_name, text });
   if (res.ok) {
     document.getElementById('msg-input').value = '';
@@ -2265,7 +2267,7 @@ async function endRace() {
 function switchRightTab(id) {
   rightTab = id;
   document.querySelectorAll('#right-panel .tab-btn').forEach((b, i) => {
-    const ids = ['info','alerts','msg','log','weather'];
+    const ids = ['info','alerts','log','weather'];
     b.classList.toggle('active', ids[i] === id);
   });
   document.querySelectorAll('#right-panel .tab-content').forEach(t => t.classList.remove('active'));
