@@ -18,50 +18,24 @@
 
 const express = require('express');
 const crypto = require('crypto');
-const fs     = require('fs');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../auth');
 const mqttClient = require('../mqtt-client');
 const wsManager = require('../websocket');
 const logger = require('../logger');
 const tileCache = require('../tile-cache');
+const { loadTrackPoints, invalidateTrackCache } = require('../utils/course');
 
 const router = express.Router();
 
 // ── Offline tile download trigger ─────────────────────────────────────────────
 
 /**
- * Parse track points from a race's assigned course (or legacy track file).
- * Returns [[lat,lon], ...] or null.
- */
-function _getTrackPoints(race) {
-  try {
-    if (race.course_id) {
-      const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
-      if (course) {
-        const text = fs.readFileSync(course.file_path, 'utf8');
-        const { parseCourse } = require('./courses');
-        const { trackPoints } = parseCourse(text, course.file_path, course.path_index);
-        if (trackPoints?.length) return trackPoints;
-      }
-    }
-    if (race.track_file) {
-      const text = fs.readFileSync(race.track_file, 'utf8');
-      const { parseTrack } = require('./tracks');
-      return parseTrack(text, race.track_file, race.track_path_index) || null;
-    }
-  } catch (e) {
-    logger.log('system', 'warn', `[tiles] could not parse course for race ${race.id}: ${e.message}`);
-  }
-  return null;
-}
-
-/**
  * Kick off a background tile download for the given race.
  * Fires-and-forgets; errors are logged inside tileCache.downloadTiles().
  */
 function _triggerTileDownload(race) {
-  const trackPoints = _getTrackPoints(race);
+  const trackPoints = loadTrackPoints(race);
   if (!trackPoints?.length) {
     logger.log('system', 'warn', `[tiles] race ${race.id}: no track points found, skipping tile download`);
     return;
@@ -225,7 +199,7 @@ router.put('/:id', requireRole('admin'), (req, res) => {
   if (race.status === 'active') {
     mqttClient.connectFromSettings(db);
   }
-  mqttClient.invalidateRouteCache(parseInt(req.params.id));
+  mqttClient.invalidateRouteCache(parseInt(req.params.id));  // also clears course.js track cache
 
   // Trigger offline tile download when:
   //  (a) offline_maps was just switched ON and a course is assigned, OR

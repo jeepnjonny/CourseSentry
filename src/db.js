@@ -231,7 +231,13 @@ CREATE TABLE IF NOT EXISTS messages (
   status       TEXT    DEFAULT 'sent',
   read         INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_messages_race ON messages(race_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_race      ON messages(race_id, timestamp DESC);
+
+-- Performance indexes for hot-path queries (participant/personnel lookup on every position packet)
+CREATE INDEX IF NOT EXISTS idx_participants_tracker ON participants(race_id, tracker_id);
+CREATE INDEX IF NOT EXISTS idx_personnel_tracker    ON personnel(race_id, tracker_id);
+CREATE INDEX IF NOT EXISTS idx_events_type          ON events(participant_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_positions_race_node  ON tracker_positions(race_id, node_id, timestamp DESC);
 `);
 
 // ── Schema migrations ────────────────────────────────────────────────────────
@@ -378,7 +384,6 @@ try {
   db.prepare("ALTER TABLE races ADD COLUMN mqtt_rf_tech TEXT NOT NULL DEFAULT 'meshtastic'").run();
 } catch {}
 
-module.exports = db;
 try { db.prepare("ALTER TABLE races ADD COLUMN speed_display TEXT NOT NULL DEFAULT 'pace'").run(); } catch {}
 // Migrate existing speed_units → new fields (safe to run repeatedly; WHERE guards idempotency)
 try {

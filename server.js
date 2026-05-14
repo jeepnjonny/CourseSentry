@@ -6,6 +6,7 @@ const path  = require('path');
 const express = require('express');
 const session = require('express-session');
 const db = require('./src/db');
+const { requireAuth, requireRole } = require('./src/auth');
 const wsManager = require('./src/websocket');
 const mqttClient = require('./src/mqtt-client');
 
@@ -92,9 +93,7 @@ app.get('/downloads/RaceTrackerTNC.exe', (req, res) => {
 });
 
 // ── Admin: sync relay exe from GitHub Release ─────────────────────────────────
-app.post('/api/admin/relay-exe/sync', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.post('/api/admin/relay-exe/sync', requireRole('admin'), (req, res) => {
   console.log('[server] Downloading TNC relay exe from GitHub Release...');
   downloadRelayExe(err => {
     if (err) {
@@ -107,9 +106,7 @@ app.post('/api/admin/relay-exe/sync', (req, res) => {
   });
 });
 
-app.get('/api/admin/relay-exe/status', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.get('/api/admin/relay-exe/status', requireRole('admin'), (req, res) => {
   try {
     const stat = fs.statSync(RELAY_EXE_PATH);
     res.json({ ok: true, present: true, size: stat.size, mtime: stat.mtime });
@@ -147,9 +144,7 @@ raceRouter.use('/rf-analysis',  require('./src/routes/rf-analysis'));
 app.use('/api/races/:raceId', raceRouter);
 
 // ── MQTT test ─────────────────────────────────────────────────────────────────
-app.post('/api/settings/mqtt-test', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.post('/api/settings/mqtt-test', requireRole('admin'), (req, res) => {
   const connected = mqttClient.connectFromSettings(db);
   if (!connected) return res.status(400).json({ ok: false, error: 'No MQTT host configured in settings' });
   // Give the client 2.5s to connect then report status
@@ -160,43 +155,30 @@ app.post('/api/settings/mqtt-test', (req, res) => {
 });
 
 // ── APRS-IS ──────────────────────────────────────────────────────────────────
-app.get('/api/aprs/status', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false });
+app.get('/api/aprs/status',        requireAuth,         (req, res) => {
   res.json({ ok: true, data: aprsClient.getStatus() });
 });
-
-app.post('/api/aprs/connect', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
-  const ok = aprsClient.connectFromSettings(db);
+app.post('/api/aprs/connect',      requireRole('admin'), (req, res) => {
+  aprsClient.connectFromSettings(db);
   setTimeout(() => res.json({ ok: true, data: aprsClient.getStatus() }), 2000);
 });
-
-app.post('/api/aprs/disconnect', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.post('/api/aprs/disconnect',   requireRole('admin'), (req, res) => {
   aprsClient.disconnect();
   res.json({ ok: true });
 });
-
-app.get('/api/aprs/filter-preview', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false });
+app.get('/api/aprs/filter-preview', requireRole('admin'), (req, res) => {
   const type = req.query.type || 'location';
   res.json({ ok: true, filter: aprsClient.previewFilter(type) });
 });
 
 // ── Global settings ───────────────────────────────────────────────────────────
-app.get('/api/settings', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false, error: 'Not authenticated' });
+app.get('/api/settings', requireAuth, (req, res) => {
   const rows = db.prepare('SELECT key, value FROM settings').all();
   const data = Object.fromEntries(rows.map(r => [r.key, r.value]));
   res.json({ ok: true, data });
 });
 
-app.put('/api/settings', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.put('/api/settings', requireRole('admin'), (req, res) => {
   const upsert = db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
   const tx = db.transaction(entries => { for (const [k, v] of entries) upsert.run(k, v ?? null); });
   tx(Object.entries(req.body));
@@ -206,21 +188,16 @@ app.put('/api/settings', (req, res) => {
 });
 
 // MQTT status & control
-app.get('/api/mqtt/status', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false, error: 'Not authenticated' });
+app.get('/api/mqtt/status', requireAuth, (req, res) => {
   res.json({ ok: true, data: mqttClient.getStatus() });
 });
 
 // Tracker registry (infrastructure view)
-app.get('/api/trackers', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false, error: 'Not authenticated' });
+app.get('/api/trackers',    requireAuth,          (req, res) => {
   const trackers = db.prepare('SELECT * FROM tracker_registry ORDER BY last_seen DESC').all();
   res.json({ ok: true, data: trackers });
 });
-
-app.delete('/api/trackers', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.delete('/api/trackers', requireRole('admin'), (req, res) => {
   const hours = parseFloat(req.query.olderThan);
   if (!hours || hours <= 0) return res.status(400).json({ ok: false, error: 'olderThan must be > 0' });
   const cutoff = Math.floor(Date.now() / 1000) - Math.round(hours * 3600);
@@ -230,8 +207,7 @@ app.delete('/api/trackers', (req, res) => {
 });
 
 // Latest positions for active race
-app.get('/api/live', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false, error: 'Not authenticated' });
+app.get('/api/live', requireAuth, (req, res) => {
   const race = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
   if (!race) return res.json({ ok: true, data: [] });
   const positions = db.prepare(`
@@ -249,15 +225,13 @@ app.get('/api/live', (req, res) => {
 });
 
 // ── Weather status/test ───────────────────────────────────────────────────────
-app.get('/api/weather/status', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false });
+app.get('/api/weather/status', requireAuth, (req, res) => {
   const keyRow = db.prepare("SELECT value FROM settings WHERE key='weather_api_key'").get();
   res.json({ ok: true, data: { configured: !!(keyRow?.value) } });
 });
 
 // Returns the OWM API key for authenticated users (respects viewer+weather_enabled gate)
-app.get('/api/weather/key', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ ok: false });
+app.get('/api/weather/key', requireAuth, (req, res) => {
   const keyRow = db.prepare("SELECT value FROM settings WHERE key='weather_api_key'").get();
   const race = db.prepare("SELECT weather_enabled FROM races WHERE status='active'").get();
   const user = req.session.user;
@@ -266,13 +240,10 @@ app.get('/api/weather/key', (req, res) => {
   res.json({ ok: true, data: { key: keyRow?.value || null } });
 });
 
-app.post('/api/weather/test', async (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.post('/api/weather/test', requireRole('admin'), async (req, res) => {
   const keyRow = db.prepare("SELECT value FROM settings WHERE key='weather_api_key'").get();
   const apiKey = keyRow?.value;
   if (!apiKey) return res.json({ ok: false, error: 'No API key configured' });
-  const https = require('https');
   // Test with a known fixed location (London) — we just need to validate the key
   const url = `https://api.openweathermap.org/data/2.5/weather?lat=51.5&lon=-0.1&appid=${apiKey}`;
   try {
@@ -294,16 +265,12 @@ app.post('/api/weather/test', async (req, res) => {
 });
 
 // ── System health / diagnostics ───────────────────────────────────────────────
-app.get('/api/system/health', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.get('/api/system/health', requireRole('admin'), (req, res) => {
 
   const mem = process.memoryUsage();
   const fds = (() => {
-    try {
-      const fs = require('fs');
-      return fs.readdirSync(`/proc/${process.pid}/fd`).length;
-    } catch { return null; }
+    try { return fs.readdirSync(`/proc/${process.pid}/fd`).length; }
+    catch { return null; }
   })();
   const uptime = process.uptime();
 
@@ -323,9 +290,7 @@ app.get('/api/system/health', (req, res) => {
 });
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
-app.get('/api/logs', (req, res) => {
-  if (!req.session?.user || req.session.user.role !== 'admin')
-    return res.status(403).json({ ok: false, error: 'Admin only' });
+app.get('/api/logs', requireRole('admin'), (req, res) => {
   const { channel, limit } = req.query;
   res.json({ ok: true, data: logger.getLogs(channel, limit ? parseInt(limit) : 500) });
 });

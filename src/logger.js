@@ -38,11 +38,7 @@ function log(channel, level, msg, source) {
 
   const arr = store.get(ch);
   arr.push(entry);
-
-  // Trim to max entries (circular buffer)
-  if (arr.length > MAX_ENTRIES) {
-    arr.splice(0, arr.length - MAX_ENTRIES);
-  }
+  if (arr.length > MAX_ENTRIES) arr.shift();
 
   // Broadcast to admin websocket clients
   if (_wsManager) {

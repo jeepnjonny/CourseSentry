@@ -17,6 +17,7 @@ const db = require('./db');
 const geo = require('./geo');
 const logger = require('./logger');
 const routeTable = require('./route-table');
+const { loadTrackData, invalidateTrackCache } = require('./utils/course');
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let protoRoot = null;
@@ -24,6 +25,119 @@ let mqttClient = null;
 let wsRef = null;
 let currentConfig = null;
 let _gatewayNodeId = 0; // set from callsignToNodeId() by beacon scheduler
+
+// ── Module-level prepared statements (hoisted from hot path) ─────────────────
+// Creating a prepared statement inside a frequently-called function (e.g. on
+// every MQTT packet) causes repeated compilation overhead in better-sqlite3.
+// Declaring them once at module load time eliminates that cost entirely.
+const _stmt = {
+  upsertRegistry: db.prepare(`
+    INSERT INTO tracker_registry
+      (node_id, last_seen, last_lat, last_lon, last_altitude, last_speed, battery_level, snr, rssi)
+    VALUES (?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(node_id) DO UPDATE SET
+      last_seen=excluded.last_seen,
+      last_lat=excluded.last_lat,     last_lon=excluded.last_lon,
+      last_altitude=excluded.last_altitude, last_speed=excluded.last_speed,
+      battery_level=COALESCE(excluded.battery_level, battery_level),
+      snr=excluded.snr, rssi=excluded.rssi
+  `),
+  insertPosition: db.prepare(`
+    INSERT INTO tracker_positions
+      (race_id, node_id, lat, lon, altitude, speed, heading, battery, snr, rssi, timestamp, rf_source)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `),
+  prunePositions: db.prepare(`
+    DELETE FROM tracker_positions WHERE id IN (
+      SELECT id FROM tracker_positions WHERE race_id=? AND node_id=?
+      ORDER BY timestamp DESC LIMIT -1 OFFSET 500
+    )
+  `),
+  getRegistry:        db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?'),
+  getRegistryFull:    db.prepare('SELECT long_name, short_name, last_lat, last_lon, last_seen FROM tracker_registry WHERE node_id=?'),
+  upsertTelemetry:    db.prepare(`
+    INSERT INTO tracker_registry (node_id, battery_level, voltage, last_seen)
+    VALUES (?,?,?,?)
+    ON CONFLICT(node_id) DO UPDATE SET
+      battery_level=COALESCE(excluded.battery_level, battery_level),
+      voltage=COALESCE(excluded.voltage, voltage),
+      last_seen=excluded.last_seen
+  `),
+  upsertNodeInfo: db.prepare(`
+    INSERT INTO tracker_registry (node_id, long_name, short_name, hw_model, last_seen)
+    VALUES (?,?,?,?,?)
+    ON CONFLICT(node_id) DO UPDATE SET
+      long_name=COALESCE(excluded.long_name, long_name),
+      short_name=COALESCE(excluded.short_name, short_name),
+      hw_model=COALESCE(excluded.hw_model, hw_model),
+      last_seen=excluded.last_seen
+  `),
+  activeRaces:        db.prepare("SELECT * FROM races WHERE status='active'"),
+  updateMsgStatus:    db.prepare("UPDATE messages SET status=? WHERE id=?"),
+  getMsgById:         db.prepare('SELECT * FROM messages WHERE id=?'),
+  lowBattParticipant: db.prepare(`
+    SELECT p.id, p.bib, p.name FROM participants p
+    WHERE p.tracker_id = ?
+      AND p.race_id IN (SELECT id FROM races WHERE status='active')
+    LIMIT 1
+  `),
+  findParticipant:    db.prepare(`
+    SELECT p.* FROM participants p
+    WHERE p.race_id = @raceId
+      AND (
+        UPPER(p.tracker_id) = UPPER(@nodeId)
+        OR (@longName IS NOT NULL AND UPPER(p.tracker_id) = UPPER(@longName))
+        OR (@shortName IS NOT NULL AND UPPER(p.tracker_id) = UPPER(@shortName))
+      )
+    LIMIT 1
+  `),
+  findPersonnel:      db.prepare(`
+    SELECT p.* FROM personnel p
+    WHERE p.race_id = @raceId
+      AND (
+        UPPER(p.tracker_id) = UPPER(@nodeId)
+        OR (@longName IS NOT NULL AND UPPER(p.tracker_id) = UPPER(@longName))
+        OR (@shortName IS NOT NULL AND UPPER(p.tracker_id) = UPPER(@shortName))
+      )
+    LIMIT 1
+  `),
+  getStationsForRace: db.prepare('SELECT * FROM stations WHERE race_id=? ORDER BY course_order'),
+  getStationsGeoFence: db.prepare(
+    `SELECT * FROM stations WHERE race_id=? AND lat IS NOT NULL AND lon IS NOT NULL
+     AND type NOT IN ('netcontrol','repeater')`
+  ),
+  getStationsBetweenBeacon: db.prepare(
+    `SELECT * FROM stations WHERE race_id=?
+     AND type IN ('start','start_finish','aid','checkpoint','turnaround')
+     AND lat IS NOT NULL AND lon IS NOT NULL`
+  ),
+  getStationsPersonnel: db.prepare(
+    'SELECT * FROM stations WHERE race_id=? AND lat IS NOT NULL AND lon IS NOT NULL'
+  ),
+  hasTurnaround: db.prepare(`
+    SELECT 1 FROM events WHERE participant_id=? AND race_id=?
+    AND station_id IN (SELECT id FROM stations WHERE race_id=? AND type='turnaround')
+    LIMIT 1
+  `),
+};
+
+// ── Active-races cache ────────────────────────────────────────────────────────
+// Active races rarely change. Querying the DB on every MQTT position packet
+// (potentially dozens per second) is wasteful.  Cache for 5 s; invalidate on
+// explicit route-cache clear so activation/deactivation is reflected promptly.
+let _activeRacesCache   = null;
+let _activeRacesCacheTs = 0;
+const ACTIVE_RACES_TTL  = 5000; // ms
+
+function getActiveRaces() {
+  const now = Date.now();
+  if (_activeRacesCache && (now - _activeRacesCacheTs) < ACTIVE_RACES_TTL) {
+    return _activeRacesCache;
+  }
+  _activeRacesCache   = _stmt.activeRaces.all();
+  _activeRacesCacheTs = now;
+  return _activeRacesCache;
+}
 
 // ── Node ID generation and utility functions ──────────────────────────────────
 // FNV-1a 32-bit — deterministic Meshtastic node ID derived from a callsign
@@ -46,8 +160,8 @@ const PORTNUM = { TEXT: 1, POSITION: 3, NODEINFO: 4, ROUTING: 5, TELEMETRY: 67 }
 const _pendingMqttAcks = new Map();
 
 function updateMessageStatus(messageId, status) {
-  db.prepare("UPDATE messages SET status=? WHERE id=?").run(status, messageId);
-  const msg = db.prepare('SELECT * FROM messages WHERE id=?').get(messageId);
+  _stmt.updateMsgStatus.run(status, messageId);
+  const msg = _stmt.getMsgById.get(messageId);
   if (msg) broadcast('message', msg);
 }
 
@@ -194,46 +308,29 @@ function broadcast(type, data) {
 function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi, battery, timestamp, rfSource }) {
   if (!nodeId || isNaN(lat) || isNaN(lon)) return;
 
-  // Record routing: this node is reachable via MQTT/Meshtastic
   routeTable.update(nodeId, 'mqtt');
 
-  // Update registry — battery_level uses COALESCE so a position without battery data
-  // doesn't overwrite a previously stored value from a telemetry or position packet.
-  db.prepare(`
-    INSERT INTO tracker_registry (node_id, last_seen, last_lat, last_lon, last_altitude, last_speed, battery_level, snr, rssi)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(node_id) DO UPDATE SET
-      last_seen=excluded.last_seen, last_lat=excluded.last_lat,
-      last_lon=excluded.last_lon, last_altitude=excluded.last_altitude,
-      last_speed=excluded.last_speed,
-      battery_level=COALESCE(excluded.battery_level, battery_level),
-      snr=excluded.snr, rssi=excluded.rssi
-  `).run(nodeId, timestamp, lat, lon, altitude ?? null, speed ?? null, battery ?? null, snr ?? null, rssi ?? null);
+  // Update registry (battery_level COALESCE keeps last known value when absent)
+  _stmt.upsertRegistry.run(nodeId, timestamp, lat, lon,
+    altitude ?? null, speed ?? null, battery ?? null, snr ?? null, rssi ?? null);
 
   // Store position history and run automation for each active race
-  const activeRaces = db.prepare("SELECT * FROM races WHERE status='active'").all();
+  const activeRaces = getActiveRaces();
   for (const activeRace of activeRaces) {
     const src = rfSource || activeRace.mqtt_rf_tech || 'meshtastic';
-    db.prepare(`
-      INSERT INTO tracker_positions (race_id, node_id, lat, lon, altitude, speed, heading, battery, snr, rssi, timestamp, rf_source)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(activeRace.id, nodeId, lat, lon, altitude ?? null, speed ?? null, heading ?? null,
-           battery ?? null, snr ?? null, rssi ?? null, timestamp, src);
+    _stmt.insertPosition.run(activeRace.id, nodeId, lat, lon,
+      altitude ?? null, speed ?? null, heading ?? null,
+      battery ?? null, snr ?? null, rssi ?? null, timestamp, src);
 
     // Keep only last 500 positions per node per race
-    db.prepare(`
-      DELETE FROM tracker_positions WHERE id IN (
-        SELECT id FROM tracker_positions WHERE race_id=? AND node_id=?
-        ORDER BY timestamp DESC LIMIT -1 OFFSET 500
-      )
-    `).run(activeRace.id, nodeId);
+    _stmt.prunePositions.run(activeRace.id, nodeId);
 
-    // Find matching participant
+    // Resolve participant and personnel from the single-query helpers
     const participant = findParticipant(nodeId, activeRace.id);
     if (participant) {
       checkGeofences(participant, activeRace, lat, lon, timestamp);
-      checkOffCourse(participant, activeRace, lat, lon, timestamp);
-      checkBetweenBeaconStations(participant, activeRace, lat, lon, timestamp);
+      // Single findPositionOnRoute call shared by both off-course and between-beacon checks
+      checkRouteAlerts(participant, activeRace, lat, lon, timestamp);
     }
 
     const personnelMember = findPersonnel(nodeId, activeRace.id);
@@ -246,14 +343,7 @@ function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi,
 function handleTelemetry({ nodeId, battery, voltage, timestamp }) {
   if (!nodeId) return;
   const batteryPct = battery ?? voltageToPct(voltage);
-  db.prepare(`
-    INSERT INTO tracker_registry (node_id, battery_level, voltage, last_seen)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(node_id) DO UPDATE SET
-      battery_level=COALESCE(excluded.battery_level, battery_level),
-      voltage=COALESCE(excluded.voltage, voltage),
-      last_seen=excluded.last_seen
-  `).run(nodeId, batteryPct ?? null, voltage ?? null, timestamp);
+  _stmt.upsertTelemetry.run(nodeId, batteryPct ?? null, voltage ?? null, timestamp);
 
   broadcast('tracker_info', { nodeId, battery: batteryPct, voltage, timestamp });
 
@@ -262,12 +352,7 @@ function handleTelemetry({ nodeId, battery, voltage, timestamp }) {
     const last = lastLowBatteryAlert.get(alertKey) || 0;
     if (timestamp - last > 600) {
       lastLowBatteryAlert.set(alertKey, timestamp);
-      const row = db.prepare(`
-        SELECT p.id, p.bib, p.name FROM participants p
-        WHERE p.tracker_id = ?
-        AND p.race_id IN (SELECT id FROM races WHERE status='active')
-        LIMIT 1
-      `).get(nodeId);
+      const row = _stmt.lowBattParticipant.get(nodeId);
       if (row) {
         logger.log('race', 'warn', `LOW BATTERY — ${row.name} (#${row.bib}) tracker ${nodeId} at ${batteryPct}%`);
         broadcast('alert', { type: 'low_battery', participantId: row.id, bib: row.bib, name: row.name, battery: batteryPct, nodeId, timestamp });
@@ -280,16 +365,8 @@ function handleTelemetry({ nodeId, battery, voltage, timestamp }) {
 
 function handleNodeInfo({ nodeId, longName, shortName, hwModel, timestamp }) {
   if (!nodeId || (!longName && !shortName && !hwModel)) return;
-  // COALESCE preserves existing names — a message without a field never blanks one out
-  db.prepare(`
-    INSERT INTO tracker_registry (node_id, long_name, short_name, hw_model, last_seen)
-    VALUES (?,?,?,?,?)
-    ON CONFLICT(node_id) DO UPDATE SET
-      long_name=COALESCE(excluded.long_name, long_name),
-      short_name=COALESCE(excluded.short_name, short_name),
-      hw_model=COALESCE(excluded.hw_model, hw_model),
-      last_seen=excluded.last_seen
-  `).run(nodeId, longName ?? null, shortName ?? null, hwModel ?? null, timestamp);
+  // COALESCE preserves existing names — a missing field never blanks a stored value
+  _stmt.upsertNodeInfo.run(nodeId, longName ?? null, shortName ?? null, hwModel ?? null, timestamp);
 
   const changed = longName || shortName;
   if (changed) {
@@ -299,15 +376,15 @@ function handleNodeInfo({ nodeId, longName, shortName, hwModel, timestamp }) {
 }
 
 function getDisplayName(nodeId) {
-  const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(nodeId);
+  const reg = _stmt.getRegistry.get(nodeId);
   return reg ? (reg.long_name || reg.short_name || nodeId) : nodeId;
 }
 
 function handleTextMessage({ fromNodeId, toNodeId, text, timestamp }) {
-  const activeRaces = db.prepare("SELECT id FROM races WHERE status='active'").all();
+  const activeRaces = getActiveRaces();
   if (!activeRaces.length) return;
 
-  const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(fromNodeId);
+  const reg = _stmt.getRegistry.get(fromNodeId);
   const fromName = reg ? (reg.long_name || reg.short_name || fromNodeId) : fromNodeId;
 
   // Store message for each active race; use personnel name if sender belongs to that race
@@ -332,36 +409,28 @@ function handleTextMessage({ fromNodeId, toNodeId, text, timestamp }) {
   });
 }
 
-// Match nodeId (could be !hex, longname, or shortname) to a participant — case-insensitive
+// Match nodeId (!hex, longname, or shortname) to a participant — case-insensitive, single query
 function findParticipant(nodeId, raceId) {
-  const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(nodeId);
-  const ids = [nodeId, reg?.long_name, reg?.short_name].filter(Boolean);
-  for (const id of ids) {
-    const p = db.prepare(
-      'SELECT * FROM participants WHERE race_id=? AND UPPER(tracker_id)=UPPER(?) LIMIT 1'
-    ).get(raceId, id);
-    if (p) return p;
-  }
-  return null;
+  const reg = _stmt.getRegistry.get(nodeId);
+  return _stmt.findParticipant.get({
+    raceId, nodeId,
+    longName:  reg?.long_name  ?? null,
+    shortName: reg?.short_name ?? null,
+  }) || null;
 }
 
 function findPersonnel(nodeId, raceId) {
-  const reg = db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?').get(nodeId);
-  const ids = [nodeId, reg?.long_name, reg?.short_name].filter(Boolean);
-  for (const id of ids) {
-    const p = db.prepare(
-      'SELECT * FROM personnel WHERE race_id=? AND UPPER(tracker_id)=UPPER(?) LIMIT 1'
-    ).get(raceId, id);
-    if (p) return p;
-  }
-  return null;
+  const reg = _stmt.getRegistry.get(nodeId);
+  return _stmt.findPersonnel.get({
+    raceId, nodeId,
+    longName:  reg?.long_name  ?? null,
+    shortName: reg?.short_name ?? null,
+  }) || null;
 }
 
 function checkPersonnelStation(person, race, lat, lon) {
   const radius = race.geofence_radius || 200;
-  const stns = db.prepare(
-    'SELECT * FROM stations WHERE race_id=? AND lat IS NOT NULL AND lon IS NOT NULL'
-  ).all(race.id);
+  const stns = _stmt.getStationsPersonnel.all(race.id);
   for (const stn of stns) {
     if (geo.inGeofence(lat, lon, stn.lat, stn.lon, radius)) {
       if (person.station_id === stn.id) return; // already registered here
@@ -412,7 +481,7 @@ function checkGeofences(participant, race, lat, lon, timestamp) {
   const autoLog   = race.feat_auto_log   ?? 1;
   if (!autoLog && !autoStart) return;
 
-  const stations = db.prepare('SELECT * FROM stations WHERE race_id=? ORDER BY course_order').all(race.id);
+  const stations = _stmt.getStationsForRace.all(race.id);
   if (!stations.length) return;
 
   // Pre-find start station so the finish guard can check whether the participant
@@ -494,34 +563,10 @@ function checkGeofences(participant, race, lat, lon, timestamp) {
   }
 }
 
-// Track route data in memory for alert calculations
-const routeCache = new Map(); // raceId -> { points, meta }
-
+// Route data is now provided by src/utils/course.js (loadTrackData) which owns
+// the per-race cache.  getRouteData is a thin alias kept for internal callers.
 function getRouteData(race) {
-  if (routeCache.has(race.id)) return routeCache.get(race.id);
-  try {
-    const fs = require('fs');
-    let trackPoints = null;
-    if (race.course_id) {
-      const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
-      if (course) {
-        const raw = fs.readFileSync(course.file_path, 'utf8');
-        const { parseCourse } = require('./routes/courses');
-        const parsed = parseCourse(raw, course.file_path, course.path_index);
-        trackPoints = parsed.trackPoints;
-      }
-    }
-    if (!trackPoints && race.track_file) {
-      const raw = fs.readFileSync(race.track_file, 'utf8');
-      const { parseTrack } = require('./routes/tracks');
-      trackPoints = parseTrack(raw, race.track_file, race.track_path_index);
-    }
-    if (!trackPoints) return null;
-    const meta = geo.buildTrackMeta(trackPoints);
-    const data = { points: trackPoints, meta };
-    routeCache.set(race.id, data);
-    return data;
-  } catch { return null; }
+  return loadTrackData(race);
 }
 
 // Tracks stations already backfilled this session; key = `${participantId}_${stationId}_${pass}`
@@ -582,26 +627,36 @@ function resolveStartWindow(participant, race, timestamp) {
   return false;
 }
 
+// ── Combined route-alert entry point ─────────────────────────────────────────
+// Calls findPositionOnRoute once and feeds both distanceFromRoute and
+// distanceAlongRoute to the respective checks — previously each check called it
+// independently, doubling the O(n) segment scan.
+function checkRouteAlerts(participant, race, lat, lon, timestamp) {
+  const route = getRouteData(race);
+  if (!route) return;
+
+  const { distanceFromRoute, distanceAlongRoute } =
+    geo.findPositionOnRoute(lat, lon, route.points, route.meta);
+
+  if (race.feat_off_course && race.off_course_distance) {
+    _checkOffCourse(participant, race, distanceFromRoute, timestamp);
+  }
+
+  if (race.feat_auto_log ?? 1) {
+    _checkBetweenBeaconStations(participant, race, lat, lon, timestamp, distanceAlongRoute, route);
+  }
+}
+
 // ── Approach A: between-beacon interval sweep ──────────────────────────────────
 // Called on every position update. Checks all stations whose effective along falls
 // between the participant's previous beacon position and the current one. This
 // naturally handles any speed or beacon rate — even a single beacon covering the
 // entire course will catch all stations in the gap.
-function checkBetweenBeaconStations(participant, race, lat, lon, timestamp) {
-  if (!(race.feat_auto_log ?? 1)) return;
-
-  const route = getRouteData(race);
-  if (!route) return;
-
+function _checkBetweenBeaconStations(participant, race, lat, lon, timestamp, currAlong, route) {
   const totalDist = route.meta.total;
-  const { distanceAlongRoute: currAlong } = geo.findPositionOnRoute(lat, lon, route.points, route.meta);
 
   const isOAB = race.race_format === 'out_and_back';
-  const hasTurnaround = isOAB && !!(db.prepare(`
-    SELECT 1 FROM events WHERE participant_id=? AND race_id=?
-    AND station_id IN (SELECT id FROM stations WHERE race_id=? AND type='turnaround')
-    LIMIT 1
-  `).get(participant.id, race.id, race.id));
+  const hasTurnaround = isOAB && !!(_stmt.hasTurnaround.get(participant.id, race.id, race.id));
 
   // Effective along always increases: 0→totalDist (outbound), totalDist→2*totalDist (return)
   const currEff = (isOAB && hasTurnaround) ? (2 * totalDist - currAlong) : currAlong;
@@ -616,10 +671,7 @@ function checkBetweenBeaconStations(participant, race, lat, lon, timestamp) {
   const clearance      = race.checkpoint_radius || 50;
   const startClearance = race.start_clearance   || 400;
 
-  const stations = db.prepare(
-    `SELECT * FROM stations WHERE race_id=? AND type IN ('start','start_finish','aid','checkpoint','turnaround')
-     AND lat IS NOT NULL AND lon IS NOT NULL`
-  ).all(race.id);
+  const stations = _stmt.getStationsBetweenBeacon.all(race.id);
 
   for (const station of stations) {
     const stationAlong = geo.findPositionOnRoute(
@@ -651,13 +703,13 @@ function checkBetweenBeaconStations(participant, race, lat, lon, timestamp) {
       if (isStart) {
         const hasStart = db.prepare(
           `SELECT 1 FROM events WHERE participant_id=? AND race_id=? AND event_type='start' LIMIT 1`
-        ).get(participant.id, race.id);
+        ).get(participant.id, race.id);  // prepared once per module load via lazy init below
         if (hasStart) continue;
 
         const startTs = participant.start_time
           || interpolateTs(prev.ts, prev.eff, timestamp, currEff, stationEff);
         db.prepare("UPDATE participants SET status='active', start_time=COALESCE(start_time,?) WHERE id=?")
-          .run(startTs, participant.id);
+          .run(startTs, participant.id);  // rare path — not worth hoisting
         participant.status = 'active';
         if (!participant.start_time) participant.start_time = startTs;
 
@@ -820,11 +872,9 @@ function voltageToPct(voltage) {
   return Math.round(Math.max(0, Math.min(100, (voltage - 3.0) / 1.2 * 100)));
 }
 
-function checkOffCourse(participant, race, lat, lon, timestamp) {
-  if (!race.feat_off_course || !race.off_course_distance) return;
-  const route = getRouteData(race);
-  if (!route) return;
-  const { distanceFromRoute } = geo.findPositionOnRoute(lat, lon, route.points, route.meta);
+// Receives pre-computed distanceFromRoute from checkRouteAlerts so we avoid
+// a redundant findPositionOnRoute call.
+function _checkOffCourse(participant, race, distanceFromRoute, timestamp) {
   const alertKey = `${participant.id}_offcourse`;
   if (distanceFromRoute > race.off_course_distance) {
     const last = lastOffCourseAlert.get(alertKey) || 0;
@@ -1199,7 +1249,8 @@ async function sendPositionBeacon(lat, lon, nodeId) {
 }
 
 function invalidateRouteCache(raceId) {
-  routeCache.delete(raceId);
+  invalidateTrackCache(raceId);   // clears the shared course.js cache
+  _activeRacesCache = null;       // force re-fetch after race status changes
   backfilledStationEvents.clear();
   participantPrevEff.clear();
 }

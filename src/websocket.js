@@ -11,6 +11,7 @@
 const WebSocket = require('ws');
 const crypto    = require('crypto');
 const db        = require('./db');
+const { loadTrackPoints } = require('./utils/course');
 
 let wss = null;
 const clients = new Set();
@@ -132,27 +133,10 @@ function init(server, sessionMiddleware) {
   return wss;
 }
 
-// ── Track point extraction and caching ────────────────────────────────────────
-// Retrieve course track points for real-time race map visualization
+// Track points are loaded via the shared utility (src/utils/course.js) which
+// owns its own per-race cache, so disk reads only happen once per race.
 function getTrackPointsForRace(race) {
-  const fs = require('fs');
-  try {
-    if (race.course_id) {
-      const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(race.course_id);
-      if (course) {
-        const text = fs.readFileSync(course.file_path, 'utf8');
-        const { parseCourse } = require('./routes/courses');
-        const { trackPoints } = parseCourse(text, course.file_path, course.path_index);
-        if (trackPoints?.length) return trackPoints;
-      }
-    }
-    if (race.track_file) {
-      const text = fs.readFileSync(race.track_file, 'utf8');
-      const { parseTrack } = require('./routes/tracks');
-      return parseTrack(text, race.track_file, race.track_path_index) || null;
-    }
-  } catch {}
-  return null;
+  return loadTrackPoints(race);
 }
 
 // ── Initial state broadcast ───────────────────────────────────────────────────
