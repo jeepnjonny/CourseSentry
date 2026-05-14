@@ -47,12 +47,6 @@ const _stmt = {
       (race_id, node_id, lat, lon, altitude, speed, heading, battery, snr, rssi, timestamp, rf_source)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
   `),
-  prunePositions: db.prepare(`
-    DELETE FROM tracker_positions WHERE id IN (
-      SELECT id FROM tracker_positions WHERE race_id=? AND node_id=?
-      ORDER BY timestamp DESC LIMIT -1 OFFSET 500
-    )
-  `),
   getRegistry:        db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?'),
   getRegistryFull:    db.prepare('SELECT long_name, short_name, last_lat, last_lon, last_seen FROM tracker_registry WHERE node_id=?'),
   upsertTelemetry:    db.prepare(`
@@ -138,6 +132,53 @@ function getActiveRaces() {
   _activeRacesCacheTs = now;
   return _activeRacesCache;
 }
+
+// ── Scheduled position history pruning ───────────────────────────────────────
+// Previously the per-(race, node) prune ran synchronously on every position
+// insert, causing a DELETE + correlated subquery on every MQTT packet — a
+// significant source of unnecessary I/O on SD-card-backed systems.
+//
+// The replacement runs once every PRUNE_INTERVAL_MS as a single bulk DELETE
+// using a window function (ROW_NUMBER) so SQLite identifies excess rows in one
+// table scan rather than N separate scans.  Only active races are touched; past
+// races are already bounded because no new positions are being written to them.
+//
+// SQLite window functions require version ≥ 3.25.0 (September 2018); all
+// supported Node.js + better-sqlite3 + Pi OS combinations ship well above that.
+
+const POSITION_KEEP_COUNT = 500;
+const PRUNE_INTERVAL_MS   = 5 * 60 * 1000; // 5 minutes
+
+const _stmtBulkPrune = db.prepare(`
+  DELETE FROM tracker_positions
+  WHERE id IN (
+    SELECT id FROM (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY race_id, node_id
+               ORDER BY timestamp DESC
+             ) AS rn
+      FROM tracker_positions
+      WHERE race_id IN (SELECT id FROM races WHERE status = 'active')
+    )
+    WHERE rn > ${POSITION_KEEP_COUNT}
+  )
+`);
+
+function _runScheduledPrune() {
+  try {
+    const { changes } = _stmtBulkPrune.run();
+    if (changes > 0) {
+      logger.log('system', 'info', `[positions] pruned ${changes} old record(s) across active races`);
+    }
+  } catch (e) {
+    logger.log('system', 'warn', `[positions] scheduled prune failed: ${e.message}`);
+  }
+}
+
+// .unref() prevents the interval from keeping the process alive during tests or
+// clean shutdowns when no other work is pending.
+setInterval(_runScheduledPrune, PRUNE_INTERVAL_MS).unref();
 
 // ── Node ID generation and utility functions ──────────────────────────────────
 // FNV-1a 32-bit — deterministic Meshtastic node ID derived from a callsign
@@ -321,9 +362,6 @@ function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi,
     _stmt.insertPosition.run(activeRace.id, nodeId, lat, lon,
       altitude ?? null, speed ?? null, heading ?? null,
       battery ?? null, snr ?? null, rssi ?? null, timestamp, src);
-
-    // Keep only last 500 positions per node per race
-    _stmt.prunePositions.run(activeRace.id, nodeId);
 
     // Resolve participant and personnel from the single-query helpers
     const participant = findParticipant(nodeId, activeRace.id);
