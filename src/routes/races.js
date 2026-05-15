@@ -69,6 +69,58 @@ function fetchRace(raceId) {
   return db.prepare('SELECT * FROM races WHERE id = ?').get(raceId);
 }
 
+// ── Tracker-ID format detection ───────────────────────────────────────────────
+// Used by _checkDatasourceWarnings() to identify which RF technologies a race's
+// participants rely on so the admin can be notified if the corresponding
+// datasource isn't enabled.
+
+function _looksLikeMeshtastic(id) {
+  // Meshtastic node IDs: 8 hex chars, optionally prefixed with !
+  return /^!?[0-9a-f]{8}$/i.test((id || '').trim());
+}
+
+function _looksLikeAprs(id) {
+  const s = (id || '').trim();
+  // Standard amateur radio callsign: 3–7 alphanumeric chars with at least one
+  // letter, optional -N SSID suffix (e.g. W1AW, KD9ABC-9)
+  return /^[A-Z0-9]{3,7}(-\d{1,2})?$/i.test(s) && /[A-Z]/i.test(s) && !/^!/.test(s);
+}
+
+/**
+ * Return a (possibly empty) list of human-readable warning strings for datasources
+ * that appear to be needed by this race's participants but are not currently enabled.
+ *
+ * The race is still activated regardless — these are informational warnings, not
+ * hard errors.  The admin can dismiss them and enable datasources separately.
+ *
+ * @param {number} raceId
+ * @returns {string[]}
+ */
+function _checkDatasourceWarnings(raceId) {
+  const warnings = [];
+
+  const trackerIds = db.prepare(
+    'SELECT tracker_id FROM participants WHERE race_id = ? AND tracker_id IS NOT NULL'
+  ).all(raceId).map(r => r.tracker_id);
+
+  if (!trackerIds.length) return warnings;
+
+  const settingsRows = db.prepare(
+    "SELECT key, value FROM settings WHERE key IN ('mqtt_enabled', 'aprs_enabled')"
+  ).all();
+  const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]));
+
+  if (trackerIds.some(_looksLikeMeshtastic) && settings.mqtt_enabled !== '1') {
+    warnings.push('This race has Meshtastic tracker IDs but MQTT is not enabled. Go to Settings → Datasources to enable it.');
+  }
+
+  if (trackerIds.some(_looksLikeAprs) && settings.aprs_enabled !== '1') {
+    warnings.push('This race has APRS tracker IDs but APRS-IS is not enabled. Go to Settings → Datasources to enable it.');
+  }
+
+  return warnings;
+}
+
 /**
  * Broadcasts a race update to all connected WebSocket clients
  * @param {number} raceId - The race ID that was updated
@@ -248,15 +300,20 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
  */
 router.post('/:id/activate', requireRole('admin'), (req, res) => {
   const race = fetchRace(req.params.id);
-  if (!race) {
-    return res.status(404).json({ ok: false, error: 'Race not found' });
-  }
+  if (!race) return res.status(404).json({ ok: false, error: 'Race not found' });
 
   db.prepare("UPDATE races SET status = 'active' WHERE id = ?").run(req.params.id);
   logger.log('race', 'info', `ACTIVATED — ${race.name} (${race.date})`);
   mqttClient.connectFromSettings(db);
 
-  res.json({ ok: true, data: { id: race.id, status: 'active' } });
+  // Check whether any participant tracker types lack a corresponding enabled
+  // datasource.  Warnings are advisory — the race is active regardless.
+  const warnings = _checkDatasourceWarnings(req.params.id);
+  if (warnings.length) {
+    warnings.forEach(w => logger.log('race', 'warn', w));
+  }
+
+  res.json({ ok: true, data: { id: race.id, status: 'active' }, warnings });
 });
 
 /**

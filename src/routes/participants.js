@@ -49,44 +49,6 @@ function applyHeatStartTime(participantId) {
   }
 }
 
-// ── Datasource auto-detection ─────────────────────────────────────────────────
-function looksLikeMeshtastic(id) {
-  // Meshtastic node IDs are 8 hex chars, optionally prefixed with !
-  return /^!?[0-9a-f]{8}$/i.test((id || '').trim());
-}
-
-function looksLikeAprs(id) {
-  const s = (id || '').trim();
-  // Standard amateur callsign: 3-7 alphanumeric chars with at least one letter, optional -N SSID
-  return /^[A-Z0-9]{3,7}(-\d{1,2})?$/i.test(s) && /[A-Z]/i.test(s) && !/^!/.test(s);
-}
-
-function autoDetectDatasources(raceId) {
-  try {
-    const ids = db.prepare('SELECT tracker_id FROM participants WHERE race_id=? AND tracker_id IS NOT NULL')
-      .all(raceId).map(r => r.tracker_id);
-
-    if (ids.some(looksLikeMeshtastic)) {
-      const cur = db.prepare("SELECT value FROM settings WHERE key='mqtt_enabled'").get();
-      if (cur?.value !== '1') {
-        db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('mqtt_enabled','1')").run();
-        mqttClient.connectFromSettings(db);
-        logger.log('system', 'info', 'MQTT auto-enabled — Meshtastic tracker IDs detected');
-      }
-    }
-
-    if (ids.some(looksLikeAprs)) {
-      const cur = db.prepare("SELECT value FROM settings WHERE key='aprs_enabled'").get();
-      if (cur?.value !== '1') {
-        db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('aprs_enabled','1')").run();
-        aprsClient.connectFromSettings(db);
-        logger.log('system', 'info', 'APRS-IS auto-enabled — APRS callsign tracker IDs detected');
-      }
-    }
-  } catch (e) {
-    logger.log('system', 'warn', `autoDetectDatasources error: ${e.message}`);
-  }
-}
 
 const stmtHeat    = db.prepare('SELECT name, color, shape FROM heats WHERE id=?');
 const stmtClass   = db.prepare('SELECT name FROM classes WHERE id=?');
@@ -136,7 +98,6 @@ router.post('/', requireRole('admin', 'operator'), (req, res) => {
     const p = enrichParticipant(db.prepare('SELECT * FROM participants WHERE id=?').get(result.lastInsertRowid));
     wsManager.broadcast({ type: 'participant_update', data: { action: 'add', participant: p } });
     aprsClient.notifyRosterChange();
-    if (tracker_id) autoDetectDatasources(req.params.raceId);
     logger.log('race', 'info', `Participant added — #${bib} ${name}`);
     res.json({ ok: true, data: p });
   } catch (e) {
@@ -204,7 +165,6 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
   const updated = enrichParticipant(db.prepare('SELECT * FROM participants WHERE id=?').get(p.id));
   wsManager.broadcast({ type: 'participant_update', data: { action: 'update', participant: updated } });
   aprsClient.notifyRosterChange();
-  if ('tracker_id' in updates) autoDetectDatasources(req.params.raceId);
   if (updates.status && updates.status !== p.status) {
     logger.log('race', 'info', `Status change — #${updated.bib} ${updated.name}: ${p.status} → ${updates.status}`);
     if (updates.status === 'finished' || updates.status === 'dnf') {
@@ -286,7 +246,6 @@ router.post('/import', requireRole('admin', 'operator'), (req, res) => {
     const ms = Date.now() - t0;
     logger.log('race', errors.length ? 'warn' : 'info',
       `CSV import — ${rows.length} rows → ${participants.length} participants${errors.length ? `, ${errors.length} error(s)` : ''} (${ms}ms)`);
-    autoDetectDatasources(raceId);
     res.json({ ok: true, data: participants, errors });
   } catch (e) {
     logger.log('race', 'error', `CSV import failed: ${e.message}`);

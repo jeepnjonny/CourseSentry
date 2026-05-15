@@ -221,8 +221,19 @@ async function activateRace(id) {
     return;
   }
   const res = await RT.post(`/api/races/${id}/activate`);
-  if (res.ok) { RT.toast('Race activated', 'ok'); await loadRaces(); renderTab(); }
-  else RT.toast(res.error, 'warn');
+  if (!res.ok) { RT.toast(res.error, 'warn'); return; }
+
+  RT.toast('Race activated', 'ok');
+
+  // Surface any datasource warnings returned by the server.  Each one is shown
+  // as its own toast so the admin can read them individually without dismissing
+  // the success notice.  The race is already active — these are advisory only.
+  if (res.warnings?.length) {
+    res.warnings.forEach(w => RT.toast(w, 'warn'));
+  }
+
+  await loadRaces();
+  renderTab();
 }
 
 async function deactivateRace(id) {
@@ -1663,7 +1674,7 @@ async function deleteUser(id) {
 function renderSettingsTab() {
   return `
   <div style="font-size:13px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:10px">
-    &#9432; Enable / disable each datasource in the <strong>Race Configuration</strong> modal (edit any race → DATASOURCES section). Auto-enabled when matching tracker IDs are detected in participants.
+    &#9432; Enable / disable each datasource below. If a race is activated with participant tracker IDs that don't have a matching enabled datasource, a warning will appear at that time.
   </div>
   <div class="card">
     <h3>MESHTASTIC / MQTT</h3>
