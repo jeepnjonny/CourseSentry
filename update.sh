@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# RaceTracker — deploy update (preserves data/ directory)
+# CourseSentry — deploy update (preserves data/ directory)
 # Usage: bash update.sh
 
 set -euo pipefail
 
-INSTALL_DIR="/srv/RaceTracker"
+INSTALL_DIR="/srv/CourseSentry"
 SERVICE_USER="www-data"
 
-echo "=== RaceTracker Update ==="
+echo "=== CourseSentry Update ==="
 
 sudo rsync -av --delete \
   --exclude='.git' \
@@ -21,6 +21,6 @@ echo "Installing/updating npm dependencies..."
 cd "${INSTALL_DIR}"
 sudo -u "${SERVICE_USER}" npm install --omit=dev
 
-sudo systemctl restart racetracker
+sudo systemctl restart coursesentry
 echo "Service restarted."
-echo "Logs: sudo journalctl -u racetracker -f"
+echo "Logs: sudo journalctl -u coursesentry -f"
