@@ -106,8 +106,8 @@ else
   else
     # No existing server block — deploy our standalone config
     echo "  nginx: no existing server block for ${HOSTNAME}, deploying standalone config"
-    sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" /etc/nginx/sites-available/coursesentry
-    sudo ln -sf /etc/nginx/sites-available/coursesentry /etc/nginx/sites-enabled/coursesentry
+    sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" /etc/nginx/sites-available/coursesentry.conf
+    sudo ln -sf /etc/nginx/sites-available/coursesentry.conf /etc/nginx/sites-enabled/coursesentry.conf
     sudo nginx -t && sudo systemctl reload nginx
     echo "  nginx configured"
   fi
