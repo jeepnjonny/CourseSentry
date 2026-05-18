@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RaceTracker — Help &amp; User Guide</title>
+  <base href="/RaceTracker/">
+  <link rel="stylesheet" href="css/theme.css">
+  <link id="rt-theme-css" rel="stylesheet">
+<style>
+  html, body { max-width: 100vw; overflow-x: hidden; }
+  body { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Layout ── */
+  #help-main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+  /* ── Sidebar ── */
+  #help-nav {
+    width: 220px; flex-shrink: 0;
+    background: var(--surface); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 12px 0;
+  }
+  .nav-section-head {
+    font-size: 10px; letter-spacing: 2px; color: var(--text3);
+    padding: 14px 16px 4px; text-transform: uppercase; font-weight: bold;
+  }
+  .nav-section-head:first-child { padding-top: 4px; }
+  .nav-link {
+    display: block; padding: 6px 16px; font-size: 14px; cursor: pointer;
+    color: var(--text2); border-left: 2px solid transparent;
+    transition: color 0.1s, border-color 0.1s, background 0.1s;
+    text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .nav-link:hover { color: var(--text); background: var(--surface2); }
+  .nav-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--surface2); }
+
+  /* ── Content ── */
+  #help-content {
+    flex: 1; overflow-y: auto; padding: 32px 40px;
+    scroll-behavior: smooth;
+  }
+  @media (max-width: 700px) {
+    #help-nav { display: none; }
+    #help-content { padding: 16px; }
+  }
+
+  /* ── Typography ── */
+  .help-section { max-width: 820px; margin-bottom: 56px; }
+  .help-section h2 {
+    font-size: 22px; font-weight: bold; letter-spacing: 2px;
+    color: var(--accent); margin: 0 0 4px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .help-section h3 {
+    font-size: 16px; font-weight: bold; letter-spacing: 1px;
+    color: var(--accent4); margin: 24px 0 8px;
+  }
+  .help-section h4 {
+    font-size: 14px; font-weight: bold; letter-spacing: 1px;
+    color: var(--text); margin: 16px 0 6px; text-transform: uppercase;
+  }
+  .help-section p { color: var(--text2); line-height: 1.7; margin: 0 0 12px; font-size: 15px; }
+  .help-section ul, .help-section ol { color: var(--text2); padding-left: 20px; margin: 0 0 12px; }
+  .help-section li { line-height: 1.7; font-size: 15px; margin-bottom: 2px; }
+  .help-section li b, .help-section p b { color: var(--text); }
+
+  /* Callout box */
+  .callout {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 6px;
+    padding: 12px 16px; margin: 16px 0;
+  }
+  .callout.warn { border-left-color: var(--accent4); }
+  .callout.ok   { border-left-color: var(--accent2); }
+  .callout p { margin: 0; font-size: 14px; }
+  .callout p + p { margin-top: 6px; }
+
+  /* Step list */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li { counter-increment: step; display: flex; gap: 12px; margin-bottom: 10px; align-items: flex-start; }
+  .steps li::before {
+    content: counter(step);
+    flex-shrink: 0; width: 24px; height: 24px;
+    background: var(--accent); color: var(--bg);
+    border-radius: 50%; font-size: 13px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 1px;
+  }
+  .steps li span { color: var(--text2); font-size: 15px; line-height: 1.6; }
+  .steps li b { color: var(--text); }
+
+  /* Feature grid */
+  .feature-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px; margin: 16px 0;
+  }
+  .feature-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 14px;
+  }
+  .feature-card b { color: var(--accent); display: block; margin-bottom: 4px; font-size: 14px; letter-spacing: 0.5px; }
+  .feature-card span { color: var(--text2); font-size: 13px; line-height: 1.5; }
+
+  /* Table */
+  .help-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  .help-table th {
+    text-align: left; padding: 6px 10px; font-size: 12px; letter-spacing: 1px;
+    color: var(--text3); border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .help-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+  .help-table td:first-child { color: var(--text); font-weight: bold; white-space: nowrap; }
+  .help-table tr:last-child td { border-bottom: none; }
+
+  /* Pill-style badge */
+  .badge-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    font-size: 12px; font-weight: bold; letter-spacing: 0.5px;
+    border: 1px solid var(--border); color: var(--text3); margin-right: 4px;
+  }
+  .badge-pill.ok    { border-color: var(--accent2); color: var(--accent2); }
+  .badge-pill.warn  { border-color: var(--accent4); color: var(--accent4); }
+  .badge-pill.info  { border-color: var(--accent);  color: var(--accent);  }
+
+  kbd {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px; font-family: var(--font);
+    font-size: 13px; color: var(--text);
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>&#9654; RaceTracker</h1>
+  <span class="pill pill-idle" style="flex:1;min-width:0">HELP &amp; USER GUIDE</span>
+  <div id="topbar-right">
+    <button onclick="history.back()">&#8592; BACK</button>
+  </div>
+</div>
+
+<div id="help-main">
+
+  <!-- ── Sidebar navigation ── -->
+  <nav id="help-nav">
+    <div class="nav-section-head">Overview</div>
+    <a class="nav-link" href="#overview">What is RaceTracker?</a>
+    <a class="nav-link" href="#features">Key Features</a>
+
+    <div class="nav-section-head">Admin Guide</div>
+    <a class="nav-link" href="#new-race">Setting Up a New Race</a>
+    <a class="nav-link" href="#race-types">Race Types &amp; Formats</a>
+    <a class="nav-link" href="#course-setup">Course &amp; Stations</a>
+    <a class="nav-link" href="#participants">Participants &amp; Heats</a>
+    <a class="nav-link" href="#tracker-setup">Tracker Infrastructure</a>
+    <a class="nav-link" href="#viewer">Public Viewer</a>
+
+    <div class="nav-section-head">Operator Guide</div>
+    <a class="nav-link" href="#op-before">Before the Race</a>
+    <a class="nav-link" href="#op-start">Starting the Race</a>
+    <a class="nav-link" href="#op-manage">Managing the Race</a>
+    <a class="nav-link" href="#op-alerts">Alerts &amp; Incidents</a>
+    <a class="nav-link" href="#op-messaging">Messaging</a>
+    <a class="nav-link" href="#op-end">Finishing the Race</a>
+
+    <div class="nav-section-head">Reference</div>
+    <a class="nav-link" href="#station-types">Station Types</a>
+    <a class="nav-link" href="#settings-ref">Settings Reference</a>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <div id="help-content">
+
+    <!-- ══ OVERVIEW ══════════════════════════════════════════════════════════ -->
+    <div class="help-section" id="overview">
+      <h2>WHAT IS RACETRACKER?</h2>
+      <p>RaceTracker is a self-hosted, real-time participant tracking and race management platform built for trail running, ultramarathon, cycling, and backcountry events where commercial cellular coverage is unreliable or absent. It unifies GPS position data from Meshtastic LoRa mesh radios, APRS amateur radio, Garmin InReach satellite communicators, and manual check-ins into a single live operational picture — giving race directors, net control operators, and the public the same situational awareness at the same time. Whether you are managing a fully-instrumented 100-mile ultra with 200 GPS trackers or a small local 50K where volunteers radio in bib numbers from aid stations, RaceTracker adapts to your resources and keeps everyone on the same page.</p>
+    </div>
+
+    <!-- ══ FEATURES ══════════════════════════════════════════════════════════ -->
+    <div class="help-section" id="features">
+      <h2>KEY FEATURES</h2>
+      <div class="feature-grid">
+        <div class="feature-card"><b>Multi-Source Tracking</b><span>Live GPS from Meshtastic LoRa, APRS, Garmin InReach, and KISS TNC — simultaneously, in one map.</span></div>
+        <div class="feature-card"><b>Real-Time Map</b><span>Leaflet-based interactive map with Topo, Satellite, Street, and Dark base layers. Optional offline tile cache for no-internet venues.</span></div>
+        <div class="feature-card"><b>Live Leaderboard</b><span>Sortable standings by position, pace, ETA, BIB, name, or heat wave. Updates in real time via WebSocket push.</span></div>
+        <div class="feature-card"><b>Course Progress</b><span>Automatic distance-along-route and pace calculation for every GPS-tracked participant, including out-and-back turnaround detection.</span></div>
+        <div class="feature-card"><b>Automated Alerts</b><span>Off-course, stopped, and missing-participant detection with configurable thresholds. Alert count badge on operator view.</span></div>
+        <div class="feature-card"><b>Station Check-Ins</b><span>Manual or automatic event logging at aid stations and checkpoints. Geofence-based auto-arrival when GPS-tracked participants enter a station radius.</span></div>
+        <div class="feature-card"><b>Two-Way Messaging</b><span>Send messages to Meshtastic and APRS-equipped trackers directly from the operator interface. 67-character limit, delivery status tracking.</span></div>
+        <div class="feature-card"><b>Public Viewer</b><span>Token-gated, read-only public view of the live map and leaderboard. Share a URL with spectators, crews, and family. No login required.</span></div>
+        <div class="feature-card"><b>Heat Waves</b><span>Group participants into colored, icon-coded start waves. Each heat can have its own start time for staggered events.</span></div>
+        <div class="feature-card"><b>Personnel Tracking</b><span>Track volunteers and staff with their own assigned trackers. Staff icons appear on the operator map and hide automatically when inside a station geofence.</span></div>
+        <div class="feature-card"><b>Weather Overlays</b><span>Optional real-time precipitation, wind, cloud, temperature, NWS radar, and lightning overlays on the operator and viewer maps.</span></div>
+        <div class="feature-card"><b>Map Editor</b><span>In-browser GPX/KML track editor. Drag vertices, insert or remove points, and reposition waypoints — no external software required.</span></div>
+        <div class="feature-card"><b>Offline Maps</b><span>Pre-download USGS Topo and Satellite tiles for zoom levels 8–14 so your event works without internet at the venue.</span></div>
+        <div class="feature-card"><b>Race Cloning</b><span>Clone an existing race to carry forward all settings, heats, classes, stations, and personnel for your next event.</span></div>
+        <div class="feature-card"><b>Theming</b><span>Seven visual themes including High-Vis Day for outdoor sunlight readability and High-Vis Dark for night operations.</span></div>
+        <div class="feature-card"><b>Mobile Station Interface</b><span>Dedicated mobile-optimized page for aid station volunteers to check in participants and view the local race picture from a phone.</span></div>
+      </div>
+    </div>
+
+    <!-- ══ NEW RACE SETUP ═════════════════════════════════════════════════════ -->
+    <div class="help-section" id="new-race">
+      <h2>SETTING UP A NEW RACE</h2>
+      <p>Race setup happens entirely in the <b>Admin</b> page. Work through the tabs in roughly this order before race day.</p>
+
+      <h3>Step 1 — Create the Race</h3>
+      <ol class="steps">
+        <li><span>Open <b>Admin → Races</b> and click <b>NEW RACE</b>.</span></li>
+        <li><span>Enter the race <b>name</b>, <b>date</b>, and select a <b>race format</b> (see Race Types section below).</span></li>
+        <li><span>Set <b>units</b> (US miles or metric), <b>time format</b> (12 h / 24 h), and <b>speed display</b> (pace or speed).</span></li>
+        <li><span>Save. The race is created with status <b>Upcoming</b>.</span></li>
+        <li><span>Click the race row to select it — a configuration bar appears with sub-tabs for the remaining steps.</span></li>
+      </ol>
+      <div class="callout ok">
+        <p><b>Tip:</b> If you ran a similar event before, use <b>CLONE</b> on an existing race to copy all settings, heats, classes, stations, and personnel. Then just adjust what changed.</p>
+      </div>
+
+      <h3>Step 2 — Upload the Course</h3>
+      <ol class="steps">
+        <li><span>Go to <b>Admin → Courses</b> and upload your GPX or KML track file. Supported sources: Strava export, Gaia GPS, CalTopo, Garmin Connect, Google Earth.</span></li>
+        <li><span>If the file contains multiple tracks or routes, select the correct path from the dropdown.</span></li>
+        <li><span>Optionally click <b>EDIT MAP</b> to fine-tune the track in the browser before saving.</span></li>
+        <li><span>Back in <b>Races → (your race) → COURSE</b>, assign the uploaded course file to the race.</span></li>
+        <li><span>Click <b>AUTO-CREATE START/FINISH</b> to seed station markers at the course endpoints.</span></li>
+      </ol>
+
+      <h3>Step 3 — Configure Stations</h3>
+      <ol class="steps">
+        <li><span>Go to <b>Races → STATIONS</b>. The start and finish markers from Step 2 should already be there.</span></li>
+        <li><span>Add any aid stations, checkpoints, turnarounds, or net-control stations your event uses.</span></li>
+        <li><span>For each station, enter a name, latitude/longitude (or drag the pin on the map), and a type. See the Station Types reference for what each type does.</span></li>
+        <li><span>Optionally set a <b>cutoff time</b> in minutes from race start for each aid station.</span></li>
+      </ol>
+
+      <h3>Step 4 — Set Up Heats (Optional)</h3>
+      <ol class="steps">
+        <li><span>Go to <b>Races → HEATS</b> and click <b>NEW HEAT</b>.</span></li>
+        <li><span>Name the heat (e.g., "Open", "Masters", "Wave 1"), assign a <b>color</b> and <b>marker shape</b>.</span></li>
+        <li><span>Optionally set a per-heat <b>start time</b> if this wave starts separately from the race start.</span></li>
+        <li><span>Repeat for each wave or category that needs its own color coding on the map.</span></li>
+      </ol>
+
+      <h3>Step 5 — Add Participants</h3>
+      <ol class="steps">
+        <li><span>Go to <b>Races → PARTICIPANTS</b>. Add participants individually or bulk-import via <b>IMPORT CSV</b>.</span></li>
+        <li><span>CSV columns: <kbd>bib</kbd>, <kbd>name</kbd>, <kbd>tracker_id</kbd>, <kbd>heat</kbd>, <kbd>class</kbd>, <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>, <kbd>inreach_url</kbd>.</span></li>
+        <li><span>Assign a <b>tracker ID</b> to each participant who will carry a GPS-enabled device. For Meshtastic: use the node's long name or 8-character hex ID (e.g., <kbd>!a4b92e3f</kbd>). For APRS: use the operator's callsign (e.g., <kbd>W1AW-5</kbd>).</span></li>
+        <li><span>Participants without a tracker ID can still be tracked manually via aid station check-ins.</span></li>
+      </ol>
+      <div class="callout">
+        <p><b>Tracker ID matching:</b> The system looks up incoming positions by tracker ID. If an APRS or Meshtastic node transmits and its ID matches a participant's tracker_id field, the position is attributed to that participant automatically. Unmatched nodes appear in the Infrastructure tab as discovered nodes — you can assign them from there.</p>
+      </div>
+
+      <h3>Step 6 — Configure Tracker Infrastructure</h3>
+      <p>See the <a class="nav-link" style="display:inline;padding:0;border:none" href="#tracker-setup">Tracker Infrastructure</a> section for full details. At minimum, enable the datasources your event uses (MQTT for Meshtastic, APRS for radio, etc.) and confirm the green status lights appear in the topbar.</p>
+
+      <h3>Step 7 — Add Personnel (Optional)</h3>
+      <ol class="steps">
+        <li><span>Go to <b>Races → PERSONNEL</b> and add volunteer names with optional tracker IDs and station assignments.</span></li>
+        <li><span>Personnel with trackers appear on the operator map as distinct icons so you can see where your staff are relative to the course.</span></li>
+      </ol>
+
+      <h3>Step 8 — Enable Optional Features</h3>
+      <p>In <b>Races → (edit race settings)</b>, review the <b>Features</b> toggles:</p>
+      <table class="help-table">
+        <tr><th>Feature</th><th>What it does</th></tr>
+        <tr><td>Missing detection</td><td>Flags participants with no position update after a configurable interval (default 60 min)</td></tr>
+        <tr><td>Auto-log arrivals</td><td>Creates an arrival event automatically when a GPS-tracked participant enters a station's geofence</td></tr>
+        <tr><td>Auto-start on entry</td><td>Marks participant as started when a manual check-in entry is created for them</td></tr>
+        <tr><td>Off-course alerts</td><td>Alerts when a participant's GPS position is more than the configured distance from the course route</td></tr>
+        <tr><td>Stopped detection</td><td>Alerts when a participant has not moved for more than the configured interval (default 10 min)</td></tr>
+      </table>
+
+      <h3>Step 9 — Activate the Race</h3>
+      <div class="callout warn">
+        <p><b>Required before activation:</b> A course file must be assigned. The system will not allow activation without one.</p>
+      </div>
+      <ol class="steps">
+        <li><span>In <b>Races</b>, click <b>ACTIVATE</b> on your race row. Status changes to <b>Active</b>.</span></li>
+        <li><span>Only one race can be active at a time (or more if your server is configured for multi-race). Activating a new race deactivates the current one.</span></li>
+        <li><span>The operator and viewer pages now show live data for this race.</span></li>
+      </ol>
+    </div>
+
+    <!-- ══ RACE TYPES ═════════════════════════════════════════════════════════ -->
+    <div class="help-section" id="race-types">
+      <h2>RACE TYPES &amp; FORMATS</h2>
+      <p>RaceTracker supports three race formats that affect how course progress, leaderboard position, and station logic work.</p>
+
+      <h3>Point-to-Point</h3>
+      <p>Participants start at one end of the course and finish at the other. Progress is calculated as distance traveled from the start station toward the finish, expressed as a percentage of total course distance. The leaderboard ranks participants by their percentage complete (highest first).</p>
+      <p><b>Station setup:</b> Create a <b>Start</b> and a <b>Finish</b> station. Aid stations between them are ordered automatically by their position along the route.</p>
+      <p><b>Use for:</b> Trail runs, road races, point-to-point cycling events.</p>
+
+      <h3>Out-and-Back (OAB)</h3>
+      <p>Participants travel from the start to a turnaround point and return to the finish. Progress is calculated as follows: 0–50% represents the outbound leg, 50–100% represents the return leg. Participants who have reached the turnaround but carry no GPS tracker are assumed at 50% until their next check-in. The leaderboard correctly ranks a returning participant above an outbound participant at the same raw distance from start.</p>
+      <p><b>Station setup:</b> Use a <b>Start/Finish</b> (combined) station at the starting line and a <b>Turnaround</b> station at the midpoint. Aid stations on the course appear on both legs.</p>
+      <p><b>Use for:</b> Out-and-back trail runs, 50K or 100K ultras with a single turnaround.</p>
+
+      <h3>Fully Tracked vs. Manual Check-In</h3>
+      <p>These are not separate race formats but rather modes of operation that can be mixed freely within any format.</p>
+      <table class="help-table">
+        <tr><th>Mode</th><th>How it works</th><th>Best for</th></tr>
+        <tr>
+          <td>Fully Tracked</td>
+          <td>Every participant carries a GPS tracker (Meshtastic, APRS, or InReach). Position updates arrive automatically. Progress, pace, and alerts are computed continuously.</td>
+          <td>Well-resourced events with tracker inventory, or small events where every participant has their own device.</td>
+        </tr>
+        <tr>
+          <td>Manual Check-In</td>
+          <td>No GPS trackers. Aid station volunteers radio or call bib numbers to net control, who logs arrivals and departures in the operator interface. Position on the map is the last station checked in at.</td>
+          <td>Low-budget events, large events with limited tracker inventory, or as a fallback for any participant whose tracker fails.</td>
+        </tr>
+        <tr>
+          <td>Hybrid</td>
+          <td>Some participants carry GPS trackers; others are tracked manually. Both appear on the same map and leaderboard. Manually-tracked participants show at their last known station with reduced marker opacity.</td>
+          <td>Most real events. Assign trackers to lead runners or participants in remote sections; track the rest manually.</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ══ COURSE & STATIONS ══════════════════════════════════════════════════ -->
+    <div class="help-section" id="course-setup">
+      <h2>COURSE &amp; STATIONS</h2>
+
+      <h3>Uploading a Course File</h3>
+      <p>Go to <b>Admin → Courses</b> and drag or browse to a <b>GPX</b> or <b>KML</b> file. RaceTracker extracts track points (the route line) and named waypoints (which become candidate aid station locations). Files up to 50 MB are supported; typical course files are well under 1 MB.</p>
+      <p>If the file has multiple tracks or route segments, a path selector appears — choose the one that matches your course.</p>
+
+      <h3>Editing the Course</h3>
+      <p>Select a course in the list and click <b>EDIT MAP</b> (only available when the course is not assigned to an active race). The map editor opens in a new tab with:</p>
+      <ul>
+        <li><b>Edit Vertices</b> (pencil toolbar button) — drag any point on the track. Click the midpoint of a segment to insert a new vertex. Right-click a vertex to remove it.</li>
+        <li><b>+ WAYPOINT</b> button — click anywhere on the map to drop a named waypoint.</li>
+        <li>Drag any waypoint marker to reposition it. Click a waypoint marker to rename or delete it.</li>
+        <li><b>SAVE</b> — writes the edited geometry back to the server as a GPX file.</li>
+      </ul>
+
+      <h3>Station Ordering</h3>
+      <p>When a course is assigned to a race, stations are automatically ordered along the route by projecting each station's coordinates onto the course line. You do not need to manually sort them — the system determines which station comes first, second, etc., and uses that order for the leaderboard and progress calculations.</p>
+
+      <h3>Importing Waypoints as Stations</h3>
+      <p>Named waypoints embedded in your GPX or KML file (e.g., "Aid 1", "Turnaround") appear in the course preview. You can bulk-import these as stations by clicking <b>IMPORT WAYPOINTS</b> in the Course tab of the race configuration. Each waypoint becomes an aid-type station that you can then edit individually.</p>
+    </div>
+
+    <!-- ══ PARTICIPANTS & HEATS ═══════════════════════════════════════════════ -->
+    <div class="help-section" id="participants">
+      <h2>PARTICIPANTS &amp; HEATS</h2>
+
+      <h3>Participant Fields</h3>
+      <table class="help-table">
+        <tr><th>Field</th><th>Notes</th></tr>
+        <tr><td>BIB</td><td>Unique identifier. Can be a number or text. Shown on map markers and leaderboard.</td></tr>
+        <tr><td>Name</td><td>Displayed on the leaderboard. Can be hidden from the public viewer.</td></tr>
+        <tr><td>Tracker ID</td><td>Meshtastic long-name or hex node ID, APRS callsign, or InReach share URL. Leave blank for manual-only tracking.</td></tr>
+        <tr><td>Heat</td><td>Start wave assignment. Controls marker color and shape on the map.</td></tr>
+        <tr><td>Class</td><td>Age group, division, or category. Used for display and filtering.</td></tr>
+        <tr><td>Phone / Emergency Contact</td><td>Stored for race-day reference. Not displayed publicly.</td></tr>
+        <tr><td>InReach URL</td><td>Garmin InReach share link. The server polls this for satellite position updates.</td></tr>
+      </table>
+
+      <h3>Heats</h3>
+      <p>Heats are colored start waves shown as distinct marker types on the map. Configure them under <b>Races → HEATS</b>. Each heat gets a color and one of six shapes: circle, triangle, square, diamond, star, or pentagon. When a participant has a heat assigned, their map marker uses that color and shape — making it easy to visually distinguish runners by wave at a glance.</p>
+      <p>If a heat has its own <b>start time</b>, all participants in that heat begin timing from that moment rather than the race start. This is important for staggered starts — without per-heat start times, everyone's pace and ETA calculations use the same reference clock.</p>
+
+      <h3>CSV Import</h3>
+      <p>Prepare a CSV with column headers. Required: <kbd>bib</kbd>, <kbd>name</kbd>. Optional: <kbd>tracker_id</kbd>, <kbd>heat</kbd> (heat name), <kbd>class</kbd> (class name), <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>, <kbd>inreach_url</kbd>. Heat and class values are matched by name — create them in the HEATS and CLASSES tabs first. Unknown heat or class names are silently skipped.</p>
+    </div>
+
+    <!-- ══ TRACKER INFRASTRUCTURE ═════════════════════════════════════════════ -->
+    <div class="help-section" id="tracker-setup">
+      <h2>TRACKER INFRASTRUCTURE</h2>
+      <p>RaceTracker can receive position data from four sources simultaneously. Enable each one under the race's RF settings.</p>
+
+      <h3>Meshtastic (MQTT)</h3>
+      <p>Meshtastic is a LoRa-based open-source mesh radio network. Devices communicate over unlicensed spectrum (915 MHz in North America) and relay positions via a mesh — meaning participants do not need direct line-of-sight to a gateway, only to any other node in the mesh.</p>
+      <h4>Setup</h4>
+      <ol class="steps">
+        <li><span>Configure each Meshtastic device with your <b>MQTT server</b>, <b>channel name</b>, and <b>channel key (PSK)</b>. Devices must be in the same channel to communicate.</span></li>
+        <li><span>In RaceTracker, go to the race's RF settings and enter the same <b>MQTT host</b>, <b>port</b>, <b>channel</b>, and <b>PSK</b>. The default server (apps.k7swi.org) works for testing but you should run your own broker for production events.</span></li>
+        <li><span>Enable <b>MQTT</b> in the datasource settings. The MQTT status light in the topbar turns green when connected.</span></li>
+        <li><span>Assign each participant the <b>long name</b> or <b>hex node ID</b> (e.g., <kbd>!a4b92e3f</kbd>) of their device in the participant's tracker_id field.</span></li>
+      </ol>
+      <div class="callout">
+        <p><b>MQTT RF Tech:</b> The default mode is Meshtastic-formatted JSON position packets. If your mesh gateway publishes raw APRS-format packets over MQTT, select the APRS-over-MQTT mode instead.</p>
+      </div>
+
+      <h3>APRS (Amateur Radio)</h3>
+      <p>APRS (Automatic Packet Reporting System) uses the amateur radio 2-meter band (144.390 MHz in North America) to transmit position packets. RaceTracker connects to the APRS-IS internet backbone to receive these packets in real time. A valid amateur radio license is required to transmit APRS; receiving requires no license.</p>
+      <h4>Setup</h4>
+      <ol class="steps">
+        <li><span>Enable <b>APRS</b> in the race's RF settings and enter the race's <b>tactical callsign</b> (1–6 alphanumeric characters, e.g., <kbd>RACE1</kbd> or your own callsign).</span></li>
+        <li><span>Assign each APRS participant's amateur callsign to their tracker_id field (e.g., <kbd>W1AW-5</kbd>).</span></li>
+        <li><span>The APRS status light turns green when connected to APRS-IS. Positions begin arriving automatically as beacons are received.</span></li>
+      </ol>
+      <div class="callout warn">
+        <p><b>License requirement:</b> Transmitting on APRS requires a valid FCC amateur radio license (Technician class or higher). RaceTracker's APRS integration is receive-only by default; two-way messaging via APRS requires a licensed control operator managing the gateway.</p>
+      </div>
+
+      <h3>KISS TNC (Serial Radio)</h3>
+      <p>A KISS TNC (Terminal Node Controller) connects RaceTracker to a traditional VHF/UHF radio for direct APRS packet transmission and reception — without needing internet connectivity. This is the recommended setup for events in areas with no cell or internet coverage.</p>
+      <h4>Setup</h4>
+      <ol class="steps">
+        <li><span>Enable <b>TNC</b> in the race settings and configure the <b>tactical callsign</b> and <b>RF digipeater path</b> (typically <kbd>WIDE1-1</kbd>).</span></li>
+        <li><span>Connect a TNC device to the computer running RaceTracker. Use either <b>WebSerial</b> (Chrome/Edge, HTTPS required) via the browser, or the <b>RaceTrackerTNC</b> relay application (Windows) which bridges the serial port to RaceTracker over HTTP.</span></li>
+        <li><span>The TNC light in the topbar shows how many clients are connected and which one is the primary transmitter (TX).</span></li>
+      </ol>
+      <div class="callout">
+        <p><b>Multi-client TNC:</b> Multiple computers can connect to the same TNC session. Only the "primary" client transmits; others receive. This lets a backup laptop monitor traffic without double-transmitting.</p>
+      </div>
+
+      <h3>Garmin InReach (Satellite)</h3>
+      <p>Garmin InReach devices communicate over the Iridium satellite network — they work anywhere on Earth with no ground infrastructure. Coverage comes at the cost of update frequency (typically every 10 minutes) and requires a paid Garmin subscription per device.</p>
+      <h4>Setup</h4>
+      <ol class="steps">
+        <li><span>Each participant with an InReach device must share their tracking link from the Garmin Explore portal (or the InReach app). The link looks like <kbd>https://share.garmin.com/CALLSIGN</kbd>.</span></li>
+        <li><span>Paste this URL into the participant's <b>InReach URL</b> field. RaceTracker polls the link periodically and extracts the last reported position.</span></li>
+        <li><span>No race-level toggle is needed — InReach polling activates automatically for any participant who has an InReach URL configured.</span></li>
+      </ol>
+    </div>
+
+    <!-- ══ PUBLIC VIEWER ══════════════════════════════════════════════════════ -->
+    <div class="help-section" id="viewer">
+      <h2>PUBLIC VIEWER</h2>
+      <p>The public viewer is a read-only, token-gated page you can share with spectators, family members, crews, and the media. It shows the live map and/or leaderboard with no login required.</p>
+
+      <h3>Generating a Viewer Link</h3>
+      <ol class="steps">
+        <li><span>In Admin → Races, select your race and open its settings.</span></li>
+        <li><span>Click <b>GEN VIEWER</b> to generate a unique access token. A shareable URL appears.</span></li>
+        <li><span>Share the URL via social media, email, or embed it in your race website.</span></li>
+        <li><span>To invalidate the link (e.g., after the race), click <b>REVOKE</b> and the token is immediately disabled.</span></li>
+      </ol>
+
+      <h3>Viewer Privacy Controls</h3>
+      <table class="help-table">
+        <tr><th>Setting</th><th>Effect</th></tr>
+        <tr><td>Viewer map enabled</td><td>Shows the live map with participant positions. Disable to show leaderboard only.</td></tr>
+        <tr><td>Leaderboard enabled</td><td>Shows standings, status, bib, and progress. Disable for map-only view.</td></tr>
+        <tr><td>Show participant names</td><td>Shows full names on the leaderboard and map tooltips. Disable for anonymous display (BIB numbers only).</td></tr>
+        <tr><td>Persistent nametags</td><td>Always shows BIB/name labels on the map markers (vs. hover-only tooltips).</td></tr>
+      </table>
+    </div>
+
+    <!-- ══ OPERATOR: BEFORE THE RACE ═════════════════════════════════════════ -->
+    <div class="help-section" id="op-before">
+      <h2>BEFORE THE RACE</h2>
+      <p>The <b>Operator</b> page is the real-time race command interface, typically running on the net control station's laptop or tablet. Open it from the Admin topbar (<b>OPERATOR VIEW</b>) or navigate directly to the race-select page.</p>
+
+      <h3>Pre-Race Checklist</h3>
+      <ul>
+        <li>Confirm the correct race is active (race name shown in the topbar pill).</li>
+        <li>Verify datasource status lights are green for the sources you are using (MQTT, APRS, TNC, InReach).</li>
+        <li>Confirm participant trackers appear in the <b>Infrastructure</b> tab — nodes broadcasting positions show up there as discovered.</li>
+        <li>Check the map: the course route (orange line) and all station markers should be visible. If not, verify the course is assigned in Admin → Races → COURSE.</li>
+        <li>If using offline maps, confirm the offline tiles status shows <span class="badge-pill ok">READY</span> before going into the field.</li>
+        <li>Test two-way messaging if using Meshtastic or APRS — send a test message to a known node.</li>
+      </ul>
+
+      <h3>Setup Warning Bar</h3>
+      <p>If any critical configuration is missing (no course assigned, no stations, no tracker infrastructure enabled), a yellow warning bar appears at the top of the operator page describing what needs attention. Address all warnings before race day.</p>
+    </div>
+
+    <!-- ══ OPERATOR: STARTING THE RACE ═══════════════════════════════════════ -->
+    <div class="help-section" id="op-start">
+      <h2>STARTING THE RACE</h2>
+
+      <h3>Start Window (Optional)</h3>
+      <p>For events with a defined pre-race window (e.g., participants can start anytime between 6:00 AM and 6:30 AM), use the <b>Start Window</b> feature:</p>
+      <ol class="steps">
+        <li><span>Click <b>OPEN START WINDOW</b> in the operator topbar. The start window opens and a countdown timer begins.</span></li>
+        <li><span>As participants cross the start line, check them in manually or let GPS auto-detection handle it (if auto-start is enabled and they have trackers).</span></li>
+        <li><span>When the window closes (or you click to close it), any remaining participants who have not been checked in are marked <b>DNS</b>.</span></li>
+      </ol>
+
+      <h3>Starting the Race</h3>
+      <ol class="steps">
+        <li><span>At race time, click <b>START RACE</b> in the operator topbar. This sets the official race start time to the current clock.</span></li>
+        <li><span>All participants marked as Active have their start time recorded. The leaderboard begins calculating pace and ETA.</span></li>
+        <li><span>For participants without GPS trackers, create a <b>Start</b> event manually (select the participant on the leaderboard, then log a start event) to begin their timing.</span></li>
+      </ol>
+
+      <h3>Manual Start Events</h3>
+      <p>For fully manual or hybrid events, you can create individual start events as participants cross the line:</p>
+      <ol class="steps">
+        <li><span>Click a participant's row on the leaderboard to open their detail panel.</span></li>
+        <li><span>Click <b>LOG EVENT</b> and select <b>Start</b>. Optionally adjust the timestamp if there was a delay in logging.</span></li>
+        <li><span>The participant's status changes to Active and timing begins from the logged start time.</span></li>
+      </ol>
+    </div>
+
+    <!-- ══ OPERATOR: MANAGING THE RACE ═══════════════════════════════════════ -->
+    <div class="help-section" id="op-manage">
+      <h2>MANAGING THE RACE</h2>
+
+      <h3>Leaderboard</h3>
+      <p>The leaderboard shows all participants sorted by race position (highest progress percentage first) by default. Use the sort buttons to switch to BIB order, pace, name, or heat. Click any row to see that participant's detail panel with full event history, last GPS position, battery level, and signal strength.</p>
+
+      <h3>Manual Check-Ins (Aid Station Reporting)</h3>
+      <p>When a volunteer at an aid station radios a bib number to net control, log it here:</p>
+      <ol class="steps">
+        <li><span>Find the participant by BIB on the leaderboard (use the search/filter if needed) or click <b>CHECK-IN</b> to open the batch check-in modal.</span></li>
+        <li><span>Select the <b>station</b> and event type: <b>ARRIVE</b> (reached the station) or <b>DEPART</b> (left the station).</span></li>
+        <li><span>Enter any notes (e.g., "moving well", "asked for medical").</span></li>
+        <li><span>The participant's position on the map updates to the station location and their leaderboard row reflects the new progress.</span></li>
+      </ol>
+      <div class="callout">
+        <p><b>Auto-logging:</b> If <b>Auto-log arrivals</b> is enabled and a participant carries a GPS tracker, arrival events are created automatically when the tracker enters a station's geofence. You may still want to log departures manually.</p>
+      </div>
+
+      <h3>Logging a DNF</h3>
+      <ol class="steps">
+        <li><span>Click the participant's row on the leaderboard.</span></li>
+        <li><span>Click <b>LOG EVENT → DNF</b>. Optionally note the station or location where they withdrew.</span></li>
+        <li><span>The participant is moved to the DNF section of the leaderboard and their marker changes to indicate withdrawn status.</span></li>
+      </ol>
+
+      <h3>Map Controls</h3>
+      <ul>
+        <li><b>Base layer:</b> Switch between Topo, Satellite, Street, and Dark in the topbar selector. If offline maps are enabled and ready, only Topo and Satellite are available.</li>
+        <li><b>Nametags:</b> Toggle persistent name/BIB labels on all map markers.</li>
+        <li><b>Personnel:</b> Toggle visibility of volunteer/staff markers.</li>
+        <li><b>Weather overlays:</b> Available if a weather API key is configured. Select precipitation, wind, radar, lightning, or other layers. Adjust overlay opacity with the slider.</li>
+      </ul>
+
+      <h3>Aid Station Operator (Mobile View)</h3>
+      <p>Volunteers at remote aid stations can use the <b>mobile station interface</b> (<kbd>/mobileop</kbd>) on a smartphone or tablet. They log in with a station-role account, select their station, and check in arriving participants by BIB. Check-ins from the field appear instantly in the operator view at net control.</p>
+    </div>
+
+    <!-- ══ OPERATOR: ALERTS ═══════════════════════════════════════════════════ -->
+    <div class="help-section" id="op-alerts">
+      <h2>ALERTS &amp; INCIDENTS</h2>
+      <p>When alert features are enabled, RaceTracker automatically monitors GPS-tracked participants and flags anomalies. The alert count badge in the topbar shows how many participants have active alerts. Alert rows on the leaderboard blink to draw attention.</p>
+
+      <table class="help-table">
+        <tr><th>Alert Type</th><th>Trigger</th><th>Cleared when</th></tr>
+        <tr>
+          <td><span class="badge-pill warn">OFF-COURSE</span></td>
+          <td>GPS position is more than the configured distance (default 100 m) from the course route</td>
+          <td>Participant returns within the threshold distance</td>
+        </tr>
+        <tr>
+          <td><span class="badge-pill warn">STOPPED</span></td>
+          <td>No movement detected for longer than the configured interval (default 10 min)</td>
+          <td>Movement is detected</td>
+        </tr>
+        <tr>
+          <td><span class="badge-pill warn">MISSING</span></td>
+          <td>No GPS position update received for longer than the missing timer (default 60 min)</td>
+          <td>A new position packet is received</td>
+        </tr>
+      </table>
+
+      <h3>Responding to Alerts</h3>
+      <ol class="steps">
+        <li><span>Click the blinking participant row to open their detail panel. Review their last known position, timestamp, and event history.</span></li>
+        <li><span>If they have a Meshtastic or APRS tracker, send them a direct message from the Messaging panel to check on their status.</span></li>
+        <li><span>Contact the nearest aid station or sweep crew to request a visual check.</span></li>
+        <li><span>If the participant is confirmed safe and stationary (e.g., resting at a non-station location), the alert will clear automatically when they resume movement. You can also log a manual note.</span></li>
+        <li><span>If a search and rescue response is initiated, log a DNF or custom note event to record the decision in the event log.</span></li>
+      </ol>
+
+      <div class="callout warn">
+        <p><b>Alert thresholds:</b> Default values are conservative starting points. Adjust the <b>missing timer</b>, <b>stopped time</b>, and <b>off-course distance</b> in race settings to match your event's terrain, expected pace, and normal aid station dwell times. A 100-miler with aid station stops may need a 90-minute missing threshold; a fast 10K needs 15 minutes.</p>
+      </div>
+    </div>
+
+    <!-- ══ OPERATOR: MESSAGING ════════════════════════════════════════════════ -->
+    <div class="help-section" id="op-messaging">
+      <h2>MESSAGING</h2>
+      <p>If the race has <b>messaging enabled</b> and at least one of MQTT (Meshtastic) or APRS/TNC is connected, you can send short text messages directly to participant trackers from the operator interface.</p>
+
+      <h3>Sending a Message</h3>
+      <ol class="steps">
+        <li><span>Open the <b>Messages</b> panel on the right side of the operator page.</span></li>
+        <li><span>Select the target: a specific participant (their tracker will be addressed by node ID or callsign), or type a callsign/node ID directly.</span></li>
+        <li><span>Type your message (maximum 67 characters) and click <b>SEND</b>.</span></li>
+        <li><span>The message appears in the queue with status: <span class="badge-pill info">QUEUED</span> → <span class="badge-pill ok">SENT</span> or <span class="badge-pill warn">ERROR</span>.</span></li>
+      </ol>
+
+      <div class="callout">
+        <p><b>Delivery vs. receipt:</b> "Sent" means the packet was transmitted. APRS-IS and Meshtastic do not always provide delivery confirmation to end devices — especially over mesh hops. For critical communications, follow up with a voice radio call if the situation warrants it.</p>
+      </div>
+    </div>
+
+    <!-- ══ OPERATOR: ENDING THE RACE ═════════════════════════════════════════ -->
+    <div class="help-section" id="op-end">
+      <h2>FINISHING THE RACE</h2>
+      <ol class="steps">
+        <li><span>As participants finish, their arrival at the Finish station (GPS geofence or manual check-in) creates a <b>Finish</b> event and marks their status as Finished. Their finish time and pace are recorded.</span></li>
+        <li><span>Any participants still on course at cutoff time should be logged as DNF with a note referencing the cutoff.</span></li>
+        <li><span>When all participants are accounted for, click <b>END RACE</b> in the operator topbar. The race status changes to <b>Past</b>.</span></li>
+        <li><span>The public viewer link remains valid until you revoke the token, so spectators can continue to view final results.</span></li>
+      </ol>
+      <div class="callout ok">
+        <p><b>Results preservation:</b> All events, positions, and times are stored in the database permanently. Past races are visible in the Admin races list and their data is retained for records.</p>
+      </div>
+    </div>
+
+    <!-- ══ STATION TYPES ══════════════════════════════════════════════════════ -->
+    <div class="help-section" id="station-types">
+      <h2>STATION TYPES REFERENCE</h2>
+      <table class="help-table">
+        <tr><th>Type</th><th>Map Symbol</th><th>Color</th><th>Purpose</th></tr>
+        <tr><td>Start</td><td>S</td><td style="color:var(--accent2)">Green</td><td>Race start location. Required for point-to-point format.</td></tr>
+        <tr><td>Finish</td><td>F</td><td style="color:var(--accent3)">Red</td><td>Race finish location. Required for point-to-point format.</td></tr>
+        <tr><td>Start/Finish</td><td>⇌</td><td style="color:#a371f7">Purple</td><td>Combined start and finish. Use for out-and-back events where the course begins and ends at the same point.</td></tr>
+        <tr><td>Turnaround</td><td>T</td><td style="color:var(--accent)">Blue</td><td>Turnaround point for out-and-back courses. The system uses this station to identify when participants begin their return leg.</td></tr>
+        <tr><td>Aid</td><td>First letter of name</td><td style="color:var(--accent4)">Tan</td><td>Aid station, water stop, or crew access point. No special logic; used for check-ins and leaderboard reference.</td></tr>
+        <tr><td>Checkpoint</td><td>First letter of name</td><td style="color:#e3b341">Yellow</td><td>Mandatory checkpoint. Same as aid but semantically distinct for events that require proof of passage.</td></tr>
+        <tr><td>Net Control</td><td>N</td><td style="color:var(--text3)">Gray</td><td>Radio net control location. Informational only — marks the command post on the map.</td></tr>
+        <tr><td>Repeater</td><td>R</td><td style="color:var(--text3)">Gray</td><td>Radio repeater site. Informational only — helps the operator visualize RF coverage geography.</td></tr>
+      </table>
+    </div>
+
+    <!-- ══ SETTINGS REFERENCE ═════════════════════════════════════════════════ -->
+    <div class="help-section" id="settings-ref">
+      <h2>SETTINGS REFERENCE</h2>
+
+      <h3>Timing &amp; Detection Thresholds</h3>
+      <table class="help-table">
+        <tr><th>Setting</th><th>Default</th><th>Description</th></tr>
+        <tr><td>Geofence radius</td><td>15 m</td><td>Distance from a station center at which a participant is considered to have "arrived." GPS accuracy limits how small this can be reliably set.</td></tr>
+        <tr><td>Checkpoint radius</td><td>50 m</td><td>Extended proximity radius used for checkpoint detection (slightly larger to accommodate GPS drift near checkpoints).</td></tr>
+        <tr><td>Off-course distance</td><td>100 m</td><td>How far a participant's GPS position can stray from the course route before triggering an off-course alert. Increase for routes with navigation ambiguity (switchbacks, parallel trails).</td></tr>
+        <tr><td>Start clearance distance</td><td>400 m</td><td>Radius around the start station. Participants must be within this radius before the system accepts a GPS start event.</td></tr>
+        <tr><td>Stopped time</td><td>600 s (10 min)</td><td>How long a participant can be stationary before a Stopped alert fires. Should be longer than typical aid station dwell times.</td></tr>
+        <tr><td>Missing timer</td><td>3600 s (60 min)</td><td>How long without any position update before a Missing alert fires. Accounts for mesh/RF dead zones between check-in points.</td></tr>
+      </table>
+
+      <h3>RF &amp; Network</h3>
+      <table class="help-table">
+        <tr><th>Setting</th><th>Description</th></tr>
+        <tr><td>MQTT host / port</td><td>Address of the MQTT broker. WebSocket port (9001) for browser-connected gateways; TCP port (1883) for server-side connections.</td></tr>
+        <tr><td>MQTT channel / PSK</td><td>Meshtastic channel name and encryption key. Must match the device configuration exactly.</td></tr>
+        <tr><td>Tactical callsign</td><td>APRS and TNC identifier for this race (e.g., RACE1 or your club callsign). 1–6 alphanumeric characters, optional -N SSID suffix.</td></tr>
+        <tr><td>RF path</td><td>APRS digipeater path for outgoing packets. <kbd>WIDE1-1</kbd> reaches one digipeater hop; <kbd>WIDE1-1,WIDE2-1</kbd> reaches two.</td></tr>
+        <tr><td>TNC enabled</td><td>Enables the KISS TNC client. Requires a physical TNC connected to the server machine or a running TNC Relay application.</td></tr>
+      </table>
+    </div>
+
+  </div><!-- #help-content -->
+</div><!-- #help-main -->
+
+<script src="js/common.js"></script>
+<script>
+'use strict';
+// Highlight active nav link based on scroll position
+const sections  = document.querySelectorAll('.help-section');
+const navLinks  = document.querySelectorAll('.nav-link');
+const content   = document.getElementById('help-content');
+
+function updateActiveLink() {
+  let current = null;
+  sections.forEach(s => {
+    if (s.offsetTop - content.scrollTop <= 60) current = s.id;
+  });
+  navLinks.forEach(l => {
+    l.classList.toggle('active', l.getAttribute('href') === '#' + current);
+  });
+}
+
+navLinks.forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.getElementById(link.getAttribute('href').slice(1));
+    if (target) content.scrollTo({ top: target.offsetTop - 16, behavior: 'smooth' });
+  });
+});
+
+content.addEventListener('scroll', updateActiveLink, { passive: true });
+updateActiveLink();
+</script>
+</body>
+</html>
