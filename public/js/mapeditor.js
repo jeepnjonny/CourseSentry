@@ -40,7 +40,6 @@ async function init() {
     return;
   }
 
-  injectThemeSelector();
   initMap();
 
   // Load course file list (for name) and parsed geometry in parallel
@@ -86,13 +85,11 @@ async function init() {
 function initMap() {
   map = L.map('me-map', { zoomControl: true });
 
-  const layerEntries = Object.entries(BASE_LAYERS);
-  layerEntries.forEach(([name, cfg], i) => {
+  for (const [name, cfg] of Object.entries(BASE_LAYERS)) {
     baseTiles[name] = L.tileLayer(cfg.url, cfg.opts);
-    if (i === 3) baseTiles[name].addTo(map); // default to Dark
-  });
+  }
+  baseTiles['Dark'].addTo(map); // default matches the select default option
 
-  L.control.layers(baseTiles, {}, { position: 'topright' }).addTo(map);
   map.setView([39.5, -98.35], 4); // CONUS fallback until track loads
 
   // Geoman toolbar — edit-vertices only
@@ -309,19 +306,6 @@ function showBanner(msg) {
   setTimeout(() => { b.style.display = 'none'; }, 10000);
 }
 
-function injectThemeSelector() {
-  const wrap = document.getElementById('me-theme-wrap');
-  if (!wrap || !RT.THEMES) return;
-  const saved = localStorage.getItem('rt-theme') || 'dark';
-  const sel = document.createElement('select');
-  sel.className = 'rt-theme-sel';
-  sel.title = 'Display theme';
-  sel.style.cssText = 'font-size:13px;padding:3px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font);cursor:pointer;';
-  sel.innerHTML = RT.THEMES.map(t => `<option value="${t.id}"${t.id === saved ? ' selected' : ''}>${t.label}</option>`).join('');
-  sel.onchange = () => RT.applyTheme(sel.value);
-  wrap.appendChild(sel);
-}
-
 // ── Save & Cancel ─────────────────────────────────────────────────────────────
 
 async function saveEdits() {
@@ -355,18 +339,27 @@ async function saveEdits() {
 }
 
 function cancelEdits() {
-  if (dirty && !confirm('Discard unsaved changes and close?')) return;
-  // Try to close if opened as popup, otherwise go back
-  if (window.opener) window.close();
-  else history.back();
+  if (dirty && !confirm('Discard unsaved changes?')) return;
+  // Page is opened in a new tab (target="_blank"), so close it.
+  // If the browser blocks window.close() (e.g. navigated directly), fall back to admin.
+  window.close();
+  setTimeout(() => { window.location.href = RT.BASE + 'admin.html'; }, 300);
+}
+
+function setBaseLayer(name) {
+  for (const [n, tile] of Object.entries(baseTiles)) {
+    if (map.hasLayer(tile)) map.removeLayer(tile);
+  }
+  if (baseTiles[name]) baseTiles[name].addTo(map);
 }
 
 // ── Add Waypoint button (called from topbar) ──────────────────────────────────
 // Exposed as globals so inline onclick handlers in the HTML can reach them.
 
-window.saveEdits   = saveEdits;
-window.cancelEdits = cancelEdits;
-window.toggleAddWaypoint = function() { setAddingWaypoint(!addingWaypointMode); };
+window.saveEdits          = saveEdits;
+window.cancelEdits        = cancelEdits;
+window.setBaseLayer       = setBaseLayer;
+window.toggleAddWaypoint  = function() { setAddingWaypoint(!addingWaypointMode); };
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
