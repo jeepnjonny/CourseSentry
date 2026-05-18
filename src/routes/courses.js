@@ -171,6 +171,64 @@ router.put('/:id', requireRole('admin'), (req, res) => {
   res.json({ ok: true, data: db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id) });
 });
 
+router.put('/:id/geometry', requireRole('admin'), (req, res) => {
+  const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
+  if (!course) return res.status(404).json({ ok: false, error: 'course not found' });
+
+  const activeRace = db.prepare(
+    "SELECT id FROM races WHERE course_id = ? AND status = 'active' LIMIT 1"
+  ).get(req.params.id);
+  if (activeRace) {
+    return res.status(409).json({ ok: false, error: 'Cannot edit a course assigned to an active race' });
+  }
+
+  const { trackPoints, waypoints } = req.body;
+  if (!Array.isArray(trackPoints) || trackPoints.length < 2) {
+    return res.status(400).json({ ok: false, error: 'trackPoints must be an array with at least 2 points' });
+  }
+
+  const trkptXml = trackPoints.map(([lat, lon, ele]) => {
+    const eleTag = (ele != null && !isNaN(ele)) ? `\n      <ele>${ele}</ele>` : '';
+    return `    <trkpt lat="${lat}" lon="${lon}">${eleTag}\n    </trkpt>`;
+  }).join('\n');
+
+  const wptXml = (waypoints || []).map(({ name, lat, lon }) =>
+    `  <wpt lat="${lat}" lon="${lon}">\n    <name>${(name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</name>\n  </wpt>`
+  ).join('\n');
+
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="RaceTracker" xmlns="http://www.topografix.com/GPX/1/1">
+${wptXml ? wptXml + '\n' : ''}<trk>
+  <name>${(course.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</name>
+  <trkseg>
+${trkptXml}
+  </trkseg>
+</trk>
+</gpx>`;
+
+  // Determine save path — always write as .gpx
+  const oldPath = course.file_path;
+  const newPath = oldPath.replace(/\.(kml|gpx)$/i, '.gpx');
+  try {
+    fs.writeFileSync(newPath, gpx, 'utf8');
+    if (newPath !== oldPath) {
+      try { fs.unlinkSync(oldPath); } catch (_) {}
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+
+  db.prepare('UPDATE courses SET file_path = ?, file_type = ? WHERE id = ?')
+    .run(newPath, 'gpx', req.params.id);
+
+  // Invalidate track cache for any race that uses this course
+  const { invalidateTrackCache } = require('../utils/course');
+  const affectedRaces = db.prepare('SELECT id FROM races WHERE course_id = ?').all(req.params.id);
+  for (const r of affectedRaces) invalidateTrackCache(r.id);
+
+  res.json({ ok: true, data: db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id) });
+});
+
 router.delete('/:id', requireRole('admin'), (req, res) => {
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
   if (!course) {

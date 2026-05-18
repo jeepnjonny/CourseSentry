@@ -823,6 +823,10 @@ function renderCourseDetail(el, course) {
         ${d.paths.map(p => `<option value="${p.index}"${p.index===d.pathIndex?' selected':''}>${p.name} (${p.pointCount} pts)</option>`).join('')}
       </select>
     </div>` : ''}
+    ${!races.some(r => r.status === 'active' && r.course_id === course.id) ? `
+    <div style="margin-top:12px">
+      <a href="mapeditor.html?courseId=${course.id}" target="_blank" class="button primary" style="display:inline-block;text-decoration:none;font-size:13px;letter-spacing:1px">EDIT MAP</a>
+    </div>` : ''}
     `;
 }
 

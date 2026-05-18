@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RaceTracker — Map Editor</title>
+  <base href="/RaceTracker/">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.css"/>
+  <link rel="stylesheet" href="css/theme.css">
+  <link id="rt-theme-css" rel="stylesheet">
+<style>
+  html, body { max-width: 100vw; overflow-x: hidden; }
+  body { overflow: hidden; height: 100dvh; display: flex; flex-direction: column; }
+
+  /* ── Topbar ── */
+  #me-topbar {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 6px 10px; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  #me-topbar h1 {
+    font-size: 17px; font-weight: bold; letter-spacing: 2px; color: var(--accent);
+    white-space: nowrap; margin: 0;
+  }
+  #me-course-pill {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; color: var(--text2);
+  }
+  #me-topbar-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+  /* ── Map area ── */
+  #me-map-wrap { flex: 1; position: relative; min-height: 0; }
+  #me-map { width: 100%; height: 100%; }
+
+  /* ── Status bar ── */
+  #me-statusbar {
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 4px 10px; display: flex; align-items: center; gap: 12px;
+    font-size: 13px; color: var(--text2); flex-shrink: 0;
+  }
+  #me-statusbar .sep { color: var(--border); }
+
+  /* ── Geoman toolbar theme overrides ── */
+  .leaflet-pm-toolbar .button-container button {
+    background: var(--surface2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    font-family: var(--font) !important;
+    font-size: 13px !important;
+  }
+  .leaflet-pm-toolbar .button-container button:hover {
+    background: var(--surface3, #21262d) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+  }
+  .leaflet-pm-toolbar .button-container button.active {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: var(--bg) !important;
+  }
+  .leaflet-pm-actions a {
+    background: var(--surface2) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+    font-family: var(--font) !important;
+    font-size: 13px !important;
+  }
+  .leaflet-pm-actions a:hover {
+    background: var(--surface3, #21262d) !important;
+    color: var(--accent) !important;
+  }
+  /* Dark map attribution */
+  .leaflet-control-attribution { background: var(--surface) !important; color: var(--text3) !important; }
+  .leaflet-control-attribution a { color: var(--accent) !important; }
+
+  /* Waypoint label tooltip */
+  .me-wpt-tooltip {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font); font-size: 13px;
+    padding: 2px 6px; white-space: nowrap;
+  }
+
+  /* Waypoint edit popup */
+  .leaflet-popup-content-wrapper {
+    background: var(--surface2) !important; color: var(--text) !important;
+    border: 1px solid var(--border) !important; border-radius: 6px !important;
+    font-family: var(--font) !important; box-shadow: 0 4px 16px rgba(0,0,0,.4) !important;
+  }
+  .leaflet-popup-tip { background: var(--surface2) !important; }
+  .me-wpt-popup input {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font); font-size: 14px; padding: 4px 6px; width: 180px; border-radius: 4px;
+  }
+  .me-wpt-popup label { font-size: 12px; color: var(--text3); letter-spacing: 1px; display: block; margin-bottom: 4px; }
+  .me-wpt-popup-actions { display: flex; gap: 6px; margin-top: 8px; }
+
+  /* Large-file warning banner */
+  #me-warn-banner {
+    display: none; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; background: var(--surface2); border: 1px solid var(--accent4);
+    color: var(--accent4); font-size: 13px; padding: 6px 12px; border-radius: 6px;
+    max-width: 90vw; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="me-topbar">
+  <h1>RT</h1>
+  <span id="me-course-pill" class="pill pill-idle">Loading...</span>
+  <div id="me-topbar-actions">
+    <span id="me-unsaved" class="pill pill-warn" style="display:none">UNSAVED</span>
+    <button class="button" onclick="toggleAddWaypoint()" title="Click on map to place a waypoint" style="font-size:13px">+ WAYPOINT</button>
+    <span id="me-theme-wrap"></span>
+    <button id="me-save-btn" class="button primary" onclick="saveEdits()" disabled>SAVE</button>
+    <button class="button" onclick="cancelEdits()">CANCEL</button>
+  </div>
+</div>
+
+<div id="me-map-wrap">
+  <div id="me-map"></div>
+  <div id="me-warn-banner"></div>
+</div>
+
+<div id="me-statusbar">
+  <span id="me-stat-pts">— pts</span>
+  <span class="sep">|</span>
+  <span id="me-stat-dist">—</span>
+  <span class="sep">|</span>
+  <span id="me-stat-wpts">— waypoints</span>
+  <span class="sep" id="me-stat-mode-sep" style="display:none">|</span>
+  <span id="me-stat-mode" style="color:var(--accent)"></span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@latest/dist/leaflet-geoman.min.js"></script>
+<script src="js/common.js"></script>
+<script src="js/mapeditor.js"></script>
+</body>
+</html>
