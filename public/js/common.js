@@ -2,7 +2,7 @@
 // Shared utilities for all dashboard pages
 
 const RT = (() => {
-  // Detect sub-path prefix (e.g. /RaceTracker/ when proxied via nginx)
+  // Detect sub-path prefix (e.g. /CourseSentry/ when proxied via nginx)
   const BASE = (() => {
     const seg = location.pathname.split('/')[1];
     return seg && !seg.includes('.') ? '/' + seg + '/' : '/';

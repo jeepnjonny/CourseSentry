@@ -515,7 +515,7 @@ function connect(config) {
   const filterStr = buildFilter(config.filterType);
   currentConfig.filterStr = filterStr;
 
-  const loginLine = `user ${config.callsign} pass ${config.passcode} vers RaceTracker 1.0${filterStr ? ' filter ' + filterStr : ''}\r\n`;
+  const loginLine = `user ${config.callsign} pass ${config.passcode} vers CourseSentry 1.0${filterStr ? ' filter ' + filterStr : ''}\r\n`;
 
   logger.log('aprs', 'info', `Connecting to ${config.server}:${config.port} as ${config.callsign}`);
   if (filterStr) logger.log('aprs', 'info', `Filter: ${filterStr}`);

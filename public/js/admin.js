@@ -1699,7 +1699,7 @@ function renderSettingsTab() {
     </div>
     <div class="form-row">
       <div class="form-group"><label>REGION</label><input id="s-mqtt-region" placeholder="US"></div>
-      <div class="form-group"><label>CHANNEL</label><input id="s-mqtt-channel" placeholder="RaceTracker"></div>
+      <div class="form-group"><label>CHANNEL</label><input id="s-mqtt-channel" placeholder="CourseSentry"></div>
     </div>
     <div class="form-row">
       <div class="form-group">

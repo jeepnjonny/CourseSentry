@@ -1,12 +1,12 @@
 {
   "name": "racetracker-tnc-relay-app",
   "version": "1.0.0",
-  "description": "RaceTracker TNC Relay — self-contained GUI application",
+  "description": "CourseSentry TNC Relay — self-contained GUI application",
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
-    "build": "pkg main.js --targets node18-win-x64 --no-bytecode --public-packages \"*\" --output ../../public/downloads/RaceTrackerTNC.exe",
-    "build:compress": "pkg main.js --targets node18-win-x64 --no-bytecode --public-packages \"*\" --compress GZip --output ../../public/downloads/RaceTrackerTNC.exe"
+    "build": "pkg main.js --targets node18-win-x64 --no-bytecode --public-packages \"*\" --output ../../public/downloads/CourseSentryTNC.exe",
+    "build:compress": "pkg main.js --targets node18-win-x64 --no-bytecode --public-packages \"*\" --compress GZip --output ../../public/downloads/CourseSentryTNC.exe"
   },
   "pkg": {
     "assets": [

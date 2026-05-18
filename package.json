@@ -1,5 +1,5 @@
 {
-  "name": "racetracker",
+  "name": "coursesentry",
   "version": "1.0.0",
   "description": "Live race event tracking and safety coordination",
   "main": "server.js",

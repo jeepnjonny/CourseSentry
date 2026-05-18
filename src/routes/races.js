@@ -3,7 +3,7 @@
 /**
  * Race Management Routes
  *
- * This module handles all HTTP routes related to race management in the RaceTracker application.
+ * This module handles all HTTP routes related to race management in the CourseSentry application.
  * It provides CRUD operations for races, lifecycle management (activate/deactivate/start/end),
  * cloning functionality, and viewer token management.
  *

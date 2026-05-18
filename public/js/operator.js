@@ -254,14 +254,14 @@ function _initTncButton() {
 }
 
 function _showRelayInfo() {
-  // RT.BASE is '/RaceTracker/' behind nginx, or '/' when accessed directly.
+  // RT.BASE is '/CourseSentry/' behind nginx, or '/' when accessed directly.
   // Use origin + BASE so links & commands work in both deployment modes.
-  const serverBase = location.origin + RT.BASE.replace(/\/$/, ''); // e.g. http://192.168.1.50/RaceTracker
+  const serverBase = location.origin + RT.BASE.replace(/\/$/, ''); // e.g. http://192.168.1.50/CourseSentry
   const msg  = document.createElement('div');
   msg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:16px';
 
   // Check whether the pre-built Windows exe is available for download
-  const dlUrl = `${serverBase}/downloads/RaceTrackerTNC.exe`;
+  const dlUrl = `${serverBase}/downloads/CourseSentryTNC.exe`;
   fetch(dlUrl, { method: 'HEAD' }).then(r => {
     const dlBtn = msg.querySelector('#tnc-dl-btn');
     if (!dlBtn) return;
@@ -299,7 +299,7 @@ function _showRelayInfo() {
         <a id="tnc-dl-btn" href="${dlUrl}"
            style="display:inline-block;background:var(--accent);color:#0d1117;text-decoration:none;
                   padding:9px 20px;border-radius:4px;font-weight:700;font-size:13px">
-          &#x2B07; Download RaceTrackerTNC.exe
+          &#x2B07; Download CourseSentryTNC.exe
         </a>
         <p id="tnc-dl-note" style="display:none;color:var(--accent3);font-size:12px;margin:10px 0 0">
           &#x26A0;&#xFE0F; Windows app not yet available — contact the server administrator.

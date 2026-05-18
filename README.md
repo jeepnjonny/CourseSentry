@@ -1,8 +1,8 @@
-# RaceTracker
+# CourseSentry
 
 Live race event safety and tracking system. Receives GPS positions from [Meshtastic](https://meshtastic.org) mesh radio nodes via MQTT, displays real-time participant locations on a map, and tracks timing events (start, aid stations, finish). Designed for trail runs, cycling events, and similar endurance races.
 
-**Live at:** `https://apps.k7swi.org/RaceTracker/`
+**Live at:** `https://apps.k7swi.org/CourseSentry/`
 
 ## Features
 
@@ -30,14 +30,14 @@ Live race event safety and tracking system. Receives GPS positions from [Meshtas
 Tested on Ubuntu 22.04 / Debian 12. Run as a user with `sudo` access.
 
 ```bash
-git clone https://github.com/jeepnjonny/RaceTracker.git
-cd RaceTracker
+git clone https://github.com/jeepnjonny/CourseSentry.git
+cd CourseSentry
 bash setup.sh
 ```
 
 This will:
 1. Install Node.js 20 via NodeSource if not present
-2. Copy files to `/srv/RaceTracker`
+2. Copy files to `/srv/CourseSentry`
 3. Run `npm install`
 4. Create and start the `racetracker` systemd service (port 3000)
 5. Install and reload the nginx location block
@@ -52,7 +52,7 @@ Runs certbot for `apps.k7swi.org` and configures nginx with SSL automatically.
 
 ### nginx
 
-The included `nginx-racetracker.conf` adds a `location /RaceTracker/` block that proxies to port 3000. Copy it into your existing nginx server block or `sites-available`:
+The included `nginx-racetracker.conf` adds a `location /CourseSentry/` block that proxies to port 3000. Copy it into your existing nginx server block or `sites-available`:
 
 ```bash
 sudo cp nginx-racetracker.conf /etc/nginx/sites-available/racetracker
@@ -88,7 +88,7 @@ git pull
 bash update.sh
 ```
 
-`update.sh` rsyncs changed files to `/srv/RaceTracker` (skipping `data/` and `node_modules/`) and restarts the service. The SQLite database in `data/` is never touched by updates.
+`update.sh` rsyncs changed files to `/srv/CourseSentry` (skipping `data/` and `node_modules/`) and restarts the service. The SQLite database in `data/` is never touched by updates.
 
 ---
 
@@ -118,9 +118,9 @@ The server subscribes to `msh/{region}/2/json/{channel}/#` and `msh/{region}/2/e
 
 ## Optional TNC relay tools
 
-RaceTracker now includes optional relay utilities for bridging a serial KISS TNC into the RaceTracker server.
+CourseSentry now includes optional relay utilities for bridging a serial KISS TNC into the CourseSentry server.
 
-- `tools/tnc-relay.js` — command-line relay agent that connects a KISS serial TNC to RaceTracker over HTTP/WebSocket.
+- `tools/tnc-relay.js` — command-line relay agent that connects a KISS serial TNC to CourseSentry over HTTP/WebSocket.
 - `tools/relay-app/main.js` — GUI launcher intended for packaging as a self-contained Windows relay app.
 - `tools/package.json` — defines the `racetracker-tnc-relay` utility package and its `start` script.
 

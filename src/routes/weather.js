@@ -26,7 +26,7 @@ const router = express.Router({ mergeParams: true });
 
 // HTTP headers for NWS API (required by their terms of service)
 const NWS_HEADERS = {
-  'User-Agent': 'RaceTracker/1.0 (race safety monitoring)',
+  'User-Agent': 'CourseSentry/1.0 (race safety monitoring)',
   'Accept': 'application/geo+json'
 };
 

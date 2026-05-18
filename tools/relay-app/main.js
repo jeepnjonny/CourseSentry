@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * RaceTracker TNC Relay — GUI Application
+ * CourseSentry TNC Relay — GUI Application
  *
  * Bundles to a self-contained Windows exe:
  *   cd tools/relay-app && npm install && npm run build
@@ -64,7 +64,7 @@ catch (e) {
 // ── Config persistence ────────────────────────────────────────────────────
 const CONFIG_DIR  = path.join(
   process.env.APPDATA || path.dirname(process.execPath || process.argv[1]),
-  'RaceTrackerTNC'
+  'CourseSentryTNC'
 );
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
@@ -394,7 +394,7 @@ const UI_HTML = /* html */`<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RaceTracker TNC Relay</title>
+<title>CourseSentry TNC Relay</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -452,8 +452,8 @@ input[type=password]{letter-spacing:.1em}
 </head>
 <body>
 <div class="wrap">
-<h1>&#x1F4E1; RaceTracker TNC Relay</h1>
-<p class="sub">Bridges your serial TNC to the RaceTracker server over the network</p>
+<h1>&#x1F4E1; CourseSentry TNC Relay</h1>
+<p class="sub">Bridges your serial TNC to the CourseSentry server over the network</p>
 
 <div class="card">
   <h2>Server</h2>
@@ -724,7 +724,7 @@ findFreePort(9753, port => {
   server.listen(port, '127.0.0.1', () => {
     const url = `http://localhost:${port}`;
     console.log('\n╔══════════════════════════════════════╗');
-    console.log('║   RaceTracker TNC Relay (GUI)        ║');
+    console.log('║   CourseSentry TNC Relay (GUI)        ║');
     console.log('╚══════════════════════════════════════╝');
     console.log(`\n  UI → ${url}\n`);
     if (_startupError) console.error('  STARTUP ERROR — see browser UI for details\n');

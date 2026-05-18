@@ -60,14 +60,14 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── TNC relay exe — download helper ──────────────────────────────────────────
-const RELAY_EXE_URL  = 'https://github.com/jeepnjonny/RaceTracker/releases/download/tnc-relay-latest/RaceTrackerTNC.exe';
-const RELAY_EXE_PATH = path.join(__dirname, 'public', 'downloads', 'RaceTrackerTNC.exe');
+const RELAY_EXE_URL  = 'https://github.com/jeepnjonny/CourseSentry/releases/download/tnc-relay-latest/CourseSentryTNC.exe';
+const RELAY_EXE_PATH = path.join(__dirname, 'public', 'downloads', 'CourseSentryTNC.exe');
 
 function downloadRelayExe(cb) {
   function get(url, hops) {
     if (hops > 8) return cb(new Error('Too many redirects'));
     const mod = url.startsWith('https') ? https : http;
-    mod.get(url, { headers: { 'User-Agent': 'RaceTracker-Server/1.0' } }, res => {
+    mod.get(url, { headers: { 'User-Agent': 'CourseSentry-Server/1.0' } }, res => {
       if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) {
         res.resume();
         return get(res.headers.location, hops + 1);
@@ -88,7 +88,7 @@ function downloadRelayExe(cb) {
 }
 
 // Fall back to GitHub Release redirect when file not present locally
-app.get('/downloads/RaceTrackerTNC.exe', (req, res) => {
+app.get('/downloads/CourseSentryTNC.exe', (req, res) => {
   res.redirect(302, RELAY_EXE_URL);
 });
 
@@ -330,8 +330,8 @@ beacon.start();
 inreachPoller.start();
 
 server.listen(PORT, () => {
-  console.log(`[server] RaceTracker listening on port ${PORT}`);
-  logger.log('system', 'info', `RaceTracker started on port ${PORT}`);
+  console.log(`[server] CourseSentry listening on port ${PORT}`);
+  logger.log('system', 'info', `CourseSentry started on port ${PORT}`);
 
   // Download TNC relay exe from GitHub Release if not already present locally
   if (!fs.existsSync(RELAY_EXE_PATH)) {

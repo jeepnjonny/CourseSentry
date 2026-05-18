@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS races (
   mqtt_user           TEXT    DEFAULT 'racetracker',
   mqtt_pass           TEXT    DEFAULT 'racetracker',
   mqtt_region         TEXT    DEFAULT 'US',
-  mqtt_channel        TEXT    DEFAULT 'RaceTracker',
+  mqtt_channel        TEXT    DEFAULT 'CourseSentry',
   mqtt_format         TEXT    DEFAULT 'json' CHECK(mqtt_format IN ('json','proto')),
   mqtt_psk            TEXT    DEFAULT 'AQ==',
   mqtt_rf_tech        TEXT    NOT NULL DEFAULT 'meshtastic',

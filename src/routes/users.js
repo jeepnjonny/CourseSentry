@@ -3,7 +3,7 @@
 /**
  * User Management Routes
  *
- * This module provides administrative endpoints for managing user accounts in the RaceTracker system.
+ * This module provides administrative endpoints for managing user accounts in the CourseSentry system.
  * It handles user creation, updates, deletion, and listing with proper role-based access control.
  *
  * Key Features:

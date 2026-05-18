@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RaceTracker — Help &amp; User Guide</title>
-  <base href="/RaceTracker/">
+  <title>CourseSentry — Help &amp; User Guide</title>
+  <base href="/CourseSentry/">
   <link rel="stylesheet" href="css/theme.css">
   <link id="rt-theme-css" rel="stylesheet">
 <style>
@@ -131,7 +131,7 @@
 <body>
 
 <div id="topbar">
-  <h1>&#9654; RaceTracker</h1>
+  <h1>&#9654; CourseSentry</h1>
   <span class="pill pill-idle" style="flex:1;min-width:0">HELP &amp; USER GUIDE</span>
   <div id="topbar-right">
     <button onclick="history.back()">&#8592; BACK</button>
@@ -143,7 +143,7 @@
   <!-- ── Sidebar navigation ── -->
   <nav id="help-nav">
     <div class="nav-section-head">Overview</div>
-    <a class="nav-link" href="#overview">What is RaceTracker?</a>
+    <a class="nav-link" href="#overview">What is CourseSentry?</a>
     <a class="nav-link" href="#features">Key Features</a>
 
     <div class="nav-section-head">Admin Guide</div>
@@ -173,7 +173,7 @@
     <!-- ══ OVERVIEW ══════════════════════════════════════════════════════════ -->
     <div class="help-section" id="overview">
       <h2>WHAT IS RACETRACKER?</h2>
-      <p>RaceTracker is a self-hosted, real-time participant tracking and race management platform built for trail running, ultramarathon, cycling, and backcountry events where commercial cellular coverage is unreliable or absent. It unifies GPS position data from Meshtastic LoRa mesh radios, APRS amateur radio, Garmin InReach satellite communicators, and manual check-ins into a single live operational picture — giving race directors, net control operators, and the public the same situational awareness at the same time. Whether you are managing a fully-instrumented 100-mile ultra with 200 GPS trackers or a small local 50K where volunteers radio in bib numbers from aid stations, RaceTracker adapts to your resources and keeps everyone on the same page.</p>
+      <p>CourseSentry is a self-hosted, real-time participant tracking and race management platform built for trail running, ultramarathon, cycling, and backcountry events where commercial cellular coverage is unreliable or absent. It unifies GPS position data from Meshtastic LoRa mesh radios, APRS amateur radio, Garmin InReach satellite communicators, and manual check-ins into a single live operational picture — giving race directors, net control operators, and the public the same situational awareness at the same time. Whether you are managing a fully-instrumented 100-mile ultra with 200 GPS trackers or a small local 50K where volunteers radio in bib numbers from aid stations, CourseSentry adapts to your resources and keeps everyone on the same page.</p>
     </div>
 
     <!-- ══ FEATURES ══════════════════════════════════════════════════════════ -->
@@ -286,7 +286,7 @@
     <!-- ══ RACE TYPES ═════════════════════════════════════════════════════════ -->
     <div class="help-section" id="race-types">
       <h2>RACE TYPES &amp; FORMATS</h2>
-      <p>RaceTracker supports three race formats that affect how course progress, leaderboard position, and station logic work.</p>
+      <p>CourseSentry supports three race formats that affect how course progress, leaderboard position, and station logic work.</p>
 
       <h3>Point-to-Point</h3>
       <p>Participants start at one end of the course and finish at the other. Progress is calculated as distance traveled from the start station toward the finish, expressed as a percentage of total course distance. The leaderboard ranks participants by their percentage complete (highest first).</p>
@@ -325,7 +325,7 @@
       <h2>COURSE &amp; STATIONS</h2>
 
       <h3>Uploading a Course File</h3>
-      <p>Go to <b>Admin → Courses</b> and drag or browse to a <b>GPX</b> or <b>KML</b> file. RaceTracker extracts track points (the route line) and named waypoints (which become candidate aid station locations). Files up to 50 MB are supported; typical course files are well under 1 MB.</p>
+      <p>Go to <b>Admin → Courses</b> and drag or browse to a <b>GPX</b> or <b>KML</b> file. CourseSentry extracts track points (the route line) and named waypoints (which become candidate aid station locations). Files up to 50 MB are supported; typical course files are well under 1 MB.</p>
       <p>If the file has multiple tracks or route segments, a path selector appears — choose the one that matches your course.</p>
 
       <h3>Editing the Course</h3>
@@ -371,14 +371,14 @@
     <!-- ══ TRACKER INFRASTRUCTURE ═════════════════════════════════════════════ -->
     <div class="help-section" id="tracker-setup">
       <h2>TRACKER INFRASTRUCTURE</h2>
-      <p>RaceTracker can receive position data from four sources simultaneously. Enable each one under the race's RF settings.</p>
+      <p>CourseSentry can receive position data from four sources simultaneously. Enable each one under the race's RF settings.</p>
 
       <h3>Meshtastic (MQTT)</h3>
       <p>Meshtastic is a LoRa-based open-source mesh radio network. Devices communicate over unlicensed spectrum (915 MHz in North America) and relay positions via a mesh — meaning participants do not need direct line-of-sight to a gateway, only to any other node in the mesh.</p>
       <h4>Setup</h4>
       <ol class="steps">
         <li><span>Configure each Meshtastic device with your <b>MQTT server</b>, <b>channel name</b>, and <b>channel key (PSK)</b>. Devices must be in the same channel to communicate.</span></li>
-        <li><span>In RaceTracker, go to the race's RF settings and enter the same <b>MQTT host</b>, <b>port</b>, <b>channel</b>, and <b>PSK</b>. The default server (apps.k7swi.org) works for testing but you should run your own broker for production events.</span></li>
+        <li><span>In CourseSentry, go to the race's RF settings and enter the same <b>MQTT host</b>, <b>port</b>, <b>channel</b>, and <b>PSK</b>. The default server (apps.k7swi.org) works for testing but you should run your own broker for production events.</span></li>
         <li><span>Enable <b>MQTT</b> in the datasource settings. The MQTT status light in the topbar turns green when connected.</span></li>
         <li><span>Assign each participant the <b>long name</b> or <b>hex node ID</b> (e.g., <kbd>!a4b92e3f</kbd>) of their device in the participant's tracker_id field.</span></li>
       </ol>
@@ -387,7 +387,7 @@
       </div>
 
       <h3>APRS (Amateur Radio)</h3>
-      <p>APRS (Automatic Packet Reporting System) uses the amateur radio 2-meter band (144.390 MHz in North America) to transmit position packets. RaceTracker connects to the APRS-IS internet backbone to receive these packets in real time. A valid amateur radio license is required to transmit APRS; receiving requires no license.</p>
+      <p>APRS (Automatic Packet Reporting System) uses the amateur radio 2-meter band (144.390 MHz in North America) to transmit position packets. CourseSentry connects to the APRS-IS internet backbone to receive these packets in real time. A valid amateur radio license is required to transmit APRS; receiving requires no license.</p>
       <h4>Setup</h4>
       <ol class="steps">
         <li><span>Enable <b>APRS</b> in the race's RF settings and enter the race's <b>tactical callsign</b> (1–6 alphanumeric characters, e.g., <kbd>RACE1</kbd> or your own callsign).</span></li>
@@ -395,15 +395,15 @@
         <li><span>The APRS status light turns green when connected to APRS-IS. Positions begin arriving automatically as beacons are received.</span></li>
       </ol>
       <div class="callout warn">
-        <p><b>License requirement:</b> Transmitting on APRS requires a valid FCC amateur radio license (Technician class or higher). RaceTracker's APRS integration is receive-only by default; two-way messaging via APRS requires a licensed control operator managing the gateway.</p>
+        <p><b>License requirement:</b> Transmitting on APRS requires a valid FCC amateur radio license (Technician class or higher). CourseSentry's APRS integration is receive-only by default; two-way messaging via APRS requires a licensed control operator managing the gateway.</p>
       </div>
 
       <h3>KISS TNC (Serial Radio)</h3>
-      <p>A KISS TNC (Terminal Node Controller) connects RaceTracker to a traditional VHF/UHF radio for direct APRS packet transmission and reception — without needing internet connectivity. This is the recommended setup for events in areas with no cell or internet coverage.</p>
+      <p>A KISS TNC (Terminal Node Controller) connects CourseSentry to a traditional VHF/UHF radio for direct APRS packet transmission and reception — without needing internet connectivity. This is the recommended setup for events in areas with no cell or internet coverage.</p>
       <h4>Setup</h4>
       <ol class="steps">
         <li><span>Enable <b>TNC</b> in the race settings and configure the <b>tactical callsign</b> and <b>RF digipeater path</b> (typically <kbd>WIDE1-1</kbd>).</span></li>
-        <li><span>Connect a TNC device to the computer running RaceTracker. Use either <b>WebSerial</b> (Chrome/Edge, HTTPS required) via the browser, or the <b>RaceTrackerTNC</b> relay application (Windows) which bridges the serial port to RaceTracker over HTTP.</span></li>
+        <li><span>Connect a TNC device to the computer running CourseSentry. Use either <b>WebSerial</b> (Chrome/Edge, HTTPS required) via the browser, or the <b>CourseSentryTNC</b> relay application (Windows) which bridges the serial port to CourseSentry over HTTP.</span></li>
         <li><span>The TNC light in the topbar shows how many clients are connected and which one is the primary transmitter (TX).</span></li>
       </ol>
       <div class="callout">
@@ -415,7 +415,7 @@
       <h4>Setup</h4>
       <ol class="steps">
         <li><span>Each participant with an InReach device must share their tracking link from the Garmin Explore portal (or the InReach app). The link looks like <kbd>https://share.garmin.com/CALLSIGN</kbd>.</span></li>
-        <li><span>Paste this URL into the participant's <b>InReach URL</b> field. RaceTracker polls the link periodically and extracts the last reported position.</span></li>
+        <li><span>Paste this URL into the participant's <b>InReach URL</b> field. CourseSentry polls the link periodically and extracts the last reported position.</span></li>
         <li><span>No race-level toggle is needed — InReach polling activates automatically for any participant who has an InReach URL configured.</span></li>
       </ol>
     </div>
@@ -531,7 +531,7 @@
     <!-- ══ OPERATOR: ALERTS ═══════════════════════════════════════════════════ -->
     <div class="help-section" id="op-alerts">
       <h2>ALERTS &amp; INCIDENTS</h2>
-      <p>When alert features are enabled, RaceTracker automatically monitors GPS-tracked participants and flags anomalies. The alert count badge in the topbar shows how many participants have active alerts. Alert rows on the leaderboard blink to draw attention.</p>
+      <p>When alert features are enabled, CourseSentry automatically monitors GPS-tracked participants and flags anomalies. The alert count badge in the topbar shows how many participants have active alerts. Alert rows on the leaderboard blink to draw attention.</p>
 
       <table class="help-table">
         <tr><th>Alert Type</th><th>Trigger</th><th>Cleared when</th></tr>

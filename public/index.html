@@ -1,7 +1,7 @@
 <!--
-  RaceTracker Login Page
+  CourseSentry Login Page
   
-  This is the primary authentication entry point for the RaceTracker application.
+  This is the primary authentication entry point for the CourseSentry application.
   It handles user login with username/password credentials and redirects to the
   appropriate interface based on user role (admin or operator).
   
@@ -16,9 +16,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RaceTracker — Login</title>
+  <title>CourseSentry — Login</title>
   <!-- Base URL is dynamically calculated to support deployment in subdirectories -->
-  <base href="/RaceTracker/">
+  <base href="/CourseSentry/">
   <link rel="stylesheet" href="css/theme.css">
   <!-- Theme CSS is loaded from settings, allows user-selected theme -->
   <link id="rt-theme-css" rel="stylesheet">
@@ -26,7 +26,7 @@
 <body style="overflow:auto">
   <div class="login-wrap">
     <div class="login-box">
-      <h1>&#9654; RaceTracker</h1>
+      <h1>&#9654; CourseSentry</h1>
       <p>Race Safety &amp; Tracking System</p>
       
       <!-- Login form with username and password inputs -->
@@ -49,7 +49,7 @@
     /**
      * Dynamically calculates the base URL path to support deployment in subdirectories
      * Extracts the first path segment if it's not a filename (doesn't contain a dot)
-     * @returns {string} Base URL path with trailing slash (e.g., '/RaceTracker/' or '/')
+     * @returns {string} Base URL path with trailing slash (e.g., '/CourseSentry/' or '/')
      */
     const _base = (() => {
       const segment = location.pathname.split('/')[1];

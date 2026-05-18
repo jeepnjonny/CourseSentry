@@ -197,7 +197,7 @@ router.put('/:id/geometry', requireRole('admin'), (req, res) => {
   ).join('\n');
 
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="RaceTracker" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="CourseSentry" xmlns="http://www.topografix.com/GPX/1/1">
 ${wptXml ? wptXml + '\n' : ''}<trk>
   <name>${(course.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</name>
   <trkseg>

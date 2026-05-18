@@ -2,10 +2,10 @@
 'use strict';
 
 /**
- * RaceTracker TNC Relay Agent
+ * CourseSentry TNC Relay Agent
  *
  * Runs on the operator's machine (Windows, macOS, or Linux).
- * Opens a KISS TNC via serial port and bridges it to a RaceTracker
+ * Opens a KISS TNC via serial port and bridges it to a CourseSentry
  * server over WebSocket — no HTTPS required.
  *
  * Installation (one time):
@@ -15,7 +15,7 @@
  *   node tnc-relay.js [options]
  *
  * Options:
- *   --server   http://IP:3000          RaceTracker server URL  (required)
+ *   --server   http://IP:3000          CourseSentry server URL  (required)
  *   --user     operator                Login username           (required)
  *   --pass     password                Login password           (required)
  *   --port     COM3 | /dev/ttyUSB0     Serial port              (required)
@@ -333,7 +333,7 @@ async function reconnect() {
 
 async function main() {
   console.log('\n╔══════════════════════════════════════╗');
-  console.log('║   RaceTracker TNC Relay Agent        ║');
+  console.log('║   CourseSentry TNC Relay Agent        ║');
   console.log('╚══════════════════════════════════════╝\n');
   console.log(`  Server : ${SERVER_URL}`);
   console.log(`  Port   : ${SERIAL_PORT}  @  ${BAUD_RATE} baud`);

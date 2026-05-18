@@ -134,7 +134,7 @@ function fetchTileData(layer, z, x, y) {
     // USGS URL format: /{z}/{y}/{x}  (row/col order, not x/y)
     const url = `${LAYER_BASE_URLS[layer]}/${z}/${y}/${x}`;
     const opts = {
-      headers: { 'User-Agent': 'RaceTracker/1.0 (self-hosted offline map cache; https://github.com/USGS)' },
+      headers: { 'User-Agent': 'CourseSentry/1.0 (self-hosted offline map cache; https://github.com/USGS)' },
       timeout: 15000,
     };
     https.get(url, opts, res => {
