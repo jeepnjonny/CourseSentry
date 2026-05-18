@@ -825,7 +825,7 @@ function renderCourseDetail(el, course) {
     </div>` : ''}
     ${!races.some(r => r.status === 'active' && r.course_id === course.id) ? `
     <div style="margin-top:12px">
-      <a href="mapeditor.html?courseId=${course.id}" target="_blank" class="button primary" style="display:inline-block;text-decoration:none;font-size:13px;letter-spacing:1px">EDIT MAP</a>
+      <button onclick="window.open('mapeditor.html?courseId=${course.id}')">EDIT MAP</button>
     </div>` : ''}
     `;
 }
