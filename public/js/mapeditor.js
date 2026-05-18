@@ -3,7 +3,7 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const TRACK_COLOR   = '#f5a623';
-const MAX_EDIT_PTS  = 800; // above this, downsample before making editable
+const MAX_EDIT_PTS  = 1400; // above this, downsample before making editable
 
 const BASE_LAYERS = {
   'Topo':      { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',        opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
@@ -88,7 +88,7 @@ function initMap() {
   for (const [name, cfg] of Object.entries(BASE_LAYERS)) {
     baseTiles[name] = L.tileLayer(cfg.url, cfg.opts);
   }
-  baseTiles['Dark'].addTo(map); // default matches the select default option
+  baseTiles['Topo'].addTo(map); // default matches the select default option
 
   map.setView([39.5, -98.35], 4); // CONUS fallback until track loads
 
