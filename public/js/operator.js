@@ -88,6 +88,8 @@ function handleRaceUpdate(data) {
   const wasOfflineReady = race.offline_maps_status === 'ready';
   race = data;
   applySpeedDisplayLabels();
+  applyMessagingFlag();
+  applyTncFlag();
   updateStartWindowBtn();
   updateEndRaceBtn();
   updateStartRaceBtn();
@@ -140,6 +142,15 @@ function applyMessagingFlag() {
   panel.style.display = race?.messaging_enabled ? 'flex' : 'none';
 }
 
+function applyTncFlag() {
+  const btn  = document.getElementById('tnc-btn');
+  const pill = document.getElementById('tnc-pill');
+  if (!btn) return;
+  const enabled = !!(race?.tnc_enabled ?? 1);
+  btn.style.display = enabled ? '' : 'none';
+  if (!enabled && pill) pill.style.display = 'none';
+}
+
 function applyWeatherFlag() {
   const btn = document.getElementById('wx-tab-btn');
   if (!btn) return;
@@ -164,6 +175,7 @@ function handleInit(data) {
   if (data.tnc)     updateTncLight(data.tnc);
   if (data.inreach) updateInreachLight(data.inreach);
   applyMessagingFlag();
+  applyTncFlag();
   applyWeatherFlag();
   updateStartWindowBtn();
   updateEndRaceBtn();

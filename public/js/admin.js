@@ -70,7 +70,7 @@ function showTab(id) {
 
 function configureRace(id) {
   selectedRaceId = id;
-  showTab('participants');
+  showTab('races');
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
