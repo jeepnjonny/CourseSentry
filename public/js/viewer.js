@@ -304,6 +304,8 @@ function handleEvent(data) {
   if (data.station_id && !p.has_turnaround) {
     const along = getStationAlongMap().get(data.station_id);
     if (along != null) p._stationFloor = Math.max(p._stationFloor ?? 0, along);
+    p.last_station_id = data.station_id;
+    p.last_station_ts = data.timestamp;
   }
   if (data.event_type === 'aid_depart' && data.station_name)
     p._lastStation = data.station_name;
@@ -363,7 +365,20 @@ function renderLeaderboard() {
 function computePct(p) {
   if (p.status === 'finished') return 100;
   if (p.status === 'dns') return null;
-  if (!p.last_lat || !trackPoints || !trackPoints.length) return null;
+  if (!p.last_lat || !trackPoints || !trackPoints.length) {
+    if (p.last_station_id && trackPoints?.length) {
+      ensureDistCache();
+      if (!_total) return null;
+      const along = getStationAlongMap().get(p.last_station_id);
+      if (along == null) return null;
+      if (race?.race_format === 'out_and_back') {
+        if (p.has_turnaround) return Math.min(100, (2 * _total - along) / (2 * _total) * 100);
+        return Math.min(50, along / (2 * _total) * 100);
+      }
+      return Math.min(100, along / _total * 100);
+    }
+    return null;
+  }
   ensureDistCache();
   const totalDist = _total;
   if (!totalDist) return 0;
@@ -405,6 +420,15 @@ function fmtPace(p) {
   if (!p.start_time || !p._pct) return '--';
   const total = computeTotal();
   if (!total) return '--';
+  if (!p.last_lat && p.last_station_id && p.last_station_ts) {
+    const along = getStationAlongMap().get(p.last_station_id);
+    if (along == null || along <= 0) return '--';
+    const stationElapsed = p.last_station_ts - p.start_time;
+    if (stationElapsed <= 0) return '--';
+    const distCovered = (race?.race_format === 'out_and_back' && p.has_turnaround)
+      ? 2 * total - along : along;
+    return RT.fmtPace(distCovered / stationElapsed);
+  }
   const dist = race?.race_format === 'out_and_back' ? total * 2 : total;
   const elapsed = (p.status === 'finished' && p.finish_time)
     ? p.finish_time - p.start_time
