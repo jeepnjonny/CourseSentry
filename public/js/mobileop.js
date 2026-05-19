@@ -595,6 +595,31 @@ function buildCheckedInSet(events) {
   );
 }
 
+const EVENT_BTN = {
+  aid_arrive: { label: 'ARRIVE', cls: 'mo-btn-arrive' },
+  aid_depart: { label: 'DEPART', cls: 'mo-btn-depart' },
+  finish:     { label: 'FINISH', cls: 'mo-btn-arrive' },
+  start:      { label: 'START',  cls: 'mo-btn-depart' },
+  dnf:        { label: 'DNF',    cls: 'mo-btn-dnf'    },
+  dns:        { label: 'DNS',    cls: 'mo-btn-dnf'    },
+};
+
+function getStationEventTypes(type) {
+  switch (type) {
+    case 'finish':       return ['finish'];
+    case 'start':        return ['start', 'dns', 'dnf'];
+    case 'start_finish': return ['start', 'finish', 'dns', 'dnf'];
+    default:             return ['aid_arrive', 'aid_depart', 'dnf'];
+  }
+}
+
+function getEffectiveStationType() {
+  if (currentStation?.type === 'rover') {
+    return stations.find(s => s.id === roverStationId)?.type || 'aid';
+  }
+  return currentStation?.type || 'aid';
+}
+
 function renderPendingList() {
   const el = document.getElementById('mo-pending-list');
   if (!el) return;
@@ -605,10 +630,15 @@ function renderPendingList() {
     return;
   }
 
-  const isStart = ['start', 'start_finish'].includes(currentStation.type);
+  const stationType = getEffectiveStationType();
+  const isStart  = ['start', 'start_finish'].includes(stationType);
+  const isFinish = ['finish', 'start_finish'].includes(stationType);
+  const eventTypes = getStationEventTypes(stationType);
+
   const eligible = participants.filter(p => {
     if (checkedInIds.has(p.id)) return false;
-    if (isStart) return p.status === 'dns';
+    if (isStart && isFinish) return p.status === 'dns' || p.status === 'active';
+    if (isStart)  return p.status === 'dns';
     return p.status === 'active';
   });
 
@@ -631,17 +661,17 @@ function renderPendingList() {
     const isExpanded = p.id === expandedPendingId;
     const heat = heats.find(h => h.id === p.heat_id);
     const dot = heat ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${heat.color};margin-right:4px;flex-shrink:0"></span>` : '';
+    const actionBtns = eventTypes.map(et => {
+      const cfg = EVENT_BTN[et];
+      return `<button class="mo-action-btn ${cfg.cls}" onclick="event.stopPropagation();logPendingEvent(${p.id},'${et}')">${cfg.label}</button>`;
+    }).join('');
     return `<div class="mo-pending-row${isExpanded ? ' expanded' : ''}" data-pid="${p.id}" onclick="togglePendingRow(${p.id})">
         <span style="color:${sc};font-weight:bold">${p.bib}</span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center">${dot}${fmtParticipantName(p.name)}</span>
         <span style="color:var(--accent);text-align:right">${pct}</span>
         <span style="color:var(--text3);font-size:16px;text-align:right">${isExpanded ? '&#9650;' : '&#9654;'}</span>
       </div>
-      ${isExpanded ? `<div class="mo-pending-actions">
-        <button class="mo-action-btn mo-btn-arrive" onclick="event.stopPropagation();logPendingEvent(${p.id},'aid_arrive')">ARRIVE</button>
-        <button class="mo-action-btn mo-btn-depart" onclick="event.stopPropagation();logPendingEvent(${p.id},'aid_depart')">DEPART</button>
-        <button class="mo-action-btn mo-btn-dnf" onclick="event.stopPropagation();logPendingEvent(${p.id},'dnf')">DNF</button>
-      </div>` : ''}`;
+      ${isExpanded ? `<div class="mo-pending-actions">${actionBtns}</div>` : ''}`;
   }).join('');
 }
 
@@ -704,8 +734,12 @@ function openMobileBatch() {
     : currentStation.name;
   document.getElementById('mo-bc-station').textContent = stationName || '';
 
-  const isStart = ['start', 'start_finish'].includes(currentStation.type);
-  document.getElementById('mo-bc-event-type').value = isStart ? 'start' : 'aid_depart';
+  const stationType = getEffectiveStationType();
+  const eventTypes = getStationEventTypes(stationType);
+  const LABELS = { aid_arrive: 'Arrive', aid_depart: 'Depart', finish: 'Finish', start: 'Start', dnf: 'DNF', dns: 'DNS' };
+  const sel = document.getElementById('mo-bc-event-type');
+  sel.innerHTML = eventTypes.map(et => `<option value="${et}">${LABELS[et] || et}</option>`).join('');
+  sel.value = eventTypes[0];
 
   const now = new Date();
   document.getElementById('mo-bc-default-time').value =
