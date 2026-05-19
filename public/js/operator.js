@@ -968,9 +968,16 @@ function openBatchCheckIn(stationId) {
   const s = stations.find(x => x.id === stationId);
   document.getElementById('bc-station-name').textContent = s?.name || '';
 
-  // Sensible default event type by station type
-  const defaults = { start: 'start', start_finish: 'start', finish: 'finish', turnaround: 'aid_depart' };
-  document.getElementById('bc-event-type').value = defaults[s?.type] || 'aid_depart';
+  const BC_EVENT_TYPES = {
+    finish:       ['finish'],
+    start:        ['start', 'dns', 'dnf'],
+    start_finish: ['start', 'finish', 'dns', 'dnf'],
+  };
+  const BC_LABELS = { aid_arrive: 'Arrive', aid_depart: 'Depart', finish: 'Finish', start: 'Start', dnf: 'DNF', dns: 'DNS' };
+  const eventTypes = BC_EVENT_TYPES[s?.type] || ['aid_arrive', 'aid_depart', 'dnf'];
+  const bcSel = document.getElementById('bc-event-type');
+  bcSel.innerHTML = eventTypes.map(et => `<option value="${et}">${BC_LABELS[et] || et}</option>`).join('');
+  bcSel.value = eventTypes[0];
 
   // Pre-fill default time with current HH:MM:SS
   const now = new Date();
