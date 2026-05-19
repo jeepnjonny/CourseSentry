@@ -3,8 +3,10 @@
 let race, raceId, currentStation = null;
 let participants = [], heats = [], stations = [], messages = [], personnel = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
-let selectedParticipant = null;
 let roverStationId = null; // selected station for rover event logging
+let checkedInIds = new Set(); // participant IDs with any event at the current effective station
+let expandedPendingId = null; // which pending row is currently expanded
+let stationEvents = []; // latest events for current station (for buildCheckedInSet)
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = false;
 let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
@@ -87,11 +89,6 @@ async function init() {
   initMap();
   startClock();
   RT.connectWS(handleWS, null, raceId);
-
-  document.getElementById('mo-bib-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') searchBib();
-  });
-  // mo-msg-input already has onkeydown inline; no extra listener needed
 }
 
 // ── Clock ────────────────────────────────────────────────────────────────────
@@ -154,6 +151,9 @@ async function pickStation(stationId) {
 async function assignStation(station) {
   currentStation = station;
   roverStationId = null;
+  checkedInIds = new Set();
+  expandedPendingId = null;
+  stationEvents = [];
   sessionStorage.setItem(`mo-station-${raceId}`, station.id);
 
   document.getElementById('mo-station-badge').textContent = station.name;
@@ -324,10 +324,15 @@ function handleWS(msg) {
       if (ev.event_type === 'aid_depart' && ev.station_name)
         p._lastStation = ev.station_name;
       renderLeaderboard();
-      if (selectedParticipant?.id === p.id) showParticipantCard(p);
     }
-    if (currentStation && ev.station_id === currentStation.id) {
+    const effectiveStationId = roverStationId || currentStation?.id;
+    if (currentStation && ev.station_id === effectiveStationId) {
       prependEventRow(ev);
+      if (ev.participant_id) {
+        checkedInIds.add(ev.participant_id);
+        if (expandedPendingId === ev.participant_id) expandedPendingId = null;
+        renderPendingList();
+      }
     }
   } else if (msg.type === 'race_update') {
     if (msg.data?.id === race?.id) {
@@ -355,10 +360,7 @@ async function refreshParticipants() {
   const prev = new Map(participants.map(p => [p.id, p]));
   participants = res.data.map(p => ({ ...p, ...{ _lastStation: p.last_station_name || null }, ...pick(prev.get(p.id), '_lastAlong', '_lastAlongTs', '_stationFloor', '_lastStation', 'has_turnaround') }));
   renderLeaderboard();
-  if (selectedParticipant) {
-    const updated = participants.find(p => p.id === selectedParticipant.id);
-    if (updated) showParticipantCard(updated);
-  }
+  renderPendingList();
 }
 
 function pick(obj, ...keys) {
@@ -535,89 +537,262 @@ function fmtPace(p) {
 
 // ── LOG ───────────────────────────────────────────────────────────────────────
 
-function searchBib() {
-  const bib = document.getElementById('mo-bib-input').value.trim().toUpperCase();
-  if (!bib) return;
-  const p = participants.find(p => String(p.bib).toUpperCase() === bib);
-  if (p) {
-    showParticipantCard(p);
+function buildCheckedInSet(events) {
+  const stationId = roverStationId || currentStation?.id;
+  checkedInIds = new Set(
+    events
+      .filter(e => e.station_id === stationId && e.participant_id)
+      .map(e => e.participant_id)
+  );
+}
+
+function renderPendingList() {
+  const el = document.getElementById('mo-pending-list');
+  if (!el) return;
+
+  if (!currentStation) {
+    el.innerHTML = '<div style="padding:16px 12px;color:var(--text3);font-size:14px">No station assigned.</div>';
+    document.getElementById('mo-pending-label').textContent = 'PENDING CHECK-IN';
+    return;
+  }
+
+  const isStart = ['start', 'start_finish'].includes(currentStation.type);
+  const eligible = participants.filter(p => {
+    if (checkedInIds.has(p.id)) return false;
+    if (isStart) return p.status === 'dns';
+    return p.status === 'active';
+  });
+
+  if (isStart) {
+    eligible.sort((a, b) => String(a.bib).localeCompare(String(b.bib), undefined, { numeric: true }));
   } else {
-    document.getElementById('mo-p-name').textContent = `Bib "${bib}" not found`;
-    document.getElementById('mo-p-meta').innerHTML = '';
-    document.getElementById('mo-participant-card').classList.add('visible');
-    selectedParticipant = null;
+    eligible.sort((a, b) => (b._pct || 0) - (a._pct || 0));
+  }
+
+  document.getElementById('mo-pending-label').textContent = `PENDING CHECK-IN  (${eligible.length})`;
+
+  if (!eligible.length) {
+    el.innerHTML = '<div style="padding:16px 12px;color:var(--text3);font-size:14px;text-align:center">All participants accounted for.</div>';
+    return;
+  }
+
+  el.innerHTML = eligible.map(p => {
+    const sc = STATUS_COLORS[p.status] || '#8b949e';
+    const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
+    const isExpanded = p.id === expandedPendingId;
+    const heat = heats.find(h => h.id === p.heat_id);
+    const dot = heat ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${heat.color};margin-right:4px;flex-shrink:0"></span>` : '';
+    return `<div class="mo-pending-row${isExpanded ? ' expanded' : ''}" data-pid="${p.id}" onclick="togglePendingRow(${p.id})">
+        <span style="color:${sc};font-weight:bold">${p.bib}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center">${dot}${fmtParticipantName(p.name)}</span>
+        <span style="color:var(--accent);text-align:right">${pct}</span>
+        <span style="color:var(--text3);font-size:16px;text-align:right">${isExpanded ? '&#9650;' : '&#9654;'}</span>
+      </div>
+      ${isExpanded ? `<div class="mo-pending-actions">
+        <button class="mo-action-btn mo-btn-arrive" onclick="event.stopPropagation();logPendingEvent(${p.id},'aid_arrive')">ARRIVE</button>
+        <button class="mo-action-btn mo-btn-depart" onclick="event.stopPropagation();logPendingEvent(${p.id},'aid_depart')">DEPART</button>
+        <button class="mo-action-btn mo-btn-dnf" onclick="event.stopPropagation();logPendingEvent(${p.id},'dnf')">DNF</button>
+      </div>` : ''}`;
+  }).join('');
+}
+
+function togglePendingRow(id) {
+  expandedPendingId = (expandedPendingId === id) ? null : id;
+  renderPendingList();
+  if (expandedPendingId === id) {
+    setTimeout(() => document.querySelector(`[data-pid="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }
 }
 
-function lookupParticipant(id) {
-  const p = participants.find(p => p.id === id);
-  if (!p) return;
-  switchTab('log');
-  document.getElementById('mo-bib-input').value = p.bib;
-  showParticipantCard(p);
-}
-
-function showParticipantCard(p) {
-  selectedParticipant = p;
-  const heat = heats.find(h => h.id === p.heat_id);
-  const color = STATUS_COLORS[p.status] || '#484f58';
-  document.getElementById('mo-p-name').textContent = `#${p.bib} ${p.name}`;
-  document.getElementById('mo-p-meta').innerHTML =
-    `<span style="color:${color};font-weight:bold">${(p.status || 'dns').toUpperCase()}</span>` +
-    (heat ? `<span>${heat.name}</span>` : '') +
-    (p.age  ? `<span>Age ${p.age}</span>` : '');
-  document.getElementById('mo-participant-card').classList.add('visible');
-}
-
-function dismissParticipantCard() {
-  selectedParticipant = null;
-  document.getElementById('mo-participant-card').classList.remove('visible');
-  document.getElementById('mo-bib-input').value = '';
-}
-
-async function logEvent(eventType) {
-  if (!selectedParticipant) { RT.toast('Select a participant first', 'warn'); return; }
-  if (!currentStation) { RT.toast('No station assigned', 'warn'); showStationPicker(); return; }
-
+async function logPendingEvent(participantId, eventType) {
+  if (!currentStation) { RT.toast('No station assigned', 'warn'); return; }
   const isRover = currentStation.type === 'rover';
   if (isRover && !roverStationId) { RT.toast('Select a station location first', 'warn'); return; }
 
-  const ts = Math.floor(Date.now() / 1000);
   const res = await RT.post(`/api/races/${raceId}/events`, {
-    participant_id: selectedParticipant.id,
+    participant_id: participantId,
     event_type: eventType,
     station_id: isRover ? roverStationId : currentStation.id,
-    timestamp: ts,
   });
 
-  if (res.ok) {
-    const label = eventType.replace(/_/g, ' ').toUpperCase();
-    RT.toast(`${label} — #${selectedParticipant.bib} ${selectedParticipant.name}`, 'ok');
-    // Optimistic status update
-    const idx = participants.findIndex(p => p.id === selectedParticipant.id);
-    if (idx !== -1) {
-      if (eventType === 'dnf') participants[idx].status = 'dnf';
-      else if (eventType === 'finish') { participants[idx].status = 'finished'; participants[idx].finish_time = ts; }
-      showParticipantCard(participants[idx]);
-      renderLeaderboard();
-    }
-    document.getElementById('mo-bib-input').value = '';
-    document.getElementById('mo-bib-input').focus();
-  } else {
-    RT.toast(res.error || 'Failed to log event', 'warn');
+  if (!res.ok) { RT.toast(res.error || 'Failed to log event', 'warn'); return; }
+
+  checkedInIds.add(participantId);
+  expandedPendingId = null;
+
+  const idx = participants.findIndex(p => p.id === participantId);
+  if (idx !== -1) {
+    if (eventType === 'dnf') participants[idx].status = 'dnf';
+    else if (eventType === 'finish') { participants[idx].status = 'finished'; participants[idx].finish_time = res.data.timestamp; }
+    else if (eventType === 'start') { participants[idx].status = 'active'; participants[idx].start_time = res.data.timestamp; }
+    renderLeaderboard();
   }
+
+  renderPendingList();
+  prependEventRow(res.data);
+  const label = eventType.replace('aid_', '').toUpperCase();
+  const p = participants[idx];
+  RT.toast(`${label} — #${p?.bib} ${p?.name}`, 'ok');
+}
+
+function lookupParticipant(id) {
+  switchTab('log');
+  if (!checkedInIds.has(id)) {
+    expandedPendingId = id;
+    renderPendingList();
+    setTimeout(() => document.querySelector(`[data-pid="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  }
+}
+
+// ── Batch check-in modal ──────────────────────────────────────────────────────
+
+function openMobileBatch() {
+  if (!currentStation) { RT.toast('No station assigned', 'warn'); return; }
+  const isRover = currentStation.type === 'rover';
+  if (isRover && !roverStationId) { RT.toast('Select a station location first', 'warn'); return; }
+
+  const stationName = isRover
+    ? stations.find(s => s.id === roverStationId)?.name
+    : currentStation.name;
+  document.getElementById('mo-bc-station').textContent = stationName || '';
+
+  const isStart = ['start', 'start_finish'].includes(currentStation.type);
+  document.getElementById('mo-bc-event-type').value = isStart ? 'start' : 'aid_depart';
+
+  const now = new Date();
+  document.getElementById('mo-bc-default-time').value =
+    [now.getHours(), now.getMinutes(), now.getSeconds()].map(v => String(v).padStart(2, '0')).join(':');
+
+  document.getElementById('mo-bc-rows').innerHTML = '';
+  document.getElementById('mo-bc-status').textContent = '';
+  addMobileBatchRow();
+  document.getElementById('mo-batch-modal').classList.remove('hidden');
+  setTimeout(() => document.querySelector('#mo-bc-rows .mo-bc-bib')?.focus(), 50);
+}
+
+function closeMobileBatch() {
+  document.getElementById('mo-batch-modal').classList.add('hidden');
+}
+
+function addMobileBatchRow(bibVal = '', focusBib = false) {
+  const container = document.getElementById('mo-bc-rows');
+  const div = document.createElement('div');
+  div.className = 'bc-row';
+  div.innerHTML = `
+    <div><input class="mo-bc-bib bc-bib" placeholder="BIB or name"
+      style="width:100%;font-size:18px;padding:10px 8px"
+      value="${bibVal}"
+      onblur="resolveMobileBib(this)"
+      onkeydown="mobileBibKeydown(event,this)"></div>
+    <div><div class="bc-bib-name text-dim">—</div></div>
+    <div><button onclick="this.closest('.bc-row').remove()"
+      style="padding:8px 12px;color:var(--accent3);font-size:16px;background:none;border:none;cursor:pointer">&#x2715;</button></div>`;
+  container.appendChild(div);
+  if (bibVal) resolveMobileBib(div.querySelector('.mo-bc-bib'));
+  if (focusBib) div.querySelector('.mo-bc-bib').focus();
+  return div.querySelector('.mo-bc-bib');
+}
+
+function resolveMobileBib(input) {
+  const val = input.value.trim();
+  const nameEl = input.closest('.bc-row')?.querySelector('.bc-bib-name');
+  if (!nameEl) return;
+  if (!val) { nameEl.textContent = '—'; nameEl.style.color = ''; return; }
+  const match = participants.find(p =>
+    String(p.bib).toLowerCase() === val.toLowerCase() ||
+    p.name?.toLowerCase().includes(val.toLowerCase())
+  );
+  if (match) {
+    input.value = match.bib;
+    nameEl.textContent = match.name;
+    nameEl.style.color = 'var(--accent2)';
+  } else {
+    nameEl.textContent = 'Not found';
+    nameEl.style.color = 'var(--accent3)';
+  }
+}
+
+function mobileBibKeydown(e, input) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const rows = [...document.querySelectorAll('#mo-bc-rows .mo-bc-bib')];
+  const idx = rows.indexOf(input);
+  if (idx === rows.length - 1) addMobileBatchRow('', true);
+  else rows[idx + 1].focus();
+}
+
+async function submitMobileBatch() {
+  if (!currentStation) return;
+  const isRover = currentStation.type === 'rover';
+  const stationId = isRover ? roverStationId : currentStation.id;
+  if (!stationId) { RT.toast('No station selected', 'warn'); return; }
+
+  const eventType = document.getElementById('mo-bc-event-type').value;
+  const defaultTimeStr = document.getElementById('mo-bc-default-time').value.trim();
+  const defaultTs = defaultTimeStr
+    ? parseTimeToUnix(defaultTimeStr, race?.date)
+    : Math.floor(Date.now() / 1000);
+
+  const bibs = [...document.querySelectorAll('#mo-bc-rows .mo-bc-bib')]
+    .map(i => i.value.trim()).filter(Boolean);
+  if (!bibs.length) { RT.toast('No entries', 'warn'); return; }
+
+  const statusEl = document.getElementById('mo-bc-status');
+  statusEl.textContent = `Submitting ${bibs.length}…`;
+
+  let ok = 0, fail = 0;
+  for (const bib of bibs) {
+    const p = participants.find(x => String(x.bib).toLowerCase() === bib.toLowerCase());
+    if (!p) { fail++; continue; }
+    const res = await RT.post(`/api/races/${raceId}/events`, {
+      participant_id: p.id,
+      event_type: eventType,
+      station_id: stationId,
+      timestamp: defaultTs,
+    });
+    if (res.ok) {
+      ok++;
+      checkedInIds.add(p.id);
+      prependEventRow(res.data);
+    } else {
+      fail++;
+    }
+  }
+
+  const msg = `${ok} logged${fail ? `, ${fail} failed` : ''}`;
+  statusEl.textContent = msg;
+  RT.toast(msg, fail ? 'warn' : 'ok');
+  if (ok > 0) {
+    renderPendingList();
+    setTimeout(closeMobileBatch, 800);
+  }
+}
+
+function parseTimeToUnix(str, dateStr) {
+  const base = dateStr ? new Date(dateStr + 'T00:00:00') : new Date();
+  const s = str.trim().replace(/:/g, '');
+  let h = 0, m = 0, sec = 0;
+  if (s.length <= 2)      { h = +s; }
+  else if (s.length <= 4) { h = +s.slice(0, 2); m = +s.slice(2); }
+  else                    { h = +s.slice(0, 2); m = +s.slice(2, 4); sec = +s.slice(4, 6); }
+  if ([h, m, sec].some(isNaN)) return null;
+  base.setHours(h, m, sec, 0);
+  return Math.floor(base.getTime() / 1000);
 }
 
 async function loadStationEvents() {
   if (!currentStation) return;
   const url = currentStation.type === 'rover'
-    ? `/api/races/${raceId}/events?limit=50`
-    : `/api/races/${raceId}/events?station_id=${currentStation.id}&limit=50`;
+    ? `/api/races/${raceId}/events?limit=200`
+    : `/api/races/${raceId}/events?station_id=${currentStation.id}&limit=200`;
   const res = await RT.get(url);
   if (!res.ok) return;
+  stationEvents = res.data;
+  buildCheckedInSet(stationEvents);
   const list = document.getElementById('mo-events-list');
   list.innerHTML = '';
-  for (const ev of res.data) list.appendChild(buildEventRow(ev));
+  for (const ev of res.data.slice(0, 50)) list.appendChild(buildEventRow(ev));
+  renderPendingList();
 }
 
 function prependEventRow(ev) {
