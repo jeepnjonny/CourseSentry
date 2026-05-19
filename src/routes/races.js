@@ -347,10 +347,37 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
   }
 
   const now = Math.floor(Date.now() / 1000);
+  const raceId = req.params.id;
+
+  // Capture only dns tracker-less participants before updating, to avoid duplicate events
+  const toStart = db.prepare(`
+    SELECT id FROM participants
+    WHERE race_id = ? AND (tracker_id IS NULL OR tracker_id = '') AND status = 'dns'
+  `).all(raceId);
+
   const result = db.prepare(`
     UPDATE participants SET start_time = ?, status = 'active'
     WHERE race_id = ? AND (tracker_id IS NULL OR tracker_id = '') AND status NOT IN ('dnf', 'finished')
-  `).run(now, req.params.id);
+  `).run(now, raceId);
+
+  if (toStart.length) {
+    const startStation = db.prepare(
+      `SELECT id FROM stations WHERE race_id = ? AND type IN ('start','start_finish') ORDER BY course_order LIMIT 1`
+    ).get(raceId);
+
+    const insertEvent = db.prepare(
+      'INSERT INTO events (race_id, participant_id, event_type, station_id, timestamp, manual) VALUES (?, ?, ?, ?, ?, 1)'
+    );
+
+    db.transaction(() => {
+      for (const p of toStart) {
+        insertEvent.run(raceId, p.id, 'start', startStation?.id || null, now);
+        if (startStation) {
+          insertEvent.run(raceId, p.id, 'aid_depart', startStation.id, now);
+        }
+      }
+    })();
+  }
 
   logger.log('race', 'info', `START RACE — ${result.changes} tracker-less participant(s) started at ${new Date(now * 1000).toTimeString().slice(0, 8)}`);
   wsManager.broadcast({ type: 'participant_update', data: { action: 'bulk_update' } });

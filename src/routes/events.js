@@ -96,20 +96,37 @@ router.post('/', requireRole('admin', 'operator', 'station'), (req, res) => {
 
   updateParticipantStatus(req.params.raceId, participant_id, event_type, ts);
 
-  const event = db.prepare(`
+  const readEvent = db.prepare(`
     SELECT e.*, p.bib, p.name AS participant_name, s.name AS station_name
     FROM events e
     LEFT JOIN participants p ON e.participant_id = p.id
     LEFT JOIN stations s ON e.station_id = s.id
     WHERE e.id = ?
-  `).get(insertResult.lastInsertRowid);
+  `);
 
+  const event = readEvent.get(insertResult.lastInsertRowid);
   wsManager.broadcast({ type: 'event', data: event });
+
+  // Auto-synthesize a matching aid_arrive if none exists for this participant/station
+  let arriveEvent = null;
+  if (event_type === 'aid_depart' && participant_id && station_id) {
+    const hasArrive = db.prepare(
+      'SELECT id FROM events WHERE participant_id = ? AND station_id = ? AND event_type = ?'
+    ).get(participant_id, station_id, 'aid_arrive');
+
+    if (!hasArrive) {
+      const arriveResult = db.prepare(
+        'INSERT INTO events (race_id, participant_id, event_type, station_id, timestamp, notes, manual) VALUES (?, ?, ?, ?, ?, ?, 1)'
+      ).run(req.params.raceId, participant_id, 'aid_arrive', station_id, ts, notes || null);
+      arriveEvent = readEvent.get(arriveResult.lastInsertRowid);
+      wsManager.broadcast({ type: 'event', data: arriveEvent });
+    }
+  }
 
   const actor = req.session.user?.username || 'unknown';
   const who = event.participant_name ? `#${event.bib} ${event.participant_name}` : '(no participant)';
   const where = event.station_name ? ` @ ${event.station_name}` : '';
-  logger.log('race', 'info', `MANUAL ${event_type.toUpperCase()} — ${who}${where} by ${actor}`);
+  logger.log('race', 'info', `MANUAL ${event_type.toUpperCase()} — ${who}${where} by ${actor}${arriveEvent ? ' (arrive auto-added)' : ''}`);
 
   res.json({ ok: true, data: event });
 });
