@@ -47,11 +47,9 @@ function sendBeacons() {
       }
     }
 
-    // Send beacon via all TNC primaries for this race
+    // Send beacon via this race's TNC primary (if connected)
     if (station) {
-      for (const raceId of localTnc.getConnectedRaceIds()) {
-        localTnc.sendBeacon(raceId, station.lat, station.lon, name);
-      }
+      localTnc.sendBeacon(race.id, station.lat, station.lon, name);
     }
 
     // Send MQTT beacons if connected

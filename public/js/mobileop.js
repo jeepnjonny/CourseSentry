@@ -529,6 +529,12 @@ function showParticipantCard(p) {
   document.getElementById('mo-participant-card').classList.add('visible');
 }
 
+function dismissParticipantCard() {
+  selectedParticipant = null;
+  document.getElementById('mo-participant-card').classList.remove('visible');
+  document.getElementById('mo-bib-input').value = '';
+}
+
 async function logEvent(eventType) {
   if (!selectedParticipant) { RT.toast('Select a participant first', 'warn'); return; }
   if (!currentStation) { RT.toast('No station assigned', 'warn'); showStationPicker(); return; }
@@ -663,6 +669,7 @@ function updateMsgUnread() {
 }
 
 function renderMessages() {
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const sel = document.getElementById('mo-msg-to');
   const nodeId = sel?.value;
   const ids = new Set(resolveNodeIdForMessages(nodeId));
@@ -680,7 +687,7 @@ function renderMessages() {
       const from = m.direction === 'in' ? (m.from_name || m.from_node_id) : 'You';
       return `<div class="${cls}">
         <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${from} · ${RT.fmtTime(m.timestamp, fmt24)}</div>
-        <div>${m.text}</div>
+        <div>${esc(m.text)}</div>
       </div>`;
     }).join('');
     sidebar.scrollTop = sidebar.scrollHeight;
@@ -692,8 +699,8 @@ function renderMessages() {
     panel.innerHTML = reversed.map(m => {
       const out = m.direction === 'out';
       return `<div class="${out ? 'mo-msg-out' : 'mo-msg-in'}">
-        ${!out ? `<div class="mo-msg-from">${m.from_name || m.from_node_id || '?'}</div>` : ''}
-        <div class="mo-msg-text">${m.text}</div>
+        ${!out ? `<div class="mo-msg-from">${esc(m.from_name || m.from_node_id || '?')}</div>` : ''}
+        <div class="mo-msg-text">${esc(m.text)}</div>
         <div class="mo-msg-ts">${RT.fmtTime(m.timestamp, fmt24)}</div>
       </div>`;
     }).join('');

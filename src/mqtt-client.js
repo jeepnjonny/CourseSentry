@@ -1056,21 +1056,13 @@ async function processProtoData(data, fromNode, toNode, snr, rssi) {
 }
 
 async function handleProtoMessage(payload, psk) {
-  const diag = currentConfig?.diagnostic;
   try {
     const root = await loadProto();
     const ServiceEnvelope = root.lookupType('meshtastic.ServiceEnvelope');
     const Data = root.lookupType('meshtastic.Data');
     const envelope = ServiceEnvelope.decode(payload);
     const packet = envelope.packet;
-    if (!packet) {
-      if (diag) logger.log('mqtt', 'warn', 'proto: no packet in envelope');
-      return;
-    }
-
-    const fromHex = nodeIdHex(packet.from >>> 0);
-    if (diag) logger.log('mqtt', 'debug',
-      `proto pkt from=${fromHex} id=${packet.id} decoded=${!!packet.decoded} encLen=${packet.encrypted?.length ?? 0}`);
+    if (!packet) return;
 
     // Skip our own echoed transmissions — broker reflects them back on the same topic
     if (_gatewayNodeId && (packet.from >>> 0) === (_gatewayNodeId >>> 0)) return;
@@ -1081,26 +1073,18 @@ async function handleProtoMessage(payload, psk) {
       data = packet.decoded;
     } else if (packet.encrypted && packet.encrypted.length > 0) {
       const decrypted = decryptPayload(Buffer.from(packet.encrypted), packet.id, packet.from, psk);
-      if (!decrypted) {
-        if (diag) logger.log('mqtt', 'warn', `proto: decrypt failed from=${fromHex} id=${packet.id} psk=${psk}`);
-        return;
-      }
+      if (!decrypted) return;
       try {
         data = Data.decode(decrypted);
-      } catch (e) {
-        if (diag) logger.log('mqtt', 'warn', `proto: Data.decode failed from=${fromHex}: ${e.message}`);
+      } catch {
         return;
       }
     } else {
-      if (diag) logger.log('mqtt', 'warn', `proto: packet has neither decoded nor encrypted from=${fromHex}`);
       return;
     }
 
-    if (diag) logger.log('mqtt', 'debug', `proto: portnum=${data.portnum} payloadLen=${data.payload?.length ?? 0} from=${fromHex}`);
     await processProtoData(data, packet.from, packet.to, packet.rxSnr, packet.rxRssi);
-  } catch (e) {
-    if (diag) logger.log('mqtt', 'warn', `proto: unhandled error: ${e.message}`);
-  }
+  } catch {}
 }
 
 function connectFromSettings(db) {
@@ -1129,7 +1113,6 @@ function connectFromSettings(db) {
     channel: s.mqtt_channel || 'LongFast',
     format: s.mqtt_format || 'json',
     psk: s.mqtt_psk ?? 'AQ==',
-    diagnostic: s.mqtt_diagnostic === '1',
   });
   return true;
 }
@@ -1159,26 +1142,10 @@ function connect(config) {
         else mqttLog('info', `Subscribed to ${t}`);
       });
     });
-    // Diagnostic catch-all: log every topic for 60s to help identify traffic
-    if (config.diagnostic) {
-      mqttClient.subscribe('#', err => {
-        if (!err) mqttLog('info', 'Diagnostic: subscribed to # (all topics for 60s)');
-      });
-      setTimeout(() => {
-        if (mqttClient?.connected) {
-          mqttClient.unsubscribe('#');
-          mqttLog('info', 'Diagnostic: unsubscribed from #');
-        }
-      }, 60000);
-    }
     broadcast('mqtt_status', { connected: true, host: config.host, topics: [jsonTopic, encTopic] });
   });
 
   mqttClient.on('message', async (topic, payload) => {
-    if (config.diagnostic) {
-      const preview = payload.slice(0, 120).toString('utf8').replace(/[^\x20-\x7e]/g, '.');
-      mqttLog('debug', `topic=${topic} len=${payload.length} data=${preview}`);
-    }
     try {
       // Detect format from topic path — /2/e/ = encrypted protobuf, /2/json/ = JSON
       if (/\/2\/e\//.test(topic)) {
@@ -1188,9 +1155,7 @@ function connect(config) {
         processJsonMessage(msg);
       }
       broadcast('mqtt_raw', { topic, ts: Date.now() });
-    } catch (e) {
-      if (config.diagnostic) mqttLog('warn', `Parse error on ${topic}: ${e.message}`);
-    }
+    } catch {}
   });
 
   mqttClient.on('error', err => {

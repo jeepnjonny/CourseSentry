@@ -215,16 +215,7 @@ function _initTncButton() {
   const pill = document.getElementById('tnc-pill');
   if (!btn) return;
 
-  if (!KissTnc.isSupported()) {
-    // WebSerial unavailable (HTTP non-localhost, Firefox, Safari)
-    // Show an info button explaining the relay agent instead
-    btn.textContent    = 'TNC ⓘ';
-    btn.style.display  = '';
-    btn.style.opacity  = '0.65';
-    btn.title = 'WebSerial requires HTTPS. Click for relay agent instructions.';
-    btn.onclick = _showRelayInfo;
-    return;
-  }
+  if (!KissTnc.isSupported()) return;
 
   btn.style.display = ''; // reveal for supported browsers
 
@@ -251,71 +242,6 @@ function _initTncButton() {
   KissTnc.onFrame(({ from, to, via, text }) => {
     RT.wsSend({ type: 'local_aprs_rx', data: { from, to, via, text } });
   });
-}
-
-function _showRelayInfo() {
-  // RT.BASE is '/CourseSentry/' behind nginx, or '/' when accessed directly.
-  // Use origin + BASE so links & commands work in both deployment modes.
-  const serverBase = location.origin + RT.BASE.replace(/\/$/, ''); // e.g. http://192.168.1.50/CourseSentry
-  const msg  = document.createElement('div');
-  msg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:16px';
-
-  // Check whether the pre-built Windows exe is available for download
-  const dlUrl = `${serverBase}/downloads/CourseSentryTNC.exe`;
-  fetch(dlUrl, { method: 'HEAD' }).then(r => {
-    const dlBtn = msg.querySelector('#tnc-dl-btn');
-    if (!dlBtn) return;
-    // Treat as missing if: non-ok status, OR server returned HTML (SPA fallback / error page)
-    const ct = r.headers.get('content-type') || '';
-    if (r.ok && !ct.startsWith('text/html')) {
-      dlBtn.style.display = '';
-    } else {
-      dlBtn.style.display = 'none';
-      msg.querySelector('#tnc-dl-note').style.display = '';
-    }
-  }).catch(() => {
-    const dlBtn = msg.querySelector('#tnc-dl-btn');
-    if (dlBtn) { dlBtn.style.display = 'none'; }
-    const note = msg.querySelector('#tnc-dl-note');
-    if (note) note.style.display = '';
-  });
-
-  msg.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;max-width:520px;width:100%;font-size:13px;line-height:1.6">
-      <div style="font-size:15px;font-weight:600;margin-bottom:10px;color:var(--text)">&#x1F4E1; Local TNC — Relay Required</div>
-      <p style="color:var(--text2);margin:0 0 16px">
-        WebSerial requires HTTPS. Since this server is on plain HTTP, download the
-        <strong style="color:var(--text)">TNC Relay app</strong> — it runs on your
-        Windows PC, opens a setup page in your browser, and bridges your serial TNC
-        to this server.
-      </p>
-
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:16px">
-        <p style="color:var(--text2);font-size:12px;margin:0 0 12px">
-          No installation or Node.js required.
-          Double-click to run &rarr; fill in server URL &amp; credentials &rarr; select COM port &rarr; Connect.
-          Settings are saved for next time.
-        </p>
-        <a id="tnc-dl-btn" href="${dlUrl}"
-           style="display:inline-block;background:var(--accent);color:#0d1117;text-decoration:none;
-                  padding:9px 20px;border-radius:4px;font-weight:700;font-size:13px">
-          &#x2B07; Download CourseSentryTNC.exe
-        </a>
-        <p id="tnc-dl-note" style="display:none;color:var(--accent3);font-size:12px;margin:10px 0 0">
-          &#x26A0;&#xFE0F; Windows app not yet available — contact the server administrator.
-        </p>
-      </div>
-
-      <p style="color:var(--text3);font-size:12px;margin:0 0 16px">
-        When prompted by your browser, keep the downloaded file — Windows may warn
-        about an unsigned exe from the internet, which is expected.
-      </p>
-      <div style="text-align:right">
-        <button onclick="this.closest('[style*=fixed]').remove()" class="primary">Close</button>
-      </div>
-    </div>`;
-  document.body.appendChild(msg);
-  msg.addEventListener('click', e => { if (e.target === msg) msg.remove(); });
 }
 
 function _updateTncPill(rx, tx) {
@@ -2094,6 +2020,7 @@ function renderPersonnelRecipients() {
 }
 
 function renderMessages() {
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const sel = document.getElementById('msg-to');
   const nodeId = sel?.value;
   const el = document.getElementById('msg-thread-mini');
@@ -2109,7 +2036,7 @@ function renderMessages() {
     const statusIcon = m.direction === 'out' ? (_MSG_STATUS_ICONS[m.status] || '') : '';
     return `<div class="${cls}" style="max-width:85%;font-size:13px">
       <div style="font-size:11px;color:var(--text3);margin-bottom:2px">${from} · ${RT.fmtTime(m.timestamp, fmt24)}${statusIcon}</div>
-      <div>${m.text}</div>
+      <div>${esc(m.text)}</div>
     </div>`;
   }).join('');
   el.scrollTop = el.scrollHeight;

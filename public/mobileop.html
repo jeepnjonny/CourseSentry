@@ -315,9 +315,12 @@
       <button id="mo-search-btn" class="primary" onclick="searchBib()">GO</button>
     </div>
     <div id="mo-participant-card">
-      <div>
-        <div class="mo-p-name" id="mo-p-name">—</div>
-        <div class="mo-p-meta" id="mo-p-meta"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div>
+          <div class="mo-p-name" id="mo-p-name">—</div>
+          <div class="mo-p-meta" id="mo-p-meta"></div>
+        </div>
+        <button onclick="dismissParticipantCard()" style="background:none;border:none;color:var(--text3);font-size:22px;line-height:1;cursor:pointer;padding:0 2px;flex-shrink:0" title="Clear">&times;</button>
       </div>
       <div class="mo-action-btns">
         <button class="mo-action-btn mo-btn-arrive" onclick="logEvent('aid_arrive')">ARRIVE</button>

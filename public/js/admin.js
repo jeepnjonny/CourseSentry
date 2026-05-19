@@ -1710,10 +1710,6 @@ function renderSettingsTab() {
     <div style="font-size:13px;color:var(--text3);margin-top:2px">
       Both JSON (<code>msh/{region}/2/json/{channel}/#</code>) and encrypted protobuf (<code>msh/{region}/2/e/{channel}/#</code>) are subscribed automatically.
     </div>
-    <div class="checkbox-row" style="margin-top:6px">
-      <input type="checkbox" id="s-mqtt-diagnostic">
-      <label for="s-mqtt-diagnostic">Diagnostic mode — log all topics to server console for 60s on connect</label>
-    </div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="primary" onclick="saveMqttSettings()">SAVE</button>
       <button onclick="testMqtt()" id="s-mqtt-test-btn">TEST CONNECTION</button>
@@ -1766,61 +1762,7 @@ function renderSettingsTab() {
     </div>
   </div>
 
-  <div class="card">
-    <h3>TNC RELAY APP</h3>
-    <p class="text-dim" style="font-size:14px;margin-bottom:10px">
-      Windows exe operators download to bridge a serial KISS TNC over plain HTTP.
-      Keeping a local copy allows offline / field distribution without internet access.
-    </p>
-    <div style="font-size:14px;margin-bottom:10px" id="relay-exe-status">Checking…</div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button class="primary" onclick="syncRelayExe()" id="relay-exe-btn">DOWNLOAD FROM GITHUB</button>
-      <span id="relay-exe-msg" style="font-size:14px;color:var(--text3)"></span>
-    </div>
-  </div>`;
-}
-
-async function loadRelayExeStatus() {
-  const el  = document.getElementById('relay-exe-status');
-  const btn = document.getElementById('relay-exe-btn');
-  if (!el) return;
-  try {
-    const r = await fetch(RT.BASE + 'api/admin/relay-exe/status');
-    const d = await r.json();
-    if (d.present) {
-      const mb   = (d.size / 1024 / 1024).toFixed(1);
-      const date = new Date(d.mtime).toLocaleDateString();
-      el.innerHTML = `<span style="color:var(--accent2)">&#x2713; Present</span> &nbsp;${mb} MB &nbsp;&middot;&nbsp; ${date}`;
-      if (btn) btn.textContent = 'UPDATE FROM GITHUB';
-    } else {
-      el.innerHTML = `<span style="color:var(--accent3)">&#x26A0; Not present</span> &nbsp;&mdash;&nbsp; server will redirect downloads to GitHub`;
-      if (btn) btn.textContent = 'DOWNLOAD FROM GITHUB';
-    }
-  } catch {
-    el.textContent = 'Status unavailable';
-  }
-}
-
-async function syncRelayExe() {
-  const btn = document.getElementById('relay-exe-btn');
-  const msg = document.getElementById('relay-exe-msg');
-  if (btn) { btn.disabled = true; btn.textContent = 'DOWNLOADING…'; }
-  if (msg) msg.textContent = '';
-  try {
-    const r = await fetch(RT.BASE + 'api/admin/relay-exe/sync', { method: 'POST' });
-    const d = await r.json();
-    if (d.ok) {
-      const mb = (d.size / 1024 / 1024).toFixed(1);
-      if (msg) { msg.style.color = 'var(--accent2)'; msg.textContent = `Downloaded — ${mb} MB`; }
-      loadRelayExeStatus();
-    } else {
-      if (msg) { msg.style.color = 'var(--accent3)'; msg.textContent = d.error || 'Download failed'; }
-    }
-  } catch (e) {
-    if (msg) { msg.style.color = 'var(--accent3)'; msg.textContent = e.message; }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
+  `;
 }
 
 function updateMqttPortDefault() {
@@ -1845,8 +1787,6 @@ async function bindSettingsTab() {
   document.getElementById('s-mqtt-region').value       = s.mqtt_region || '';
   document.getElementById('s-mqtt-channel').value      = s.mqtt_channel || '';
   document.getElementById('s-mqtt-psk').value          = s.mqtt_psk || '';
-  document.getElementById('s-mqtt-diagnostic').checked = s.mqtt_diagnostic === '1';
-
   document.getElementById('s-aprs-callsign').value   = s.aprs_callsign || '';
   document.getElementById('s-aprs-server').value     = s.aprs_server || 'rotate.aprs2.net';
   document.getElementById('s-aprs-port').value       = s.aprs_port || '14580';
@@ -1857,7 +1797,6 @@ async function bindSettingsTab() {
 
   if (aprsRes.ok) updateAprsPill(aprsRes.data);
   await updateAprsFilterPreview();
-  loadRelayExeStatus();
 }
 
 async function saveMqttSettings() {
@@ -1870,7 +1809,6 @@ async function saveMqttSettings() {
     mqtt_region:     document.getElementById('s-mqtt-region').value.trim() || null,
     mqtt_channel:    document.getElementById('s-mqtt-channel').value.trim() || null,
     mqtt_psk:        document.getElementById('s-mqtt-psk').value.trim() || null,
-    mqtt_diagnostic: document.getElementById('s-mqtt-diagnostic').checked ? '1' : '0',
   });
   if (res.ok) RT.toast('MQTT settings saved', 'ok');
   else RT.toast(res.error, 'warn');

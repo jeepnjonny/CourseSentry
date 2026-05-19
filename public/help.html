@@ -172,7 +172,7 @@
 
     <!-- ══ OVERVIEW ══════════════════════════════════════════════════════════ -->
     <div class="help-section" id="overview">
-      <h2>WHAT IS RACETRACKER?</h2>
+      <h2>WHAT IS COURSESENTRY?</h2>
       <p>CourseSentry is a self-hosted, real-time participant tracking and race management platform built for trail running, ultramarathon, cycling, and backcountry events where commercial cellular coverage is unreliable or absent. It unifies GPS position data from Meshtastic LoRa mesh radios, APRS amateur radio, Garmin InReach satellite communicators, and manual check-ins into a single live operational picture — giving race directors, net control operators, and the public the same situational awareness at the same time. Whether you are managing a fully-instrumented 100-mile ultra with 200 GPS trackers or a small local 50K where volunteers radio in bib numbers from aid stations, CourseSentry adapts to your resources and keeps everyone on the same page.</p>
     </div>
 
@@ -185,7 +185,7 @@
         <div class="feature-card"><b>Live Leaderboard</b><span>Sortable standings by position, pace, ETA, BIB, name, or heat wave. Updates in real time via WebSocket push.</span></div>
         <div class="feature-card"><b>Course Progress</b><span>Automatic distance-along-route and pace calculation for every GPS-tracked participant, including out-and-back turnaround detection.</span></div>
         <div class="feature-card"><b>Automated Alerts</b><span>Off-course, stopped, and missing-participant detection with configurable thresholds. Alert count badge on operator view.</span></div>
-        <div class="feature-card"><b>Station Check-Ins</b><span>Manual or automatic event logging at aid stations and checkpoints. Geofence-based auto-arrival when GPS-tracked participants enter a station radius.</span></div>
+        <div class="feature-card"><b>Station Check-Ins</b><span>Manual or automatic event logging at aid stations and checkpoints. Departure time is the key timing marker; geofence-based auto-arrival on entry is a convenience bonus.</span></div>
         <div class="feature-card"><b>Two-Way Messaging</b><span>Send messages to Meshtastic and APRS-equipped trackers directly from the operator interface. 67-character limit, delivery status tracking.</span></div>
         <div class="feature-card"><b>Public Viewer</b><span>Token-gated, read-only public view of the live map and leaderboard. Share a URL with spectators, crews, and family. No login required.</span></div>
         <div class="feature-card"><b>Heat Waves</b><span>Group participants into colored, icon-coded start waves. Each heat can have its own start time for staggered events.</span></div>
@@ -386,8 +386,8 @@
         <p><b>MQTT RF Tech:</b> The default mode is Meshtastic-formatted JSON position packets. If your mesh gateway publishes raw APRS-format packets over MQTT, select the APRS-over-MQTT mode instead.</p>
       </div>
 
-      <h3>APRS (Amateur Radio)</h3>
-      <p>APRS (Automatic Packet Reporting System) uses the amateur radio 2-meter band (144.390 MHz in North America) to transmit position packets. CourseSentry connects to the APRS-IS internet backbone to receive these packets in real time. A valid amateur radio license is required to transmit APRS; receiving requires no license.</p>
+      <h3>APRS (HF/VHF/UHF / TCP/AX.25/LoRa)</h3>
+      <p>APRS (Automatic Packet Reporting System) transmits position packets over amateur radio across a wide range of bands and transports — HF, VHF, UHF, TCP/IP (APRS-IS), AX.25 packet radio, and LoRa. CourseSentry connects to the APRS-IS internet backbone to receive these packets in real time. A valid amateur radio license is required to transmit APRS; receiving requires no license.</p>
       <h4>Setup</h4>
       <ol class="steps">
         <li><span>Enable <b>APRS</b> in the race's RF settings and enter the race's <b>tactical callsign</b> (1–6 alphanumeric characters, e.g., <kbd>RACE1</kbd> or your own callsign).</span></li>
@@ -403,7 +403,7 @@
       <h4>Setup</h4>
       <ol class="steps">
         <li><span>Enable <b>TNC</b> in the race settings and configure the <b>tactical callsign</b> and <b>RF digipeater path</b> (typically <kbd>WIDE1-1</kbd>).</span></li>
-        <li><span>Connect a TNC device to the computer running CourseSentry. Use either <b>WebSerial</b> (Chrome/Edge, HTTPS required) via the browser, or the <b>CourseSentryTNC</b> relay application (Windows) which bridges the serial port to CourseSentry over HTTP.</span></li>
+        <li><span>Connect a TNC device to the computer running CourseSentry via <b>WebSerial</b> (Chrome/Edge over HTTPS).</span></li>
         <li><span>The TNC light in the topbar shows how many clients are connected and which one is the primary transmitter (TX).</span></li>
       </ol>
       <div class="callout">
@@ -438,7 +438,7 @@
         <tr><th>Setting</th><th>Effect</th></tr>
         <tr><td>Viewer map enabled</td><td>Shows the live map with participant positions. Disable to show leaderboard only.</td></tr>
         <tr><td>Leaderboard enabled</td><td>Shows standings, status, bib, and progress. Disable for map-only view.</td></tr>
-        <tr><td>Show participant names</td><td>Shows full names on the leaderboard and map tooltips. Disable for anonymous display (BIB numbers only).</td></tr>
+        <tr><td>Show participant names</td><td>Shows first name and last initial on the leaderboard and map tooltips (e.g., "Jane D."). Full names are never shown publicly. Disable for anonymous display (BIB numbers only).</td></tr>
         <tr><td>Persistent nametags</td><td>Always shows BIB/name labels on the map markers (vs. hover-only tooltips).</td></tr>
       </table>
     </div>
@@ -506,7 +506,7 @@
         <li><span>The participant's position on the map updates to the station location and their leaderboard row reflects the new progress.</span></li>
       </ol>
       <div class="callout">
-        <p><b>Auto-logging:</b> If <b>Auto-log arrivals</b> is enabled and a participant carries a GPS tracker, arrival events are created automatically when the tracker enters a station's geofence. You may still want to log departures manually.</p>
+        <p><b>Departure is the significant marker:</b> Departure time drives leaderboard position, pace, and ETA calculations. Always log a <b>DEPART</b> event when a participant leaves a station. If <b>Auto-log arrivals</b> is enabled, arrival events are created automatically when a GPS tracker enters a station's geofence — this is a convenience bonus, but departure must still be logged.</p>
       </div>
 
       <h3>Logging a DNF</h3>
@@ -606,7 +606,7 @@
         <tr><td>Start</td><td>S</td><td style="color:var(--accent2)">Green</td><td>Race start location. Required for point-to-point format.</td></tr>
         <tr><td>Finish</td><td>F</td><td style="color:var(--accent3)">Red</td><td>Race finish location. Required for point-to-point format.</td></tr>
         <tr><td>Start/Finish</td><td>⇌</td><td style="color:#a371f7">Purple</td><td>Combined start and finish. Use for out-and-back events where the course begins and ends at the same point.</td></tr>
-        <tr><td>Turnaround</td><td>T</td><td style="color:var(--accent)">Blue</td><td>Turnaround point for out-and-back courses. The system uses this station to identify when participants begin their return leg.</td></tr>
+        <tr><td>Turnaround</td><td>T</td><td style="color:#3b82f6">Blue</td><td>Turnaround point for out-and-back courses. The system uses this station to identify when participants begin their return leg.</td></tr>
         <tr><td>Aid</td><td>First letter of name</td><td style="color:var(--accent4)">Tan</td><td>Aid station, water stop, or crew access point. No special logic; used for check-ins and leaderboard reference.</td></tr>
         <tr><td>Checkpoint</td><td>First letter of name</td><td style="color:#e3b341">Yellow</td><td>Mandatory checkpoint. Same as aid but semantically distinct for events that require proof of passage.</td></tr>
         <tr><td>Net Control</td><td>N</td><td style="color:var(--text3)">Gray</td><td>Radio net control location. Informational only — marks the command post on the map.</td></tr>

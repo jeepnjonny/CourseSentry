@@ -59,62 +59,6 @@ app.use((req, res, next) => {
 // ── Static files ─────────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── TNC relay exe — download helper ──────────────────────────────────────────
-const RELAY_EXE_URL  = 'https://github.com/jeepnjonny/CourseSentry/releases/download/tnc-relay-latest/CourseSentryTNC.exe';
-const RELAY_EXE_PATH = path.join(__dirname, 'public', 'downloads', 'CourseSentryTNC.exe');
-
-function downloadRelayExe(cb) {
-  function get(url, hops) {
-    if (hops > 8) return cb(new Error('Too many redirects'));
-    const mod = url.startsWith('https') ? https : http;
-    mod.get(url, { headers: { 'User-Agent': 'CourseSentry-Server/1.0' } }, res => {
-      if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) {
-        res.resume();
-        return get(res.headers.location, hops + 1);
-      }
-      if (res.statusCode !== 200) {
-        res.resume();
-        return cb(new Error(`HTTP ${res.statusCode} from ${url}`));
-      }
-      fs.mkdirSync(path.dirname(RELAY_EXE_PATH), { recursive: true });
-      const tmp = RELAY_EXE_PATH + '.tmp';
-      const out = fs.createWriteStream(tmp);
-      res.pipe(out);
-      out.on('finish', () => out.close(() => fs.rename(tmp, RELAY_EXE_PATH, cb)));
-      out.on('error', err => { fs.unlink(tmp, () => {}); cb(err); });
-    }).on('error', cb);
-  }
-  get(RELAY_EXE_URL, 0);
-}
-
-// Fall back to GitHub Release redirect when file not present locally
-app.get('/downloads/CourseSentryTNC.exe', (req, res) => {
-  res.redirect(302, RELAY_EXE_URL);
-});
-
-// ── Admin: sync relay exe from GitHub Release ─────────────────────────────────
-app.post('/api/admin/relay-exe/sync', requireRole('admin'), (req, res) => {
-  console.log('[server] Downloading TNC relay exe from GitHub Release...');
-  downloadRelayExe(err => {
-    if (err) {
-      console.error('[server] relay-exe download failed:', err.message);
-      return res.json({ ok: false, error: err.message });
-    }
-    const { size } = fs.statSync(RELAY_EXE_PATH);
-    console.log(`[server] relay-exe saved (${(size / 1024 / 1024).toFixed(1)} MB)`);
-    res.json({ ok: true, size });
-  });
-});
-
-app.get('/api/admin/relay-exe/status', requireRole('admin'), (req, res) => {
-  try {
-    const stat = fs.statSync(RELAY_EXE_PATH);
-    res.json({ ok: true, present: true, size: stat.size, mtime: stat.mtime });
-  } catch {
-    res.json({ ok: true, present: false });
-  }
-});
-
 // ── Viewer page (token-gated, no login) ──────────────────────────────────────
 app.get('/view/:token', (req, res) => {
   const race = db.prepare('SELECT id FROM races WHERE viewer_token=?').get(req.params.token);
@@ -333,13 +277,4 @@ server.listen(PORT, () => {
   console.log(`[server] CourseSentry listening on port ${PORT}`);
   logger.log('system', 'info', `CourseSentry started on port ${PORT}`);
 
-  // Download TNC relay exe from GitHub Release if not already present locally
-  if (!fs.existsSync(RELAY_EXE_PATH)) {
-    console.log('[server] TNC relay exe not found — downloading from GitHub Release...');
-    downloadRelayExe(err => {
-      if (err) console.warn('[server] relay-exe auto-download failed:', err.message,
-                            '(operators can still download via GitHub redirect)');
-      else     console.log('[server] TNC relay exe ready for offline distribution');
-    });
-  }
 });
