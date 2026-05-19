@@ -119,35 +119,49 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
 });
 
 // Station users call this on login to register at their station for the session.
-// If the user has a callsign, match/create a personnel record at this station.
+// Lookup priority: user_id match → callsign match → create new.
 router.post('/:id/assign', requireAuth, (req, res) => {
   const station = db.prepare('SELECT * FROM stations WHERE id = ? AND race_id = ?')
     .get(req.params.id, req.params.raceId);
   if (!station) return res.status(404).json({ ok: false, error: 'station not found' });
 
   const user = req.session.user;
-  req.session.stationId   = station.id;
+  const fullUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  req.session.stationId     = station.id;
   req.session.stationRaceId = parseInt(req.params.raceId, 10);
 
-  let personnel = null;
-  if (user.callsign) {
-    const cs = user.callsign.toUpperCase();
-    // Try exact tracker_id match first, then name contains
+  let personnel = db.prepare(
+    'SELECT * FROM personnel WHERE user_id = ? AND race_id = ?'
+  ).get(user.id, req.params.raceId);
+
+  if (personnel) {
+    // Known user — update station and fill any gaps from user profile
+    const updates = { station_id: station.id };
+    if (!personnel.tracker_id && fullUser.callsign) updates.tracker_id = fullUser.callsign.toUpperCase();
+    if (!personnel.phone && fullUser.phone) updates.phone = fullUser.phone;
+    const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    db.prepare(`UPDATE personnel SET ${sets} WHERE id = ?`).run(...Object.values(updates), personnel.id);
+    personnel = db.prepare('SELECT * FROM personnel WHERE id = ?').get(personnel.id);
+  } else if (fullUser.callsign) {
+    const cs = fullUser.callsign.toUpperCase();
+    // Try callsign match anywhere in this race (user may have been pre-added)
     personnel = db.prepare(
-      'SELECT * FROM personnel WHERE station_id = ? AND (UPPER(tracker_id) = ? OR UPPER(name) = ?)'
-    ).get(station.id, cs, cs);
+      'SELECT * FROM personnel WHERE race_id = ? AND (UPPER(tracker_id) = ? OR UPPER(name) = ?)'
+    ).get(req.params.raceId, cs, cs);
 
     if (personnel) {
-      // Ensure tracker_id is set
-      if (!personnel.tracker_id) {
-        db.prepare('UPDATE personnel SET tracker_id = ? WHERE id = ?').run(cs, personnel.id);
-        personnel.tracker_id = cs;
-      }
+      db.prepare(
+        'UPDATE personnel SET user_id = ?, station_id = ?, tracker_id = COALESCE(tracker_id, ?) WHERE id = ?'
+      ).run(user.id, station.id, cs, personnel.id);
+      personnel = db.prepare('SELECT * FROM personnel WHERE id = ?').get(personnel.id);
     } else {
-      // Create a personnel record for this user at this station
       const result = db.prepare(
-        'INSERT INTO personnel (race_id, station_id, name, tracker_id) VALUES (?, ?, ?, ?)'
-      ).run(req.params.raceId, station.id, user.callsign, cs);
+        'INSERT INTO personnel (race_id, station_id, user_id, name, tracker_id, phone, color, shape) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(req.params.raceId, station.id, user.id,
+        fullUser.callsign, cs,
+        fullUser.phone || null,
+        fullUser.color || '#f5a623',
+        fullUser.shape || 'triangle');
       personnel = db.prepare('SELECT * FROM personnel WHERE id = ?').get(result.lastInsertRowid);
     }
   }

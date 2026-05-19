@@ -343,6 +343,21 @@
         <span id="um-passcode" style="font-size:14px;color:var(--accent2);font-weight:bold;min-width:40px">—</span>
       </div>
     </div>
+    <div class="form-group"><label>PHONE <span class="text-dim">(optional — contact info)</span></label><input id="um-phone" placeholder="555-867-5309"></div>
+    <div class="form-group">
+      <label>MAP MARKER <span class="text-dim">(used when personnel record is auto-created)</span></label>
+      <div style="display:flex;gap:10px;align-items:center">
+        <input type="color" id="um-color" value="#f5a623" oninput="umUpdatePreview()" style="width:38px;height:32px;padding:2px;border-radius:4px;border:1px solid var(--border);cursor:pointer">
+        <select id="um-shape" oninput="umUpdatePreview()" style="font-size:14px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font)">
+          <option value="triangle">Triangle</option>
+          <option value="circle">Circle</option>
+          <option value="square">Square</option>
+          <option value="diamond">Diamond</option>
+          <option value="star">Star</option>
+        </select>
+        <span id="um-icon-preview" style="display:inline-flex;align-items:center"></span>
+      </div>
+    </div>
     <div class="modal-footer">
       <button onclick="closeModal('user-modal')">CANCEL</button>
       <button class="primary" onclick="saveUser()">SAVE</button>

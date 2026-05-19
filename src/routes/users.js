@@ -29,7 +29,7 @@ const router = express.Router();
  * @returns {Object} JSON response with users array (excluding password hashes)
  */
 router.get('/', requireRole('admin'), (req, res) => {
-  const users = db.prepare('SELECT id, username, role, callsign, created_at FROM users').all();
+  const users = db.prepare('SELECT id, username, role, callsign, phone, color, shape, created_at FROM users').all();
   res.json({ ok: true, data: users });
 });
 
@@ -43,7 +43,7 @@ router.get('/', requireRole('admin'), (req, res) => {
  * @returns {Object} JSON response with created user data
  */
 router.post('/', requireRole('admin'), async (req, res) => {
-  const { username, password, role, callsign } = req.body;
+  const { username, password, role, callsign, phone, color, shape } = req.body;
 
   if (!username || !password || !['admin', 'operator', 'station'].includes(role)) {
     return res.status(400).json({
@@ -57,8 +57,9 @@ router.post('/', requireRole('admin'), async (req, res) => {
     const normalizedCallsign = callsign?.toUpperCase().trim() || null;
 
     const result = db.prepare(
-      'INSERT INTO users (username, password_hash, role, callsign) VALUES (?, ?, ?, ?)'
-    ).run(username, passwordHash, role, normalizedCallsign);
+      'INSERT INTO users (username, password_hash, role, callsign, phone, color, shape) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(username, passwordHash, role, normalizedCallsign,
+      phone?.trim() || null, color || '#f5a623', shape || 'triangle');
 
     logger.log('system', 'info', `User created — ${username} (${role}) by ${req.session.user.username}`);
 
@@ -66,9 +67,11 @@ router.post('/', requireRole('admin'), async (req, res) => {
       ok: true,
       data: {
         id: result.lastInsertRowid,
-        username,
-        role,
-        callsign: normalizedCallsign
+        username, role,
+        callsign: normalizedCallsign,
+        phone: phone?.trim() || null,
+        color: color || '#f5a623',
+        shape: shape || 'triangle',
       }
     });
   } catch (error) {
@@ -87,25 +90,25 @@ router.post('/', requireRole('admin'), async (req, res) => {
  * @returns {Object} JSON response with updated user data
  */
 router.put('/:id', requireRole('admin'), async (req, res) => {
-  const { username, password, role, callsign } = req.body;
+  const { username, password, role, callsign, phone, color, shape } = req.body;
 
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id);
   if (!user) {
     return res.status(404).json({ ok: false, error: 'User not found' });
   }
 
-  // Prepare updated values, falling back to existing values
   const newUsername = username || user.username;
   const newRole = role || user.role;
   const newCallsign = callsign !== undefined ? (callsign?.toUpperCase().trim() || null) : user.callsign;
+  const newPhone = phone !== undefined ? (phone?.trim() || null) : user.phone;
+  const newColor = color ?? user.color ?? '#f5a623';
+  const newShape = shape ?? user.shape ?? 'triangle';
   const newPasswordHash = password ? await bcrypt.hash(password, 10) : user.password_hash;
 
-  // Update user in database
   db.prepare(
-    'UPDATE users SET username=?, password_hash=?, role=?, callsign=? WHERE id=?'
-  ).run(newUsername, newPasswordHash, newRole, newCallsign, req.params.id);
+    'UPDATE users SET username=?, password_hash=?, role=?, callsign=?, phone=?, color=?, shape=? WHERE id=?'
+  ).run(newUsername, newPasswordHash, newRole, newCallsign, newPhone, newColor, newShape, req.params.id);
 
-  // Track changes for logging
   const changes = [];
   if (newUsername !== user.username) changes.push(`username→${newUsername}`);
   if (newRole !== user.role) changes.push(`role→${newRole}`);
@@ -120,9 +123,9 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
     ok: true,
     data: {
       id: user.id,
-      username: newUsername,
-      role: newRole,
-      callsign: newCallsign
+      username: newUsername, role: newRole,
+      callsign: newCallsign, phone: newPhone,
+      color: newColor, shape: newShape,
     }
   });
 });

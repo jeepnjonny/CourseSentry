@@ -328,6 +328,15 @@ async function loadInitialData(urlRaceId) {
   updateStats();
   checkStationWarnings();
   loadTrackData();
+
+  // Auto-link this user's personnel record for the race (fire-and-forget)
+  RT.post(`/api/races/${race.id}/personnel/link-me`, {}).then(r => {
+    if (r.ok && r.data) {
+      // Refresh personnel list so the linked record appears immediately
+      const idx = personnel.findIndex(p => p.id === r.data.id);
+      if (idx === -1) { personnel.push(r.data); updatePersonnelMarkers(); }
+    }
+  });
 }
 
 async function loadTrackData() {

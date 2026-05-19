@@ -58,12 +58,14 @@ function parseCsv(text) {
 function fetchPersonnel(raceId) {
   return db.prepare(`
     SELECT p.*, s.name AS station_name,
-           r.last_lat, r.last_lon, r.last_seen
+           r.last_lat, r.last_lon, r.last_seen,
+           u.username AS linked_username
     FROM personnel p
     LEFT JOIN stations s ON p.station_id = s.id
     LEFT JOIN tracker_registry r ON p.tracker_id IS NOT NULL AND (
       r.node_id = p.tracker_id OR r.long_name = p.tracker_id OR r.short_name = p.tracker_id
     )
+    LEFT JOIN users u ON p.user_id = u.id
     WHERE p.race_id = ?
     ORDER BY s.course_order, p.name
   `).all(raceId);
@@ -71,6 +73,58 @@ function fetchPersonnel(raceId) {
 
 router.get('/', requireAuth, (req, res) => {
   res.json({ ok: true, data: fetchPersonnel(req.params.raceId) });
+});
+
+// Called on operator/station page load to auto-link or create this user's personnel record.
+// Lookup priority: user_id match → callsign match → create (if callsign set).
+router.post('/link-me', requireAuth, (req, res) => {
+  const user = req.session.user;
+  const fullUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+  const raceId = req.params.raceId;
+
+  let personnel = db.prepare(
+    'SELECT * FROM personnel WHERE user_id = ? AND race_id = ?'
+  ).get(user.id, raceId);
+
+  if (personnel) {
+    // Fill any gaps from user profile without overwriting existing data
+    const updates = {};
+    if (!personnel.tracker_id && fullUser.callsign) updates.tracker_id = fullUser.callsign.toUpperCase();
+    if (!personnel.phone && fullUser.phone) updates.phone = fullUser.phone;
+    if (Object.keys(updates).length) {
+      const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE personnel SET ${sets} WHERE id = ?`).run(...Object.values(updates), personnel.id);
+      personnel = db.prepare('SELECT * FROM personnel WHERE id = ?').get(personnel.id);
+    }
+    return res.json({ ok: true, data: personnel });
+  }
+
+  if (fullUser.callsign) {
+    const cs = fullUser.callsign.toUpperCase();
+    personnel = db.prepare(
+      'SELECT * FROM personnel WHERE race_id = ? AND (UPPER(tracker_id) = ? OR UPPER(name) = ?)'
+    ).get(raceId, cs, cs);
+
+    if (personnel) {
+      db.prepare(
+        'UPDATE personnel SET user_id = ?, tracker_id = COALESCE(tracker_id, ?), phone = COALESCE(phone, ?) WHERE id = ?'
+      ).run(user.id, cs, fullUser.phone || null, personnel.id);
+      personnel = db.prepare('SELECT * FROM personnel WHERE id = ?').get(personnel.id);
+      return res.json({ ok: true, data: personnel });
+    }
+
+    // No match — create a record with no station (operator/rover use case)
+    const result = db.prepare(
+      'INSERT INTO personnel (race_id, user_id, name, tracker_id, phone, color, shape) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(raceId, user.id, fullUser.callsign, cs,
+      fullUser.phone || null, fullUser.color || '#f5a623', fullUser.shape || 'triangle');
+    personnel = db.prepare('SELECT * FROM personnel WHERE id = ?').get(result.lastInsertRowid);
+    aprsClient.notifyRosterChange();
+    return res.json({ ok: true, data: personnel });
+  }
+
+  // No callsign — nothing to link
+  res.json({ ok: true, data: null });
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {

@@ -1622,16 +1622,25 @@ function umUpdatePasscode() {
   el.textContent = val ? aprsPasscode(val) : '—';
 }
 
+function umUpdatePreview() {
+  const color = document.getElementById('um-color')?.value || '#f5a623';
+  const shape = document.getElementById('um-shape')?.value || 'triangle';
+  const el = document.getElementById('um-icon-preview');
+  if (el) el.innerHTML = RT.SHAPES[shape]?.(color, 24) || '';
+}
+
 async function loadUsers() {
   const res = await RT.get('/api/users');
   users = res.ok ? res.data : [];
   const el = document.getElementById('users-list');
   if (!el) return;
-  el.innerHTML = `<table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>CREATED</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>PHONE</th><th>MARKER</th><th>CREATED</th><th></th></tr></thead><tbody>
     ${users.map(u => `<tr>
       <td>${u.username}${u.id===currentUser.id?' <span class="text-dim">(you)</span>':''}</td>
       <td><span class="badge" style="color:${u.role==='admin'?'var(--accent3)':u.role==='station'?'var(--accent2)':'var(--accent)'}">${u.role.toUpperCase()}</span></td>
       <td style="font-size:13px;color:var(--accent2)">${u.callsign || '<span class="text-dim">—</span>'}</td>
+      <td style="font-size:13px">${u.phone || '<span class="text-dim">—</span>'}</td>
+      <td>${RT.SHAPES[u.shape]?.(u.color, 18) || '<span class="text-dim">—</span>'}</td>
       <td class="text-dim">${new Date(u.created_at*1000).toLocaleDateString()}</td>
       <td style="text-align:right">
         <button style="font-size:13px;padding:2px 8px" onclick="openUserModal(${u.id})">EDIT</button>
@@ -1647,9 +1656,13 @@ function openUserModal(id) {
   document.getElementById('user-modal-title').textContent = id ? 'EDIT USER' : 'NEW USER';
   document.getElementById('um-username').value = user?.username || '';
   document.getElementById('um-password').value = '';
-  document.getElementById('um-role').value = user?.role || 'operator';
+  document.getElementById('um-role').value = user?.role || 'station';
   document.getElementById('um-callsign').value = user?.callsign || '';
+  document.getElementById('um-phone').value = user?.phone || '';
+  document.getElementById('um-color').value = user?.color || '#f5a623';
+  document.getElementById('um-shape').value = user?.shape || 'triangle';
   umUpdatePasscode();
+  umUpdatePreview();
   document.getElementById('user-modal').classList.remove('hidden');
 }
 
@@ -1658,9 +1671,12 @@ async function saveUser() {
   const password = document.getElementById('um-password').value;
   const role     = document.getElementById('um-role').value;
   const callsign = document.getElementById('um-callsign').value.trim().toUpperCase() || null;
+  const phone    = document.getElementById('um-phone').value.trim() || null;
+  const color    = document.getElementById('um-color').value || '#f5a623';
+  const shape    = document.getElementById('um-shape').value || 'triangle';
   if (!username) { RT.toast('Username required', 'warn'); return; }
   if (!editingUserId && !password) { RT.toast('Password required for new user', 'warn'); return; }
-  const body = { username, role, callsign };
+  const body = { username, role, callsign, phone, color, shape };
   if (password) body.password = password;
   const res = editingUserId
     ? await RT.put(`/api/users/${editingUserId}`, body)

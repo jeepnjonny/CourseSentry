@@ -30,8 +30,11 @@ CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT    UNIQUE NOT NULL,
   password_hash TEXT    NOT NULL,
-  role          TEXT    NOT NULL CHECK(role IN ('admin','operator')),
+  role          TEXT    NOT NULL CHECK(role IN ('admin','operator','station')),
   callsign      TEXT,
+  phone         TEXT,
+  color         TEXT    DEFAULT '#f5a623',
+  shape         TEXT    DEFAULT 'triangle',
   created_at    INTEGER DEFAULT (unixepoch())
 );
 
@@ -109,6 +112,7 @@ CREATE TABLE IF NOT EXISTS personnel (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id     INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
   station_id  INTEGER REFERENCES stations(id) ON DELETE SET NULL,
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
   name        TEXT    NOT NULL,
   tracker_id  TEXT,
   phone       TEXT,
@@ -259,9 +263,13 @@ try {
         password_hash TEXT    NOT NULL,
         role          TEXT    NOT NULL CHECK(role IN ('admin','operator','station')),
         callsign      TEXT,
+        phone         TEXT,
+        color         TEXT    DEFAULT '#f5a623',
+        shape         TEXT    DEFAULT 'triangle',
         created_at    INTEGER DEFAULT (unixepoch())
       );
-      INSERT INTO users_new SELECT * FROM users;
+      INSERT INTO users_new (id, username, password_hash, role, callsign, created_at)
+        SELECT id, username, password_hash, role, callsign, created_at FROM users;
       DROP TABLE users;
       ALTER TABLE users_new RENAME TO users;
     `);
@@ -392,6 +400,11 @@ try {
 } catch {}
 
 try { db.prepare('ALTER TABLE users ADD COLUMN callsign TEXT').run(); } catch {}
+try { db.prepare('ALTER TABLE users ADD COLUMN phone TEXT').run(); } catch {}
+try { db.prepare("ALTER TABLE users ADD COLUMN color TEXT DEFAULT '#f5a623'").run(); } catch {}
+try { db.prepare("ALTER TABLE users ADD COLUMN shape TEXT DEFAULT 'triangle'").run(); } catch {}
+try { db.prepare('ALTER TABLE personnel ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL').run(); } catch {}
+try { db.prepare('CREATE INDEX IF NOT EXISTS idx_personnel_user ON personnel(user_id)').run(); } catch {}
 try { db.prepare("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'enroute'").run(); } catch {}
 try { db.prepare("ALTER TABLE races ADD COLUMN tactical_callsign TEXT NOT NULL DEFAULT 'Net Control'").run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN viewer_show_names INTEGER NOT NULL DEFAULT 1').run(); } catch {}
