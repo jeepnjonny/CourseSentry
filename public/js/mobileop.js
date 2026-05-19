@@ -678,7 +678,6 @@ async function logPendingEvent(participantId, eventType) {
   }
 
   renderPendingList();
-  prependEventRow(res.data);
   const label = eventType.replace('aid_', '').toUpperCase();
   const p = participants[idx];
   RT.toast(`${label} — #${p?.bib} ${p?.name}`, 'ok');
@@ -802,7 +801,6 @@ async function submitMobileBatch() {
     if (res.ok) {
       ok++;
       checkedInIds.add(p.id);
-      prependEventRow(res.data);
     } else {
       fail++;
     }
