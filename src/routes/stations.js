@@ -77,13 +77,15 @@ router.get('/', requireAuth, (req, res) => {
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
   const { name, lat, lon, type, cutoff_time } = req.body;
-  if (!name || lat === undefined || lon === undefined) {
+  const stationType = type || 'aid';
+  const isRover = stationType === 'rover';
+  if (!name || (!isRover && (lat === undefined || lon === undefined))) {
     return res.status(400).json({ ok: false, error: 'name, lat, lon are required' });
   }
 
   const result = db.prepare(
     'INSERT INTO stations (race_id, name, lat, lon, type, cutoff_time) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(req.params.raceId, name, lat, lon, type || 'aid', cutoff_time || null);
+  ).run(req.params.raceId, name, isRover ? (lat ?? 0) : lat, isRover ? (lon ?? 0) : lon, stationType, cutoff_time || null);
 
   reorderStations(req.params.raceId);
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(result.lastInsertRowid);

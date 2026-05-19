@@ -346,6 +346,13 @@
         </div>
         <button onclick="dismissParticipantCard()" style="background:none;border:none;color:var(--text3);font-size:22px;line-height:1;cursor:pointer;padding:0 2px;flex-shrink:0" title="Clear">&times;</button>
       </div>
+      <div id="mo-rover-station-row" style="display:none;align-items:center;gap:8px">
+        <span style="font-size:12px;letter-spacing:1px;color:var(--text3);white-space:nowrap">AT STATION:</span>
+        <select id="mo-rover-station-sel" onchange="roverStationId=this.value?parseInt(this.value):null"
+          style="flex:1;font-size:14px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--font)">
+          <option value="">— select —</option>
+        </select>
+      </div>
       <div class="mo-action-btns">
         <button class="mo-action-btn mo-btn-arrive" onclick="logEvent('aid_arrive')">ARRIVE</button>
         <button class="mo-action-btn mo-btn-depart" onclick="logEvent('aid_depart')">DEPART</button>

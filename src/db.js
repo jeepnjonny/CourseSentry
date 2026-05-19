@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS stations (
   lat           REAL    NOT NULL,
   lon           REAL    NOT NULL,
   type          TEXT    NOT NULL DEFAULT 'aid'
-                CHECK(type IN ('start','finish','aid','checkpoint','start_finish','turnaround','netcontrol','repeater')),
+                CHECK(type IN ('start','finish','aid','checkpoint','start_finish','turnaround','netcontrol','repeater','rover')),
   cutoff_time   TEXT,
   course_order  INTEGER DEFAULT 0,
   created_at    INTEGER DEFAULT (unixepoch())
@@ -288,7 +288,7 @@ try {
         lat           REAL    NOT NULL,
         lon           REAL    NOT NULL,
         type          TEXT    NOT NULL DEFAULT 'aid'
-                      CHECK(type IN ('start','finish','aid','checkpoint','start_finish','turnaround','netcontrol','repeater')),
+                      CHECK(type IN ('start','finish','aid','checkpoint','start_finish','turnaround','netcontrol','repeater','rover')),
         cutoff_time   TEXT,
         course_order  INTEGER DEFAULT 0,
         created_at    INTEGER DEFAULT (unixepoch())

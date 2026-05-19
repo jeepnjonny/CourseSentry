@@ -485,10 +485,12 @@ function renderStationMarkers() {
   for (const s of stations) {
     const color = s.type === 'start' ? '#3fb950' : s.type === 'finish' ? '#f78166' :
                   s.type === 'start_finish' ? '#a371f7' : s.type === 'turnaround' ? '#58a6ff' :
-                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' : '#d2a679';
+                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' :
+                  s.type === 'rover' ? '#c084fc' : '#d2a679';
     const letter = s.type === 'start' ? 'S' : s.type === 'finish' ? 'F' :
                    s.type === 'start_finish' ? '⇌' : s.type === 'turnaround' ? 'T' :
-                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' : s.name[0]?.toUpperCase() || 'A';
+                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' :
+                   s.type === 'rover' ? '⟳' : s.name[0]?.toUpperCase() || 'A';
     const icon = L.divIcon({
       html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:2px solid #fff4;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:#000;font-family:'Courier New'">${letter}</div>`,
       className: '', iconAnchor: [11, 11],
@@ -857,13 +859,13 @@ function switchLeftTab(tab) {
 // ── Station list (left panel) ─────────────────────────────────────────────────
 const STN_COLORS = {
   start:'#3fb950', finish:'#f78166', start_finish:'#a371f7',
-  turnaround:'#58a6ff', netcontrol:'#d2993a', repeater:'#6e7681',
+  turnaround:'#58a6ff', netcontrol:'#d2993a', repeater:'#6e7681', rover:'#c084fc',
 };
 function stnColor(type) { return STN_COLORS[type] || '#d2a679'; }
 function stnLabel(type) {
   return { start:'Start', finish:'Finish', start_finish:'Start/Finish',
            turnaround:'Turnaround', netcontrol:'Net Control', repeater:'Repeater',
-           aid:'Aid' }[type] || type;
+           aid:'Aid', rover:'Rover' }[type] || type;
 }
 
 function renderStationList() {

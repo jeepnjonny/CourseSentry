@@ -4,6 +4,7 @@ let race, raceId, currentStation = null;
 let participants = [], heats = [], stations = [], messages = [], personnel = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let selectedParticipant = null;
+let roverStationId = null; // selected station for rover event logging
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = false;
 let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
@@ -152,12 +153,25 @@ async function pickStation(stationId) {
 
 async function assignStation(station) {
   currentStation = station;
+  roverStationId = null;
   sessionStorage.setItem(`mo-station-${raceId}`, station.id);
 
   document.getElementById('mo-station-badge').textContent = station.name;
   document.getElementById('mo-no-station').classList.add('hidden');
   document.getElementById('mo-station-badge').style.background = 'rgba(88,166,255,.15)';
   document.getElementById('mo-station-badge').style.fontWeight = 'bold';
+
+  // Populate rover station selector with all pickable stations
+  const roverRow = document.getElementById('mo-rover-station-row');
+  if (station.type === 'rover') {
+    const sel = document.getElementById('mo-rover-station-sel');
+    const pickable = stations.filter(s => s.type !== 'rover' && s.type !== 'netcontrol' && s.type !== 'repeater');
+    sel.innerHTML = '<option value="">— select —</option>' +
+      pickable.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    roverRow.style.display = 'flex';
+  } else {
+    roverRow.style.display = 'none';
+  }
 
   // Register station on the server (callsign matching happens here)
   await RT.post(`/api/races/${raceId}/stations/${station.id}/assign`, {});
@@ -211,10 +225,12 @@ function renderStationMarkers() {
   for (const s of stations) {
     const color = s.type === 'start' ? '#3fb950' : s.type === 'finish' ? '#f78166' :
                   s.type === 'start_finish' ? '#a371f7' : s.type === 'turnaround' ? '#58a6ff' :
-                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' : '#d2a679';
+                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' :
+                  s.type === 'rover' ? '#c084fc' : '#d2a679';
     const letter = s.type === 'start' ? 'S' : s.type === 'finish' ? 'F' :
                    s.type === 'start_finish' ? '⇌' : s.type === 'turnaround' ? 'T' :
-                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' : s.name[0]?.toUpperCase() || 'A';
+                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' :
+                   s.type === 'rover' ? '⟳' : s.name[0]?.toUpperCase() || 'A';
     const icon = L.divIcon({
       html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};border:2px solid #fff4;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:#000">${letter}</div>`,
       className: '', iconAnchor: [10, 10],
@@ -563,11 +579,14 @@ async function logEvent(eventType) {
   if (!selectedParticipant) { RT.toast('Select a participant first', 'warn'); return; }
   if (!currentStation) { RT.toast('No station assigned', 'warn'); showStationPicker(); return; }
 
+  const isRover = currentStation.type === 'rover';
+  if (isRover && !roverStationId) { RT.toast('Select a station location first', 'warn'); return; }
+
   const ts = Math.floor(Date.now() / 1000);
   const res = await RT.post(`/api/races/${raceId}/events`, {
     participant_id: selectedParticipant.id,
     event_type: eventType,
-    station_id: currentStation.id,
+    station_id: isRover ? roverStationId : currentStation.id,
     timestamp: ts,
   });
 
@@ -591,7 +610,10 @@ async function logEvent(eventType) {
 
 async function loadStationEvents() {
   if (!currentStation) return;
-  const res = await RT.get(`/api/races/${raceId}/events?station_id=${currentStation.id}&limit=50`);
+  const url = currentStation.type === 'rover'
+    ? `/api/races/${raceId}/events?limit=50`
+    : `/api/races/${raceId}/events?station_id=${currentStation.id}&limit=50`;
+  const res = await RT.get(url);
   if (!res.ok) return;
   const list = document.getElementById('mo-events-list');
   list.innerHTML = '';
