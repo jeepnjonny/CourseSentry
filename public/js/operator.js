@@ -1136,7 +1136,12 @@ function computeETAs(pid) {
   if (!totalDist) return null;
   const isOAB = race?.race_format === 'out_and_back';
   const fullDist = isOAB ? totalDist * 2 : totalDist;
-  const currentAlong = lp._lastAlong;
+  // For tracker-less participants, project position forward from last station using elapsed time
+  let currentAlong = lp._lastAlong;
+  if (!lp.last_lat && lp._lastAlongTs) {
+    const elapsed = Math.max(0, now - lp._lastAlongTs);
+    currentAlong = Math.min(fullDist, lp._lastAlong + elapsed * lp._pace);
+  }
   const remaining = Math.max(0, fullDist - currentAlong);
   const secsToFinish = remaining / lp._pace;
 
@@ -1226,19 +1231,7 @@ async function showParticipantInfo(id) {
         </div>
       </div>`;
     })()}
-    <div style="border-top:1px solid var(--border);padding-top:8px">
-      <div style="font-size:13px;letter-spacing:2px;color:var(--text3);margin-bottom:6px">EVENT LOG</div>
-      ${(p.events||[]).length === 0 ? '<div class="text-dim" style="font-size:14px">No events yet.</div>' :
-        p.events.map(e => `
-          <div class="log-entry">
-            <span class="log-time">${RT.fmtTime(e.timestamp, fmt24)}</span>
-            <span class="log-msg ${e.event_type==='finish'?'log-ok':e.event_type==='dnf'||e.event_type==='off_course'?'log-warn':''}">
-              ${formatEventType(e.event_type)}${e.station_name ? ' @ ' + e.station_name : ''}
-              ${e.notes ? ' — ' + e.notes : ''}
-              ${e.manual ? ' <span class="text-dim">(manual)</span>' : ''}
-            </span>
-          </div>`).join('')}
-    </div>`;
+  `;
 
   clearInterval(lastSeenInterval);
   lastSeenInterval = setInterval(() => {

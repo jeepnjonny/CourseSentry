@@ -360,6 +360,8 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
     WHERE race_id = ? AND (tracker_id IS NULL OR tracker_id = '') AND status NOT IN ('dnf', 'finished')
   `).run(now, raceId);
 
+  const createdEventIds = [];
+
   if (toStart.length) {
     const startStation = db.prepare(
       `SELECT id FROM stations WHERE race_id = ? AND type IN ('start','start_finish') ORDER BY course_order LIMIT 1`
@@ -371,16 +373,30 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
 
     db.transaction(() => {
       for (const p of toStart) {
-        insertEvent.run(raceId, p.id, 'start', startStation?.id || null, now);
+        const r1 = insertEvent.run(raceId, p.id, 'start', startStation?.id || null, now);
+        createdEventIds.push(r1.lastInsertRowid);
         if (startStation) {
-          insertEvent.run(raceId, p.id, 'aid_depart', startStation.id, now);
+          const r2 = insertEvent.run(raceId, p.id, 'aid_depart', startStation.id, now);
+          createdEventIds.push(r2.lastInsertRowid);
         }
       }
     })();
   }
 
   logger.log('race', 'info', `START RACE — ${result.changes} tracker-less participant(s) started at ${new Date(now * 1000).toTimeString().slice(0, 8)}`);
-  wsManager.broadcast({ type: 'participant_update', data: { action: 'bulk_update' } });
+
+  if (createdEventIds.length) {
+    const readEvent = db.prepare(`
+      SELECT e.*, p.bib, p.name AS participant_name, s.name AS station_name
+      FROM events e
+      LEFT JOIN participants p ON e.participant_id = p.id
+      LEFT JOIN stations s ON e.station_id = s.id
+      WHERE e.id = ?
+    `);
+    for (const id of createdEventIds) {
+      wsManager.broadcast({ type: 'event', data: readEvent.get(id) });
+    }
+  }
 
   res.json({ ok: true, started: result.changes });
 });
