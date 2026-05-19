@@ -7,6 +7,7 @@ let roverStationId = null; // selected station for rover event logging
 let checkedInIds = new Set(); // participant IDs with any event at the current effective station
 let expandedPendingId = null; // which pending row is currently expanded
 let stationEvents = []; // latest events for current station (for buildCheckedInSet)
+let activeRaces = [];
 let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let fmt24 = false;
 let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
@@ -89,6 +90,10 @@ async function init() {
   initMap();
   startClock();
   RT.connectWS(handleWS, null, raceId);
+
+  const racesRes = await RT.get('/api/races');
+  activeRaces = racesRes.ok ? racesRes.data.filter(r => r.status === 'active') : [];
+  updateRaceSwitcher();
 }
 
 // ── Clock ────────────────────────────────────────────────────────────────────
@@ -117,6 +122,50 @@ function applySpeedDisplayLabels() {
 
 function formatSpeedColumn(p) {
   return p._pace ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--';
+}
+
+// ── Race switcher ─────────────────────────────────────────────────────────────
+
+function updateRaceSwitcher() {
+  const pill = document.getElementById('mo-race-pill');
+  if (!pill) return;
+  const others = activeRaces.filter(r => r.id !== race?.id);
+  pill.querySelector('.race-switcher-chevron')?.remove();
+  if (!others.length) { pill.style.cursor = ''; pill.onclick = null; pill.title = ''; return; }
+  pill.style.cursor = 'pointer';
+  pill.title = 'Switch race';
+  const chev = document.createElement('span');
+  chev.className = 'race-switcher-chevron';
+  chev.textContent = ' ▾';
+  chev.style.fontSize = '11px';
+  pill.appendChild(chev);
+  pill.onclick = (e) => { e.stopPropagation(); toggleRaceSwitcherDropdown(others); };
+}
+
+function toggleRaceSwitcherDropdown(others) {
+  const existing = document.getElementById('race-switcher-drop');
+  if (existing) { existing.remove(); return; }
+  const pill = document.getElementById('mo-race-pill');
+  const rect = pill.getBoundingClientRect();
+  const drop = document.createElement('div');
+  drop.id = 'race-switcher-drop';
+  drop.style.cssText = `position:fixed;top:${rect.bottom + 4}px;left:${rect.left}px;
+    background:var(--surface);border:1px solid var(--border);border-radius:6px;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);z-index:1000;min-width:200px;padding:4px 0`;
+  drop.innerHTML = others.map(r =>
+    `<div style="padding:10px 14px;cursor:pointer;font-size:14px;white-space:nowrap"
+      onmouseover="this.style.background='var(--hover,rgba(255,255,255,.06))'"
+      onmouseout="this.style.background=''"
+      onclick="switchToRace(${r.id})">${r.name}</div>`
+  ).join('');
+  document.body.appendChild(drop);
+  setTimeout(() => document.addEventListener('click', () => drop.remove(), { once: true }), 0);
+}
+
+function switchToRace(id) {
+  const url = new URL(location.href);
+  url.searchParams.set('race', id);
+  location.href = url.toString();
 }
 
 // ── Station picker ────────────────────────────────────────────────────────────

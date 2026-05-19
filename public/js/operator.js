@@ -18,6 +18,7 @@ let sortBy = 'position', selectedPId = null, selectedStationId = null;
 let alerts = [], rightTab = 'info', leftTab = 'participants';
 let batchStationId = null;
 let _wsConn = null; // WS connection handle for client→server sends
+let activeRaces = [];
 
 const LAYER_LEGENDS = {
 'Precipitation': { label:'PRECIP (mm/h)',    grad:'#c8e6fa,#64b4fa,#1464d2,#00be00,#fafa00,#fa8c32,#fa3232', ticks:['0.1','1','5','25','100','140'] },
@@ -54,7 +55,12 @@ async function init() {
   _wsConn = RT.connectWS(handleWS, null, urlRaceId);
   RT.wsSend = d => _wsConn?.send(d); // expose for TNC module callbacks
   _initTncButton();
-  await loadInitialData(urlRaceId);
+  const [, racesRes] = await Promise.all([
+    loadInitialData(urlRaceId),
+    RT.get('/api/races'),
+  ]);
+  activeRaces = racesRes.ok ? racesRes.data.filter(r => r.status === 'active') : [];
+  updateRaceSwitcher();
   startClock();
   missingCheckInterval = setInterval(checkMissing, 30000);
   stoppedCheckInterval = setInterval(checkStopped, 60000);
@@ -97,6 +103,10 @@ function handleRaceUpdate(data) {
   // Re-apply base layer and restrict selector when offline tiles finish downloading
   if (!wasOfflineReady && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
   updateBaseLayerSelector();
+  // Refresh active-race list in case another race changed status
+  RT.get('/api/races').then(res => {
+    if (res.ok) { activeRaces = res.data.filter(r => r.status === 'active'); updateRaceSwitcher(); }
+  });
 }
 
 function updateEndRaceBtn() {
@@ -1851,6 +1861,49 @@ function updateRacePill(r) {
   if (viewerBtn && r.viewer_token) viewerBtn.classList.remove('hidden');
 }
 
+function updateRaceSwitcher() {
+  const pill = document.getElementById('race-pill');
+  if (!pill) return;
+  const others = activeRaces.filter(r => r.id !== race?.id);
+  // Remove stale chevron if conditions no longer met
+  pill.querySelector('.race-switcher-chevron')?.remove();
+  if (!others.length) { pill.style.cursor = ''; pill.onclick = null; pill.title = ''; return; }
+  pill.style.cursor = 'pointer';
+  pill.title = 'Switch race';
+  const chev = document.createElement('span');
+  chev.className = 'race-switcher-chevron';
+  chev.textContent = ' ▾';
+  chev.style.fontSize = '11px';
+  pill.appendChild(chev);
+  pill.onclick = (e) => { e.stopPropagation(); toggleRaceSwitcherDropdown('race-pill', others); };
+}
+
+function toggleRaceSwitcherDropdown(pillId, others) {
+  const existing = document.getElementById('race-switcher-drop');
+  if (existing) { existing.remove(); return; }
+  const pill = document.getElementById(pillId);
+  const rect = pill.getBoundingClientRect();
+  const drop = document.createElement('div');
+  drop.id = 'race-switcher-drop';
+  drop.style.cssText = `position:fixed;top:${rect.bottom + 4}px;left:${rect.left}px;
+    background:var(--surface);border:1px solid var(--border);border-radius:6px;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);z-index:1000;min-width:200px;padding:4px 0`;
+  drop.innerHTML = others.map(r =>
+    `<div style="padding:10px 14px;cursor:pointer;font-size:14px;white-space:nowrap"
+      onmouseover="this.style.background='var(--hover,rgba(255,255,255,.06))'"
+      onmouseout="this.style.background=''"
+      onclick="OP.switchToRace(${r.id})">${r.name}</div>`
+  ).join('');
+  document.body.appendChild(drop);
+  setTimeout(() => document.addEventListener('click', () => drop.remove(), { once: true }), 0);
+}
+
+function switchToRace(id) {
+  const url = new URL(location.href);
+  url.searchParams.set('race', id);
+  location.href = url.toString();
+}
+
 function showViewerLink() {
   if (!race?.viewer_token) { RT.toast('No active race', 'warn'); return; }
   const url = window.location.origin + RT.BASE + 'view/' + race.viewer_token;
@@ -2412,5 +2465,6 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          openPersonnelModal, renderPersonnelTable, editPersonnelRow, savePersonnelRow,
          addPersonnel, deletePersonnel, assignPersonnel,
          startRace, setWeatherOpacity, toggleTnc,
-         toggleNametags, togglePersonnel };
+         toggleNametags, togglePersonnel,
+         switchToRace };
 })();
