@@ -110,10 +110,33 @@
     border-bottom: 1px solid var(--border); font-size: 16px;
   }
 
-  /* ── Extra panels (LOG, MSG) — full-screen, mobile only ── */
+  /* ── Extra panels (LOG, MSG) — full-screen on mobile, overlay sidebar on desktop ── */
   .mo-extra-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
   .mo-extra-panel.active { display: flex; }
   body.mo-extra-active #mo-main { display: none; }
+  .mo-panel-close-btn { display: none; }
+
+  @media (min-width: 1025px) {
+    body.mo-extra-active #mo-main { display: flex; }
+    #mo-main { position: relative; }
+    .mo-extra-panel.active {
+      position: absolute; right: 0; top: 0; bottom: 0; flex: unset;
+      width: clamp(280px, 32vw, 400px);
+      background: var(--surface); border-left: 2px solid var(--border);
+      box-shadow: -6px 0 20px rgba(0,0,0,0.35); z-index: 20;
+    }
+    .mo-panel-close-btn {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+      font-size: 12px; letter-spacing: 2px; color: var(--text3);
+      flex-shrink: 0;
+    }
+    .mo-panel-close-btn button {
+      background: none; border: none; color: var(--text3); font-size: 20px;
+      cursor: pointer; padding: 0 2px; line-height: 1;
+    }
+    .mo-panel-close-btn button:hover { color: var(--text); }
+  }
 
   /* ── Sidebar messaging panel ── */
   #mo-msg-sidebar { display: none; flex-direction: column; border-top: 2px solid var(--border); flex-shrink: 0; height: 210px; }
@@ -308,6 +331,7 @@
 
 <!-- LOG panel — full-screen extra panel, mobile only -->
 <div class="mo-extra-panel" id="mo-log-panel">
+  <div class="mo-panel-close-btn"><span>CHECK IN / OUT</span><button onclick="switchTab('map')" title="Close">&times;</button></div>
   <div id="mo-log-inner">
     <div id="mo-no-station" class="hidden">No station assigned — tap the station badge above to select one.</div>
     <div id="mo-search-bar">
@@ -337,6 +361,7 @@
 
 <!-- MSG panel — full-screen extra panel, mobile only -->
 <div class="mo-extra-panel" id="mo-msg-panel">
+  <div class="mo-panel-close-btn"><span>MESSAGES</span><button onclick="switchTab('map')" title="Close">&times;</button></div>
   <div id="mo-msg-body"></div>
   <div id="mo-msg-compose">
     <div style="padding:5px 8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px">
