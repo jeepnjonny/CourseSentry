@@ -177,6 +177,17 @@ async function startNext() {
   const res = await RT.post(`/api/races/${race.id}/start`, heatId ? { heat_id: heatId } : {});
   if (!res.ok) { RT.toast('Failed to start', 'warn'); return; }
   RT.toast(`Started ${res.started} participant${res.started !== 1 ? 's' : ''}`, 'ok');
+  // Optimistically stamp start_time so the button advances before WS events arrive
+  const now = Math.floor(Date.now() / 1000);
+  for (const p of Object.values(participants)) {
+    if (heatId ? p.heat_id === heatId : true) {
+      if (!p.start_time && p.status !== 'dnf' && p.status !== 'finished') {
+        p.start_time = now;
+        p.status = 'active';
+      }
+    }
+  }
+  updateStartBtn();
 }
 
 function applyMessagingFlag() {
@@ -1619,6 +1630,7 @@ function handleEvent(data) {
     }
     if (pid === selectedPId) showParticipantInfo(pid);
     renderLeaderboard();
+    if (data.event_type === 'start') updateStartBtn();
   }
   // Refresh station info panel in real-time when an arrival/departure comes in for the open station
   if (data.station_id && data.station_id === selectedStationId) showStationInfo(selectedStationId);
@@ -2143,6 +2155,7 @@ function checkMissing() {
       continue;
     }
     if (p.status !== 'active') continue;
+    if (!p.tracker_id) continue; // tracker-less participants have no GPS signal to go missing
     const lastSeen = p.registry?.last_seen || 0;
     if (lastSeen && (now - lastSeen) > missingTimer) {
       if (!alerts.find(a => a.key === key)) {
