@@ -220,6 +220,20 @@ async function activateRace(id) {
     RT.toast('A course is required before activating a race. Go to the race → COURSE tab and assign one.', 'warn');
     return;
   }
+  const [hr, pr] = await Promise.all([
+    RT.get(`/api/races/${id}/heats`),
+    RT.get(`/api/races/${id}/participants`),
+  ]);
+  if (hr.ok && hr.data.length > 0 && pr.ok) {
+    const unassigned = pr.data.filter(p => !p.heat_id).length;
+    if (unassigned > 0) {
+      const ok = confirm(
+        `Warning: ${unassigned} participant${unassigned !== 1 ? 's are' : ' is'} not assigned to a heat.\n\n` +
+        `These participants will not be started when a heat is started. Assign them to a heat, or proceed anyway.`
+      );
+      if (!ok) return;
+    }
+  }
   const res = await RT.post(`/api/races/${id}/activate`);
   if (!res.ok) { RT.toast(res.error, 'warn'); return; }
 
