@@ -1015,7 +1015,7 @@ function openBatchCheckIn(stationId) {
     start_finish: ['start', 'finish', 'dns', 'dnf'],
   };
   const BC_LABELS = { aid_arrive: 'Arrive', aid_depart: 'Depart', finish: 'Finish', start: 'Start', dnf: 'DNF', dns: 'DNS' };
-  const eventTypes = BC_EVENT_TYPES[s?.type] || ['aid_arrive', 'aid_depart', 'dnf'];
+  const eventTypes = BC_EVENT_TYPES[s?.type] || ['aid_depart', 'aid_arrive', 'dnf'];
   const bcSel = document.getElementById('bc-event-type');
   bcSel.innerHTML = eventTypes.map(et => `<option value="${et}">${BC_LABELS[et] || et}</option>`).join('');
   bcSel.value = eventTypes[0];
