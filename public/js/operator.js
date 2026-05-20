@@ -703,7 +703,6 @@ function renderLeaderboard() {
     const sc = STATUS_COLORS[p.status] || 'var(--text3)';
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const pace = p._pace ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--';
-    const bat = p.registry?.battery_level != null ? `${p.registry.battery_level}%` : '--';
     const rowCls = (alerting ? 'alert-row' : '') + (missing ? ' missing-row' : '') + (p.id === selectedPId ? ' selected' : '');
     return `<div class="lb-row ${rowCls}" onclick="OP.selectParticipant(${p.id})">
       <span style="color:var(--text2)">${i + 1}</span>
@@ -711,7 +710,6 @@ function renderLeaderboard() {
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${p.name}</span>
       <span style="color:var(--accent)">${pct}</span>
       <span style="color:var(--text)">${pace}</span>
-      <span style="color:var(--text2);font-size:13px">${bat}</span>
     </div>`;
   }).join('');
 
@@ -1226,6 +1224,16 @@ function computeETAs(pid) {
   return { etaFinish: now + secsToFinish, secsToFinish, etaNext, distToNext, nextStation };
 }
 
+function fmtInfoElapsed(startTime, finishTime) {
+  if (!startTime) return '—';
+  const end = finishTime || Math.floor(Date.now() / 1000);
+  const secs = Math.max(0, end - startTime);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
 function fmtEtaDelta(secs) {
   if (secs < 0) return 'overdue';
   const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
@@ -1261,9 +1269,10 @@ async function showParticipantInfo(id) {
       <div class="info-field"><span class="lbl">HEAT</span><span class="val">${heat?.name||'—'}</span></div>
       <div class="info-field"><span class="lbl">CLASS</span><span class="val">${cls?.name||'—'}</span></div>
       <div class="info-field"><span class="lbl">START</span><span class="val">${RT.fmtTime(p.start_time, fmt24)}</span></div>
+      <div class="info-field"><span class="lbl">ELAPSED</span><span class="val" id="info-elapsed" data-start="${p.start_time || 0}" data-finish="${p.finish_time || 0}">${fmtInfoElapsed(p.start_time, p.finish_time)}</span></div>
       <div class="info-field"><span class="lbl">FINISH</span><span class="val">${RT.fmtTime(p.finish_time, fmt24)}</span></div>
       <div class="info-field"><span class="lbl">PROGRESS</span><span class="val text-accent">${pct != null ? pct.toFixed(1)+'%' : '—'}</span></div>
-      <div class="info-field"><span class="lbl">BATTERY</span><span class="val">${reg?.battery_level != null ? reg.battery_level+'%' : '—'}</span></div>
+      ${reg ? `<div class="info-field"><span class="lbl">BATTERY</span><span class="val">${reg.battery_level != null ? reg.battery_level+'%' : '—'}</span></div>` : ''}
       <div class="info-field"><span class="lbl">LAST SEEN</span><span class="val" id="info-last-seen" data-ts="${reg?.last_seen || 0}">${RT.timeAgo(reg?.last_seen)}</span></div>
       <div class="info-field"><span class="lbl">TRACKER</span><span class="val text-dim" style="font-size:13px">${p.tracker_id||'—'}</span></div>
     </div>
@@ -1295,9 +1304,11 @@ async function showParticipantInfo(id) {
 
   clearInterval(lastSeenInterval);
   lastSeenInterval = setInterval(() => {
-    const span = document.getElementById('info-last-seen');
-    if (!span) { clearInterval(lastSeenInterval); return; }
-    span.textContent = RT.timeAgo(+span.dataset.ts);
+    const lastSeen = document.getElementById('info-last-seen');
+    if (!lastSeen) { clearInterval(lastSeenInterval); return; }
+    lastSeen.textContent = RT.timeAgo(+lastSeen.dataset.ts);
+    const elapsed = document.getElementById('info-elapsed');
+    if (elapsed) elapsed.textContent = fmtInfoElapsed(+elapsed.dataset.start || 0, +elapsed.dataset.finish || 0);
   }, 1000);
 }
 
