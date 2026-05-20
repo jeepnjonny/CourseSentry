@@ -790,14 +790,14 @@ function getManualFix(p) {
 }
 
 function computePace(p) {
-  if (!p.start_time) return null;
+  if (!p.start_time) { console.log('[pace] bib=%s no start_time', p.bib); return null; }
 
   // Finished: use actual elapsed time over full course distance
   if (p.status === 'finished' && p.finish_time) {
     const totalDist = computeTotalDist();
-    if (!totalDist) return null;
+    if (!totalDist) { console.log('[pace] bib=%s finished but no totalDist', p.bib); return null; }
     const elapsed = p.finish_time - p.start_time;
-    if (elapsed <= 0) return null;
+    if (elapsed <= 0) { console.log('[pace] bib=%s finished elapsed<=0: start=%o finish=%o', p.bib, p.start_time, p.finish_time); return null; }
     const dist = race?.race_format === 'out_and_back' ? totalDist * 2 : totalDist;
     return dist / elapsed; // m/s
   }
@@ -816,12 +816,12 @@ function computePace(p) {
 
   // Manual-entry fallback: pace from start_time to last confirmed station
   const fix = getManualFix(p);
-  if (!fix || fix.along <= 0) return null;
+  if (!fix || fix.along <= 0) { console.log('[pace] bib=%s manual fix null or along<=0: fix=%o', p.bib, fix); return null; }
   const elapsed = fix.ts - p.start_time;
-  if (elapsed <= 0) return null;
+  if (elapsed <= 0) { console.log('[pace] bib=%s manual elapsed<=0: fixTs=%o start=%o', p.bib, fix.ts, p.start_time); return null; }
   const isOAB = race?.race_format === 'out_and_back';
   const totalDist = computeTotalDist();
-  if (!totalDist) return null;
+  if (!totalDist) { console.log('[pace] bib=%s no totalDist', p.bib); return null; }
   // Distance covered: on return leg account for the turnaround leg too
   const distCovered = (isOAB && p.has_turnaround)
     ? 2 * totalDist - fix.along
@@ -1228,6 +1228,8 @@ function fmtInfoElapsed(startTime, finishTime) {
   if (!startTime) return '—';
   const end = finishTime || Math.floor(Date.now() / 1000);
   const secs = Math.max(0, end - startTime);
+  // DEBUG — remove after diagnosis
+  console.log('[elapsed] start=%o finish=%o end=%o secs=%o', startTime, finishTime, end, secs);
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = secs % 60;
