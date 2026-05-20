@@ -96,9 +96,8 @@ function handleRaceUpdate(data) {
   applySpeedDisplayLabels();
   applyMessagingFlag();
   applyTncFlag();
-  updateStartWindowBtn();
+  updateStartBtn();
   updateEndRaceBtn();
-  updateStartRaceBtn();
   tickClock(); // re-evaluate freeze immediately
   // Re-apply base layer and restrict selector when offline tiles finish downloading
   if (!wasOfflineReady && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
@@ -115,13 +114,33 @@ function updateEndRaceBtn() {
   btn.classList.toggle('hidden', !(race && race.status === 'active'));
 }
 
-function updateStartRaceBtn() {
-  const btn = document.getElementById('start-race-btn');
-  if (!btn) return;
-  const hasUnstarted = Object.values(participants).some(p =>
-    (!p.tracker_id) && !p.start_time && p.status !== 'dnf' && p.status !== 'finished'
-  );
-  btn.classList.toggle('hidden', !(race && race.status === 'active' && hasUnstarted));
+function getNextHeat() {
+  return Object.values(heats)
+    .sort((a, b) => {
+      const ta = a.start_time || Infinity, tb = b.start_time || Infinity;
+      return ta !== tb ? ta - tb : a.id - b.id;
+    })
+    .find(h => Object.values(participants).some(p =>
+      p.heat_id === h.id && !p.start_time && p.status !== 'dnf' && p.status !== 'finished'
+    )) || null;
+}
+
+function updateStartBtn() {
+  const btn = document.getElementById('start-btn');
+  if (!btn || !race || race.status !== 'active') { btn?.classList.add('hidden'); return; }
+
+  if (Object.keys(heats).length > 0) {
+    const next = getNextHeat();
+    if (!next) { btn.classList.add('hidden'); return; }
+    btn.textContent = `START ${next.name.toUpperCase()}`;
+  } else {
+    const hasUnstarted = Object.values(participants).some(p =>
+      !p.start_time && p.status !== 'dnf' && p.status !== 'finished'
+    );
+    if (!hasUnstarted) { btn.classList.add('hidden'); return; }
+    btn.textContent = 'START RACE';
+  }
+  btn.classList.remove('hidden');
 }
 
 function getSpeedDisplayLabel() {
@@ -135,14 +154,28 @@ function applySpeedDisplayLabels() {
   if (sortBtn) sortBtn.textContent = getSpeedDisplayLabel();
 }
 
-async function startRace() {
+async function startNext() {
   if (!race) return;
-  const count = Object.values(participants).filter(p =>
-    (!p.tracker_id) && p.status !== 'dnf' && p.status !== 'finished'
-  ).length;
-  if (!confirm(`Set start time to NOW for ${count} tracker-less participant${count !== 1 ? 's' : ''}?`)) return;
-  const res = await RT.post(`/api/races/${race.id}/start`, {});
-  if (!res.ok) { RT.toast('Failed to start race', 'warn'); return; }
+  const hasHeats = Object.keys(heats).length > 0;
+  let heatId = null, label = 'race', count;
+
+  if (hasHeats) {
+    const next = getNextHeat();
+    if (!next) return;
+    heatId = next.id;
+    label = next.name;
+    count = Object.values(participants).filter(p =>
+      p.heat_id === heatId && !p.start_time && p.status !== 'dnf' && p.status !== 'finished'
+    ).length;
+  } else {
+    count = Object.values(participants).filter(p =>
+      !p.start_time && p.status !== 'dnf' && p.status !== 'finished'
+    ).length;
+  }
+
+  if (!confirm(`Start ${label} now? Sets start time for ${count} participant${count !== 1 ? 's' : ''}.`)) return;
+  const res = await RT.post(`/api/races/${race.id}/start`, heatId ? { heat_id: heatId } : {});
+  if (!res.ok) { RT.toast('Failed to start', 'warn'); return; }
   RT.toast(`Started ${res.started} participant${res.started !== 1 ? 's' : ''}`, 'ok');
 }
 
@@ -187,9 +220,7 @@ function handleInit(data) {
   applyMessagingFlag();
   applyTncFlag();
   applyWeatherFlag();
-  updateStartWindowBtn();
   updateEndRaceBtn();
-  updateStartRaceBtn();
 
   onlineUsers = data.onlineUsers || [];
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
@@ -200,6 +231,7 @@ function handleInit(data) {
   (data.participants || []).forEach(p => {
     participants[p.id] = enrichParticipant(p, data.registry || []);
   });
+  updateStartBtn();
 
   if (data.trackPoints?.length) { trackPoints = data.trackPoints; _cachedDists = null; _cachedTotalDist = null; _stationAlongCache = null; }
   renderRoute();
@@ -308,7 +340,6 @@ async function loadInitialData(urlRaceId) {
   applyMessagingFlag();
   applyWeatherFlag();
   updateEndRaceBtn();
-  updateStartRaceBtn();
 
   const [pr, sr, hr, cr, personnelR, msgR] = await Promise.all([
     RT.get(`/api/races/${race.id}/participants`),
@@ -327,6 +358,7 @@ async function loadInitialData(urlRaceId) {
 
   participants = {};
   (pr.data || []).forEach(p => { participants[p.id] = p; });
+  updateStartBtn();
 
   renderRoute();
   renderStationMarkers();
@@ -1691,7 +1723,7 @@ function handleParticipantUpdate(data) {
   }
   // Retick clock in case a status change causes the clock to freeze/unfreeze
   tickClock();
-  updateStartRaceBtn();
+  updateStartBtn();
 }
 
 function handlePersonnelUpdate(data) {
@@ -1801,55 +1833,6 @@ function updateInreachLight(status) {
   }
 }
 
-// ── Start Window ──────────────────────────────────────────────────────────────
-let startWindowInterval = null;
-
-function updateStartWindowBtn() {
-  const btn = document.getElementById('start-window-btn');
-  if (!btn) return;
-
-  // Only show for operators/admins when feat_auto_start is on and no fixed start time
-  const showBtn = race && race.feat_auto_start && !race.start_time;
-  if (!showBtn) { btn.classList.add('hidden'); return; }
-  btn.classList.remove('hidden');
-
-  clearInterval(startWindowInterval);
-  startWindowInterval = null;
-
-  if (race.start_window_open && race.start_window_ts) {
-    // Window is open — show countdown to 45-min auto-close
-    const updateCountdown = () => {
-      const now = Math.floor(Date.now() / 1000);
-      const elapsed = now - race.start_window_ts;
-      const remaining = 45 * 60 - elapsed;
-      if (remaining <= 0) {
-        btn.textContent = 'CLOSE START WINDOW';
-        btn.style.background = 'var(--accent-red, #f85149)';
-        btn.style.color = '#fff';
-      } else {
-        const m = Math.floor(remaining / 60);
-        const s = remaining % 60;
-        btn.textContent = `WINDOW OPEN — ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} ▶ CLOSE`;
-        btn.style.background = 'var(--accent-green, #3fb950)';
-        btn.style.color = '#000';
-      }
-    };
-    updateCountdown();
-    startWindowInterval = setInterval(updateCountdown, 1000);
-  } else {
-    btn.textContent = 'OPEN START WINDOW';
-    btn.style.background = '';
-    btn.style.color = '';
-  }
-}
-
-async function toggleStartWindow() {
-  if (!race) return;
-  const action = race.start_window_open ? 'close' : 'open';
-  const res = await RT.post(`/api/races/${race.id}/start-window`, { action });
-  if (!res.ok) RT.toast(res.error || 'Failed', 'warn');
-  // Server broadcasts race_update which calls handleRaceUpdate → updateStartWindowBtn
-}
 
 function updateRacePill(r) {
   const pill = document.getElementById('race-pill');
@@ -2464,14 +2447,14 @@ init();
 
 return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipant,
          openEditModal, sendMessage, updateMsgCharCount, dismissAlert, jumpToMsg, showViewerLink, copyViewerLink,
-         toggleStartWindow, endRace,
+         endRace,
          switchLeftTab, selectStation,
          openBatchCheckIn, closeBatchCheckIn, addBatchRow, removeBatchRow,
          resolveBib, bibKeydown, timeKeydown, submitBatchCheckIn,
          openEditEvent, saveEditEvent, deleteStationEvent,
          openPersonnelModal, renderPersonnelTable, editPersonnelRow, savePersonnelRow,
          addPersonnel, deletePersonnel, assignPersonnel,
-         startRace, setWeatherOpacity, toggleTnc,
+         startNext, setWeatherOpacity, toggleTnc,
          toggleNametags, togglePersonnel,
          switchToRace };
 })();

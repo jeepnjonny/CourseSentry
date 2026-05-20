@@ -140,9 +140,8 @@
   </div>
   <!-- Live race clock display showing elapsed time -->
   <div id="race-clock" style="font-size:24px;font-weight:bold;color:var(--accent2);letter-spacing:2px">--:--:--</div>
-  <!-- Race control buttons: Start Window (pre-race), Start Race (begin timing), End Race (finish) -->
-  <button id="start-window-btn" class="hidden" onclick="OP.toggleStartWindow()" style="font-size:14px;padding:4px 10px;white-space:nowrap">OPEN START WINDOW</button>
-  <button id="start-race-btn" class="hidden" onclick="OP.startRace()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(63,185,80,.18);border-color:#3fb950;color:#3fb950">START RACE</button>
+  <!-- Race control buttons: Start (begins timing for next heat or whole race), End Race (finish) -->
+  <button id="start-btn" class="hidden" onclick="OP.startNext()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(63,185,80,.18);border-color:#3fb950;color:#3fb950">START RACE</button>
   <button id="end-race-btn" class="hidden" onclick="OP.endRace()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(248,81,73,.18);border-color:#f85149;color:#f85149">END RACE</button>
   <!-- Alert indicator showing number of active participant alerts -->
   <div id="alert-count" class="pill pill-error hidden">0 ALERTS</div>

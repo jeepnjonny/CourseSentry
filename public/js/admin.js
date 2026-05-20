@@ -335,7 +335,6 @@ async function openRaceModal(id) {
   document.getElementById('rm-stopped').value        = Math.round((race?.stopped_time || 600) / 60);
   document.getElementById('rm-feat-missing').checked    = !!(race?.feat_missing   ?? 1);
   document.getElementById('rm-feat-auto-log').checked   = !!(race?.feat_auto_log  ?? 1);
-  document.getElementById('rm-feat-auto-start').checked = !!(race?.feat_auto_start ?? 1);
   document.getElementById('rm-feat-off-course').checked = !!(race?.feat_off_course ?? 1);
   document.getElementById('rm-feat-stopped').checked    = !!(race?.feat_stopped    ?? 1);
   document.getElementById('rm-messaging').checked    = !!(race?.messaging_enabled);
@@ -397,7 +396,6 @@ async function saveRace() {
     stopped_time:        parseInt(document.getElementById('rm-stopped').value) * 60,
     feat_missing:        document.getElementById('rm-feat-missing').checked    ? 1 : 0,
     feat_auto_log:       document.getElementById('rm-feat-auto-log').checked   ? 1 : 0,
-    feat_auto_start:     document.getElementById('rm-feat-auto-start').checked ? 1 : 0,
     feat_off_course:     document.getElementById('rm-feat-off-course').checked ? 1 : 0,
     feat_stopped:        document.getElementById('rm-feat-stopped').checked    ? 1 : 0,
     messaging_enabled:   document.getElementById('rm-messaging').checked ? 1 : 0,
@@ -476,8 +474,9 @@ function renderHeatsList() {
   if (!el) return;
   if (!heats.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No heats defined.</div>'; return; }
   const race = races.find(r => r.id === selectedRaceId);
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
     ${heats.map(h => `<tr>
+      <td style="color:var(--text4);font-size:13px">${h.id}</td>
       <td>${h.name}</td>
       <td><span style="color:${h.color}">${h.color}</span></td>
       <td>${h.shape}</td>

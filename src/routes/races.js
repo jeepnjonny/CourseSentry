@@ -335,9 +335,10 @@ router.post('/:id/deactivate', requireRole('admin'), (req, res) => {
 });
 
 /**
- * POST /:id/start - Starts a race for tracker-less participants
- * Requires admin or operator role. Stamps current time on participants without trackers.
+ * POST /:id/start - Starts a heat or whole race by stamping start_time on participants.
+ * Requires admin or operator role.
  * @param {number} req.params.id - Race ID
+ * @param {number} [req.body.heat_id] - If provided, only starts participants in that heat
  * @returns {Object} JSON response with number of participants started
  */
 router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
@@ -348,17 +349,21 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
 
   const now = Math.floor(Date.now() / 1000);
   const raceId = req.params.id;
+  const heatId = req.body.heat_id || null;
 
-  // Capture only dns tracker-less participants before updating, to avoid duplicate events
+  const heatClause = heatId ? 'AND heat_id = ?' : '';
+  const args = heatId ? [raceId, heatId] : [raceId];
+
+  // Capture dns participants before updating, to avoid duplicate start events
   const toStart = db.prepare(`
     SELECT id FROM participants
-    WHERE race_id = ? AND (tracker_id IS NULL OR tracker_id = '') AND status = 'dns'
-  `).all(raceId);
+    WHERE race_id = ? ${heatClause} AND status = 'dns'
+  `).all(...args);
 
   const result = db.prepare(`
     UPDATE participants SET start_time = ?, status = 'active'
-    WHERE race_id = ? AND (tracker_id IS NULL OR tracker_id = '') AND status NOT IN ('dnf', 'finished')
-  `).run(now, raceId);
+    WHERE race_id = ? ${heatClause} AND status NOT IN ('dnf', 'finished')
+  `).run(now, ...args);
 
   const createdEventIds = [];
 
@@ -383,7 +388,8 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
     })();
   }
 
-  logger.log('race', 'info', `START RACE — ${result.changes} tracker-less participant(s) started at ${new Date(now * 1000).toTimeString().slice(0, 8)}`);
+  const scope = heatId ? `heat ${heatId}` : 'all participants';
+  logger.log('race', 'info', `START — ${result.changes} participant(s) started (${scope}) at ${new Date(now * 1000).toTimeString().slice(0, 8)}`);
 
   if (createdEventIds.length) {
     const readEvent = db.prepare(`
