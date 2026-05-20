@@ -1630,11 +1630,11 @@ function handleEvent(data) {
       if (td) { p._lastAlong = td; p._lastAlongTs = data.timestamp; }
     }
     if (data.station_id) {
+      // Always record the most recent station timestamp regardless of track/coordinates
+      p.last_station_id = data.station_id;
+      p.last_station_ts = data.timestamp;
       const along = getStationAlongMap().get(data.station_id);
       if (along != null) {
-        // Always track the most recent confirmed station for manual-entry pace/position
-        p.last_station_id = data.station_id;
-        p.last_station_ts = data.timestamp;
         // Advance GPS checkpoint floor (outbound only — prevents backward GPS jumps)
         if (!p.has_turnaround) p._stationFloor = Math.max(p._stationFloor ?? 0, along);
       }
