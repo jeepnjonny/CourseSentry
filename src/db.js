@@ -27,15 +27,16 @@ db.pragma('wal_autocheckpoint = 200');     // Checkpoint every ~800 KB (200 page
 db.exec(`
 -- Users: admin and operator accounts
 CREATE TABLE IF NOT EXISTS users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  username      TEXT    UNIQUE NOT NULL,
-  password_hash TEXT    NOT NULL,
-  role          TEXT    NOT NULL CHECK(role IN ('admin','operator','station')),
-  callsign      TEXT,
-  phone         TEXT,
-  color         TEXT    DEFAULT '#f5a623',
-  shape         TEXT    DEFAULT 'triangle',
-  created_at    INTEGER DEFAULT (unixepoch())
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  username             TEXT    UNIQUE NOT NULL,
+  password_hash        TEXT    NOT NULL,
+  role                 TEXT    NOT NULL CHECK(role IN ('admin','operator','station')),
+  callsign             TEXT,
+  phone                TEXT,
+  color                TEXT    DEFAULT '#f5a623',
+  shape                TEXT    DEFAULT 'triangle',
+  active_session_token TEXT,
+  created_at           INTEGER DEFAULT (unixepoch())
 );
 
 -- Races: event definitions with course/track and settings
@@ -416,6 +417,11 @@ try { db.prepare('ALTER TABLE races ADD COLUMN offline_maps_status TEXT DEFAULT 
 try { db.prepare("ALTER TABLE races ADD COLUMN rf_path TEXT NOT NULL DEFAULT 'WIDE1-1'").run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN viewer_nametags INTEGER NOT NULL DEFAULT 0').run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN tnc_enabled INTEGER NOT NULL DEFAULT 1').run(); } catch {}
+try { db.prepare('ALTER TABLE users ADD COLUMN active_session_token TEXT').run(); } catch {}
+
+// Clear all session tokens on startup — in-memory session store is wiped on restart
+// so any stored tokens are orphaned and would wrongly block re-login.
+db.prepare('UPDATE users SET active_session_token = NULL').run();
 
 // Seed default admin on first run
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();

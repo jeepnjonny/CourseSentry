@@ -1,30 +1,29 @@
 'use strict';
 
-/**
- * Authentication middleware for Express routes.
- * Validates session and enforces role-based access control.
- */
+const db = require('./db');
 
-/**
- * Middleware: Verify user is authenticated.
- * Requires valid session with user object.
- */
-function requireAuth(req, res, next) {
-  if (!req.session?.user) {
-    return res.status(401).json({ ok: false, error: 'Not authenticated' });
+function _validateSessionToken(req, res) {
+  const user = req.session?.user;
+  if (!user) {
+    res.status(401).json({ ok: false, error: 'Not authenticated' });
+    return false;
   }
-  next();
+  const row = db.prepare('SELECT active_session_token FROM users WHERE id = ?').get(user.id);
+  if (!row || row.active_session_token !== user.sessionToken) {
+    req.session.destroy(() => {});
+    res.status(401).json({ ok: false, error: 'Not authenticated' });
+    return false;
+  }
+  return true;
 }
 
-/**
- * Middleware: Verify user has one of the required roles.
- * @param {string[]} roles - Allowed role names (e.g. 'admin', 'operator')
- */
+function requireAuth(req, res, next) {
+  if (_validateSessionToken(req, res)) next();
+}
+
 function requireRole(...roles) {
   return (req, res, next) => {
-    if (!req.session?.user) {
-      return res.status(401).json({ ok: false, error: 'Not authenticated' });
-    }
+    if (!_validateSessionToken(req, res)) return;
     if (!roles.includes(req.session.user.role)) {
       return res.status(403).json({ ok: false, error: 'Insufficient permissions' });
     }

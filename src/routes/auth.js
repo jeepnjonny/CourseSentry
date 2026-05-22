@@ -6,6 +6,7 @@
  */
 const express = require('express');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const db = require('../db');
 const logger = require('../logger');
 const aprsClient = require('../aprs-client');
@@ -30,11 +31,20 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ ok: false, error: 'invalid credentials' });
   }
 
+  if (user.active_session_token) {
+    logger.log('system', 'warn', `Login blocked — "${username}" already has an active session`);
+    return res.status(409).json({ ok: false, error: 'This account is already logged in elsewhere' });
+  }
+
+  const sessionToken = crypto.randomBytes(32).toString('hex');
+  db.prepare('UPDATE users SET active_session_token = ? WHERE id = ?').run(sessionToken, user.id);
+
   req.session.user = {
     id: user.id,
     username: user.username,
     role: user.role,
     callsign: user.callsign || null,
+    sessionToken,
   };
 
   logger.log('system', 'info', `Login — ${user.username} (${user.role})${user.callsign ? ` callsign=${user.callsign}` : ''}`);
@@ -46,6 +56,9 @@ router.post('/login', async (req, res) => {
 
 router.post('/logout', (req, res) => {
   const username = req.session?.user?.username;
+  if (req.session?.user?.id) {
+    db.prepare('UPDATE users SET active_session_token = NULL WHERE id = ?').run(req.session.user.id);
+  }
   req.session.destroy(() => {
     if (username) logger.log('system', 'info', `Logout — ${username}`);
     aprsClient.setMessagingCallsign(null);

@@ -77,6 +77,15 @@ function init(server, sessionMiddleware) {
         return;
       }
 
+      // Validate session token for non-viewer users
+      if (user.role !== 'viewer') {
+        const row = db.prepare('SELECT active_session_token FROM users WHERE id = ?').get(user.id);
+        if (!row || row.active_session_token !== user.sessionToken) {
+          ws.close(4401, 'Unauthorized');
+          return;
+        }
+      }
+
       ws.id     = crypto.randomUUID();
       ws.user   = user;
       ws.raceId = _resolveConnRaceId(user, req.url);
