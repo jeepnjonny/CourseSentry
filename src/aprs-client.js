@@ -317,11 +317,17 @@ function sendAck(toCallsign, seq) {
 
 // ── Inbound message handling ──────────────────────────────────────────────────
 function handleInboundMessage(fromCall, text) {
-  const race = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
+  const person = db.prepare(`
+    SELECT p.*, r.id AS race_id FROM personnel p
+    JOIN races r ON r.id = p.race_id
+    WHERE r.status='active' AND UPPER(p.tracker_id)=?
+    LIMIT 1
+  `).get(fromCall.toUpperCase());
+
+  const race = person
+    ? db.prepare('SELECT * FROM races WHERE id=?').get(person.race_id)
+    : db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
   if (!race) return;
-  const person = db.prepare(
-    "SELECT * FROM personnel WHERE race_id=? AND UPPER(tracker_id)=? LIMIT 1"
-  ).get(race.id, fromCall.toUpperCase());
   const ts = Math.floor(Date.now() / 1000);
   const result = db.prepare(`
     INSERT INTO messages (race_id, direction, from_node_id, from_name, to_node_id, text, timestamp, status)
@@ -437,56 +443,62 @@ function processLine(line) {
 // Filters reduce network traffic by requesting only relevant positions from APRS-IS
 
 function buildLocationFilter() {
-  const race = db.prepare("SELECT * FROM races WHERE status='active' LIMIT 1").get();
-  if (!race) return '';
+  const races = db.prepare("SELECT * FROM races WHERE status='active'").all();
+  if (!races.length) return '';
 
-  let points = [];
-  try {
-    const fs = require('fs');
-    if (race.course_id) {
-      const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
-      if (course) {
-        const raw = fs.readFileSync(course.file_path, 'utf8');
-        const { parseCourse } = require('./routes/courses');
-        const { trackPoints } = parseCourse(raw, course.file_path, course.path_index);
-        if (trackPoints?.length) points = trackPoints;
+  const fs = require('fs');
+  const clauses = [];
+
+  for (const race of races) {
+    let points = [];
+    try {
+      if (race.course_id) {
+        const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
+        if (course) {
+          const raw = fs.readFileSync(course.file_path, 'utf8');
+          const { parseCourse } = require('./routes/courses');
+          const { trackPoints } = parseCourse(raw, course.file_path, course.path_index);
+          if (trackPoints?.length) points = trackPoints;
+        }
       }
-    }
-    if (!points.length && race.track_file) {
-      const raw = fs.readFileSync(race.track_file, 'utf8');
-      const { parseTrack } = require('./routes/tracks');
-      const tp = parseTrack(raw, race.track_file, race.track_path_index);
-      if (tp?.length) points = tp;
-    }
-  } catch {}
+      if (!points.length && race.track_file) {
+        const raw = fs.readFileSync(race.track_file, 'utf8');
+        const { parseTrack } = require('./routes/tracks');
+        const tp = parseTrack(raw, race.track_file, race.track_path_index);
+        if (tp?.length) points = tp;
+      }
+    } catch {}
 
-  if (!points.length) {
-    const stns = db.prepare('SELECT lat, lon FROM stations WHERE race_id=? AND lat IS NOT NULL AND lon IS NOT NULL').all(race.id);
-    points = stns.map(s => [s.lat, s.lon]);
+    if (!points.length) {
+      const stns = db.prepare('SELECT lat, lon FROM stations WHERE race_id=? AND lat IS NOT NULL AND lon IS NOT NULL').all(race.id);
+      points = stns.map(s => [s.lat, s.lon]);
+    }
+
+    if (!points.length) continue;
+
+    let sumLat = 0, sumLon = 0;
+    for (const [lat, lon] of points) { sumLat += lat; sumLon += lon; }
+    const cLat = sumLat / points.length;
+    const cLon = sumLon / points.length;
+
+    let maxDist = 0;
+    for (const [lat, lon] of points) {
+      const d = geo.haversine(cLat, cLon, lat, lon) / 1000; // km
+      if (d > maxDist) maxDist = d;
+    }
+    const radius = Math.max(5, Math.ceil(maxDist * 1.5));
+
+    clauses.push(`r/${cLat.toFixed(4)}/${cLon.toFixed(4)}/${radius}`);
   }
 
-  if (!points.length) return '';
-
-  let sumLat = 0, sumLon = 0;
-  for (const [lat, lon] of points) { sumLat += lat; sumLon += lon; }
-  const cLat = sumLat / points.length;
-  const cLon = sumLon / points.length;
-
-  let maxDist = 0;
-  for (const [lat, lon] of points) {
-    const d = geo.haversine(cLat, cLon, lat, lon) / 1000; // km
-    if (d > maxDist) maxDist = d;
-  }
-  const radius = Math.max(5, Math.ceil(maxDist * 1.5));
-
-  return `r/${cLat.toFixed(4)}/${cLon.toFixed(4)}/${radius}`;
+  return clauses.join(' ');
 }
 
 function buildCallsignFilter(raceId) {
-  const race = raceId
-    ? db.prepare('SELECT id FROM races WHERE id=?').get(raceId)
-    : db.prepare("SELECT id FROM races WHERE status='active' LIMIT 1").get();
-  if (!race) return '';
+  const races = raceId
+    ? db.prepare('SELECT id FROM races WHERE id=?').all(raceId)
+    : db.prepare("SELECT id FROM races WHERE status='active'").all();
+  if (!races.length) return '';
 
   const calls = new Set();
   const addId = raw => {
@@ -494,10 +506,12 @@ function buildCallsignFilter(raceId) {
     if (APRS_CALL_RE.test(id)) calls.add(id);
   };
 
-  db.prepare('SELECT tracker_id FROM participants WHERE race_id=? AND tracker_id IS NOT NULL').all(race.id)
-    .forEach(p => addId(p.tracker_id));
-  db.prepare('SELECT tracker_id FROM personnel WHERE race_id=? AND tracker_id IS NOT NULL').all(race.id)
-    .forEach(p => addId(p.tracker_id));
+  for (const race of races) {
+    db.prepare('SELECT tracker_id FROM participants WHERE race_id=? AND tracker_id IS NOT NULL').all(race.id)
+      .forEach(p => addId(p.tracker_id));
+    db.prepare('SELECT tracker_id FROM personnel WHERE race_id=? AND tracker_id IS NOT NULL').all(race.id)
+      .forEach(p => addId(p.tracker_id));
+  }
 
   return calls.size ? 'b/' + [...calls].join('/') + ' o/' + [...calls].join('/') : '';
 }
@@ -599,7 +613,7 @@ function connectFromSettings(dbArg) {
   let passcode = s.aprs_passcode || '-1';
 
   // If messaging is enabled and a user is logged in with a callsign, use it (allows sending)
-  const activeRace = _db.prepare("SELECT messaging_enabled FROM races WHERE status='active' LIMIT 1").get();
+  const activeRace = _db.prepare("SELECT messaging_enabled FROM races WHERE status='active' AND messaging_enabled=1 LIMIT 1").get();
   if (activeRace?.messaging_enabled && _messagingCallsign) {
     callsign = _messagingCallsign;
     passcode = String(generatePasscode(callsign));
