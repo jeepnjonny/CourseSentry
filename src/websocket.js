@@ -122,6 +122,51 @@ function init(server, sessionMiddleware) {
         } else if (type === 'local_aprs_rx') {
           // Browser decoded an AX.25 frame from the TNC
           if (ws.tncActive && data) _tnc().handleIncomingFrame(ws, data);
+        } else if (type === 'phone_gps') {
+          // Mobile operator is reporting phone GPS position
+          if (user.role === 'viewer' || !ws.raceId) return;
+          const { lat, lon, altitude, speed, heading, accuracy } = data || {};
+          if (typeof lat !== 'number' || typeof lon !== 'number') return;
+          if (accuracy != null && accuracy > 50) return; // skip poor-accuracy fixes
+
+          const nodeId = `mobileop-${user.id}`;
+          const ts = Math.floor(Date.now() / 1000);
+          const mqttClient = require('./mqtt-client');
+
+          // One-time node registration per connection: set long_name and rf_tech
+          if (!ws.phoneGpsRegistered) {
+            db.prepare(`
+              INSERT INTO tracker_registry (node_id, long_name, short_name, rf_tech, last_seen)
+              VALUES (?, ?, 'MOB', 'phone', ?)
+              ON CONFLICT(node_id) DO UPDATE SET
+                long_name = COALESCE(excluded.long_name, long_name),
+                rf_tech   = 'phone',
+                last_seen = excluded.last_seen
+            `).run(nodeId, user.username, ts);
+
+            // Auto-populate personnel tracker_id if the record has none yet
+            const personnelRow = db.prepare(
+              'SELECT id, tracker_id FROM personnel WHERE user_id = ? AND race_id = ? LIMIT 1'
+            ).get(user.id, ws.raceId);
+            if (personnelRow && !personnelRow.tracker_id) {
+              db.prepare('UPDATE personnel SET tracker_id = ? WHERE id = ?').run(nodeId, personnelRow.id);
+              const updated = db.prepare(
+                'SELECT p.*, s.name AS station_name FROM personnel p LEFT JOIN stations s ON p.station_id = s.id WHERE p.id = ?'
+              ).get(personnelRow.id);
+              broadcastToRace(ws.raceId, { type: 'personnel_update', data: { action: 'update', personnel: updated } });
+              require('./logger').log('system', 'info', `Phone GPS registered: ${user.username} → ${nodeId}`);
+            }
+            ws.phoneGpsRegistered = true;
+          }
+
+          mqttClient.handlePosition({
+            nodeId, lat, lon,
+            altitude: altitude ?? null,
+            speed:    speed    ?? null,
+            heading:  heading  ?? null,
+            timestamp: ts,
+            rfSource: 'phone',
+          });
         }
       });
 

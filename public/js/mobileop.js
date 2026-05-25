@@ -4,6 +4,14 @@ let race, raceId, currentStation = null;
 let participants = [], heats = [], stations = [], messages = [], personnel = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let roverStationId = null; // selected station for rover event logging
+let _wsConn = null; // WS connection handle for phone_gps sends
+
+// ── Phone GPS state ──────────────────────────────────────────────────────────
+let _gpsWatchId    = null;
+let _gpsLastLat    = null, _gpsLastLon = null, _gpsLastSent = 0;
+const GPS_MIN_DIST     = 15;  // metres — skip update if moved less than this
+const GPS_MAX_INTERVAL = 30;  // seconds — force update after this regardless of distance
+const GPS_MAX_ACCURACY = 50;  // metres — discard fixes worse than this
 let checkedInIds = new Set(); // participant IDs with any event at the current effective station
 let expandedPendingId = null; // which pending row is currently expanded
 let stationEvents = []; // latest events for current station (for buildCheckedInSet)
@@ -89,11 +97,12 @@ async function init() {
 
   initMap();
   startClock();
-  RT.connectWS(handleWS, null, raceId);
+  _wsConn = RT.connectWS(handleWS, null, raceId);
 
   const racesRes = await RT.get('/api/races');
   activeRaces = racesRes.ok ? racesRes.data.filter(r => r.status === 'active') : [];
   updateRaceSwitcher();
+  initGps();
 }
 
 // ── Clock ────────────────────────────────────────────────────────────────────
@@ -475,6 +484,48 @@ function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ── Phone GPS reporting ───────────────────────────────────────────────────────
+
+function initGps() {
+  const enabled = localStorage.getItem('mo-gps') === '1';
+  _setGps(enabled);
+}
+
+function toggleGps() {
+  const enable = _gpsWatchId === null;
+  localStorage.setItem('mo-gps', enable ? '1' : '0');
+  _setGps(enable);
+}
+
+function _setGps(enable) {
+  const btn = document.getElementById('mo-gps-btn');
+  if (!enable) {
+    if (_gpsWatchId !== null) { navigator.geolocation.clearWatch(_gpsWatchId); _gpsWatchId = null; }
+    _gpsLastLat = null; _gpsLastLon = null; _gpsLastSent = 0;
+    if (btn) { btn.title = 'Enable GPS reporting'; btn.style.opacity = '0.45'; }
+    return;
+  }
+  if (!navigator.geolocation) {
+    RT.toast('GPS not available on this device', 'warn');
+    localStorage.removeItem('mo-gps');
+    return;
+  }
+  if (btn) { btn.title = 'Disable GPS reporting'; btn.style.opacity = '1'; }
+  _gpsWatchId = navigator.geolocation.watchPosition(
+    pos => {
+      const { latitude: lat, longitude: lon, altitude, speed, heading, accuracy } = pos.coords;
+      if (accuracy > GPS_MAX_ACCURACY) return; // poor fix — skip
+      const now = Math.floor(Date.now() / 1000);
+      const dist = (_gpsLastLat !== null) ? haversine(lat, lon, _gpsLastLat, _gpsLastLon) : Infinity;
+      if (dist < GPS_MIN_DIST && (now - _gpsLastSent) < GPS_MAX_INTERVAL) return;
+      _gpsLastLat = lat; _gpsLastLon = lon; _gpsLastSent = now;
+      _wsConn?.send({ type: 'phone_gps', data: { lat, lon, altitude, speed, heading, accuracy } });
+    },
+    err => { console.warn('GPS watch error:', err.message); },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+  );
 }
 
 function ensureDistCache() {
