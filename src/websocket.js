@@ -129,7 +129,7 @@ function init(server, sessionMiddleware) {
           if (typeof lat !== 'number' || typeof lon !== 'number') return;
           if (accuracy != null && accuracy > 50) return; // skip poor-accuracy fixes
 
-          const nodeId = `mobileop-${user.id}`;
+          const nodeId = `mobileop-${user.username}`;
           const ts = Math.floor(Date.now() / 1000);
           const mqttClient = require('./mqtt-client');
 
