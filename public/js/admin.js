@@ -1436,7 +1436,7 @@ async function loadPersonnel() {
   el.innerHTML = `<table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
     ${personnel.map(p => `<tr>
       <td>${p.name}</td>
-      <td>${p.station_name || '<span class="text-dim">—</span>'}</td>
+      <td>${p.is_rover ? '<span style="color:var(--accent);font-size:12px;letter-spacing:1px">ROVER</span>' : (p.station_name || '<span class="text-dim">—</span>')}</td>
       <td>${p.tracker_id || '<span class="text-dim">—</span>'}</td>
       <td>${p.phone || '<span class="text-dim">—</span>'}</td>
       <td style="text-align:right">
@@ -1467,7 +1467,8 @@ function openPersonnelModal(id) {
   document.getElementById('pm-shape').value      = p?.shape || 'triangle';
   const sel = document.getElementById('pm-station-id');
   sel.innerHTML = '<option value="">— Unassigned —</option>' +
-    stations.map(s => `<option value="${s.id}"${s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
+    '<option value="rover"' + (p?.is_rover ? ' selected' : '') + '>Rover (mobile, no fixed station)</option>' +
+    stations.map(s => `<option value="${s.id}"${!p?.is_rover && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
   pmUpdatePreview();
   document.getElementById('personnel-modal').classList.remove('hidden');
   document.getElementById('pm-name').focus();
@@ -1481,7 +1482,8 @@ async function savePersonnel() {
   const color      = document.getElementById('pm-color').value || '#f5a623';
   const shape      = document.getElementById('pm-shape').value || 'triangle';
   if (!name) { RT.toast('Name required', 'warn'); return; }
-  const body = { name, station_id: station_id ? parseInt(station_id) : null, tracker_id, phone, color, shape };
+  const is_rover = station_id === 'rover';
+  const body = { name, station_id: is_rover || !station_id ? null : parseInt(station_id), is_rover, tracker_id, phone, color, shape };
   const res = editingPersonnelId
     ? await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body)
     : await RT.post(`/api/races/${selectedRaceId}/personnel`, body);

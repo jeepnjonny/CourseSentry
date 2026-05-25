@@ -128,21 +128,22 @@ router.post('/link-me', requireAuth, (req, res) => {
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
-  const { name, station_id, tracker_id, phone, color, shape } = req.body;
+  const { name, station_id, tracker_id, phone, color, shape, is_rover } = req.body;
   if (!name) {
     return res.status(400).json({ ok: false, error: 'name is required' });
   }
 
   const result = db.prepare(
-    'INSERT INTO personnel (race_id, station_id, name, tracker_id, phone, color, shape) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO personnel (race_id, station_id, name, tracker_id, phone, color, shape, is_rover) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     req.params.raceId,
-    station_id || null,
+    is_rover ? null : (station_id || null),
     name,
     tracker_id || null,
     phone || null,
     color || '#f5a623',
-    shape || 'triangle'
+    shape || 'triangle',
+    is_rover ? 1 : 0
   );
 
   const person = db.prepare(`
@@ -160,15 +161,17 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
     return res.status(404).json({ ok: false, error: 'personnel not found' });
   }
 
-  const { name, station_id, tracker_id, phone, color, shape } = req.body;
-  db.prepare('UPDATE personnel SET name = ?, station_id = ?, tracker_id = ?, phone = ?, color = ?, shape = ? WHERE id = ?')
+  const { name, station_id, tracker_id, phone, color, shape, is_rover } = req.body;
+  const roverVal = is_rover !== undefined ? (is_rover ? 1 : 0) : existing.is_rover;
+  db.prepare('UPDATE personnel SET name = ?, station_id = ?, tracker_id = ?, phone = ?, color = ?, shape = ?, is_rover = ? WHERE id = ?')
     .run(
       name ?? existing.name,
-      station_id !== undefined ? station_id : existing.station_id,
+      roverVal ? null : (station_id !== undefined ? station_id : existing.station_id),
       tracker_id !== undefined ? tracker_id : existing.tracker_id,
       phone !== undefined ? phone : existing.phone,
       color ?? existing.color,
       shape ?? existing.shape,
+      roverVal,
       existing.id
     );
 
