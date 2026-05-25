@@ -609,7 +609,7 @@ function getStationEventTypes(type) {
     case 'finish':       return ['finish'];
     case 'start':        return ['start', 'dns', 'dnf'];
     case 'start_finish': return ['start', 'finish', 'dns', 'dnf'];
-    default:             return ['aid_arrive', 'aid_depart', 'dnf'];
+    default:             return ['aid_depart', 'aid_arrive', 'dnf'];
   }
 }
 

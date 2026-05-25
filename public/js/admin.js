@@ -1724,7 +1724,7 @@ function renderSettingsTab() {
     </div>
     <div class="form-row">
       <div class="form-group"><label>USERNAME</label><input id="s-mqtt-user" placeholder="racetracker"></div>
-      <div class="form-group"><label>PASSWORD</label><input id="s-mqtt-pass" type="password"></div>
+      <div class="form-group"><label>PASSWORD</label><input id="s-mqtt-pass" type="password" autocomplete="new-password"></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>REGION</label><input id="s-mqtt-region" placeholder="US"></div>

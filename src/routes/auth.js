@@ -32,8 +32,7 @@ router.post('/login', async (req, res) => {
   }
 
   if (user.active_session_token) {
-    logger.log('system', 'warn', `Login blocked — "${username}" already has an active session`);
-    return res.status(409).json({ ok: false, error: 'This account is already logged in elsewhere' });
+    logger.log('system', 'warn', `Login — "${username}" displacing existing session`);
   }
 
   const sessionToken = crypto.randomBytes(32).toString('hex');
