@@ -1,4 +1,7 @@
 /* Theme C: High-Vis Day (bright sunlight / outdoors) */
+/* Switch to color logo (dark text) on this light-background theme */
+img.logo-reversed { display: none !important; }
+img.logo-color    { display: inline-block !important; }
 :root {
   --bg:      #e8e8e8;
   --surface: #ffffff;

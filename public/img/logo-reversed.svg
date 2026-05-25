@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 295 46.0" height="46">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@900&amp;display=swap');</style>
+  </defs>
+  <g transform="scale(1.0950)">
+    <path d="M2 17 C5 9,12.5 5.5,21 5.5" stroke="#f59e0b" stroke-width="2.6" stroke-linecap="round" fill="none" opacity="0.45"/>
+  <path d="M6.5 22.5 C9.5 16.5,15 13,21 12.5" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" fill="none" opacity="0.72"/>
+  <path d="M21 10.5 C15.8 10.5,11 14.8,11 20.5 C11 28 21 38 21 38 C21 38 31 28 31 20.5 C31 14.8 26.2 10.5 21 10.5Z" fill="#f59e0b"/>
+  <circle cx="21" cy="20.5" r="3.9" fill="#111111"/>
+  <circle cx="18.5" cy="17.8" r="1.5" fill="#fde68a" opacity="0.55"/>
+  </g>
+  <text
+    font-family="'Barlow Condensed', 'Arial Narrow', Arial, sans-serif"
+    font-weight="900"
+    font-size="40.0113"
+    x="56.0"
+    y="35.9"
+    text-anchor="start">
+    <tspan fill="#ffffff">Course</tspan><tspan fill="#f59e0b">Sentry</tspan>
+  </text>
+</svg>

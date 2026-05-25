@@ -323,11 +323,8 @@ textarea { resize: vertical; min-height: 60px; }
   width: 340px;
 }
 .login-box h1 {
-  font-size: 24px;
-  letter-spacing: 3px;
-  color: var(--accent);
-  text-transform: uppercase;
   margin-bottom: 6px;
+  line-height: 1;
 }
 .login-box p {
   font-size: 16px;
@@ -340,3 +337,7 @@ textarea { resize: vertical; min-height: 60px; }
   margin-top: 8px;
   min-height: 18px;
 }
+
+/* ── Logo switching: reversed (white text) on dark themes, color on light ── */
+img.logo-reversed { display: inline-block; vertical-align: middle; }
+img.logo-color    { display: none;         vertical-align: middle; }
