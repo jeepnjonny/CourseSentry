@@ -488,6 +488,27 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 // ── Phone GPS reporting ───────────────────────────────────────────────────────
 
+let _wakeLock = null;
+
+async function _acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (e) {
+    console.warn('Wake lock failed:', e.message);
+  }
+}
+
+function _releaseWakeLock() {
+  if (_wakeLock) { _wakeLock.release(); _wakeLock = null; }
+}
+
+// Re-acquire wake lock when page becomes visible again (OS releases it on hide)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _gpsWatchId !== null) _acquireWakeLock();
+});
+
 function initGps() {
   const enabled = localStorage.getItem('mo-gps') === '1';
   _setGps(enabled);
@@ -504,6 +525,7 @@ function _setGps(enable) {
   if (!enable) {
     if (_gpsWatchId !== null) { navigator.geolocation.clearWatch(_gpsWatchId); _gpsWatchId = null; }
     _gpsLastLat = null; _gpsLastLon = null; _gpsLastSent = 0;
+    _releaseWakeLock();
     if (btn) { btn.title = 'Enable GPS reporting'; btn.style.opacity = '0.45'; }
     return;
   }
@@ -513,6 +535,12 @@ function _setGps(enable) {
     return;
   }
   if (btn) { btn.title = 'Disable GPS reporting'; btn.style.opacity = '1'; }
+  _acquireWakeLock();
+  if (!('wakeLock' in navigator)) {
+    RT.toast('Keep screen on — GPS pauses when screen turns off', 'info', 6000);
+  } else {
+    RT.toast('GPS active — screen will stay on while tracking', 'info', 4000);
+  }
   _gpsWatchId = navigator.geolocation.watchPosition(
     pos => {
       const { latitude: lat, longitude: lon, altitude, speed, heading, accuracy } = pos.coords;
