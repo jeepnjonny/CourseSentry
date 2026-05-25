@@ -330,7 +330,6 @@ textarea { resize: vertical; min-height: 60px; }
 .login-box h1 img {
   max-width: 100%;
   height: auto;
-  display: block;
 }
 .login-box p {
   font-size: 16px;
