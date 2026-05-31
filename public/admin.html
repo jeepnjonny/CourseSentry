@@ -105,6 +105,12 @@
     }
   }
   @media (max-width: 480px) {
+    /* Clip any content wider than the viewport */
+    #main { overflow-x: hidden; }
+    /* Tighter outer padding so cards get more usable width */
+    .admin-wrap { padding: 8px; gap: 8px; }
+    /* Scale logo down so it shares a topbar row with the status pill */
+    #topbar h1 img { height: 22px; }
     .admin-tab { flex: none; padding: 8px 10px; font-size: 13px; letter-spacing: 0.5px; }
     #btn-rf-analysis, #btn-help { display: none; }
     #topbar-right button { font-size: 12px; padding: 4px 8px; letter-spacing: 0; }
@@ -114,6 +120,9 @@
     .modal-footer button { width: 100%; }
     .cols-2 { grid-template-columns: 1fr !important; }
     .card { padding: 10px; }
+    /* Race cards: push action buttons to a second row so the race name is always visible */
+    .race-card { flex-wrap: wrap; align-items: flex-start; }
+    .race-card > div:first-child { min-width: 0; }
   }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   @media (max-width: 700px) {
