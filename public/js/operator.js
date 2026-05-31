@@ -2467,6 +2467,16 @@ function togglePersonnel(on) {
   }
 }
 
+function openHelp() {
+  const rightMap = {
+    info: '#op-before', leaderboard: '#op-manage',
+    messages: '#op-messaging', weather: '#op-manage', alerts: '#op-alerts'
+  };
+  const leftMap = { participants: '#participants', stations: '#course-setup' };
+  const anchor = rightMap[rightTab] || leftMap[leftTab] || '#overview';
+  window.open(RT.BASE + 'help.html' + anchor);
+}
+
 init();
 
 return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipant,
@@ -2480,5 +2490,5 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          addPersonnel, deletePersonnel, assignPersonnel,
          startNext, setWeatherOpacity, toggleTnc,
          toggleNametags, togglePersonnel,
-         switchToRace };
+         switchToRace, openHelp };
 })();

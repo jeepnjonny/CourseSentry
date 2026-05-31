@@ -16,7 +16,8 @@ let checkedInIds = new Set(); // participant IDs with any event at the current e
 let expandedPendingId = null; // which pending row is currently expanded
 let stationEvents = []; // latest events for current station (for buildCheckedInSet)
 let activeRaces = [];
-let map, markersLayer, stationMarkers = {}, routeLayer = null, trackPoints = null;
+let map, markersLayer, personnelLayer = null, stationMarkers = {}, routeLayer = null, trackPoints = null;
+let showParticipantNametags = false, showPersonnelNametags = false;
 let fmt24 = false;
 let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
 let clockInterval = null;
@@ -74,11 +75,11 @@ async function init() {
   racePill.className = 'pill pill-ok';
   document.title = `MobilOp — ${race.name}`;
 
+  const pRes = await RT.get(`/api/races/${raceId}/personnel`);
+  personnel = pRes.ok ? pRes.data : [];
   if (race.messaging_enabled) {
     document.getElementById('tab-msg').classList.remove('hidden');
     document.getElementById('mo-msg-sidebar').style.display = 'flex';
-    const pRes = await RT.get(`/api/races/${raceId}/personnel`);
-    personnel = pRes.ok ? pRes.data : [];
     renderPersonnelRecipients();
   }
 
@@ -308,6 +309,7 @@ function initMap() {
   }
   setBaseLayer('Street');
   markersLayer = L.layerGroup().addTo(map);
+  personnelLayer = L.layerGroup().addTo(map);
   renderStationMarkers();
   if (!stations.length) map.setView([39.5, -98.5], 5);
 }
@@ -316,14 +318,75 @@ const trackerMarkers = {};
 
 function updateMarker(nodeId, pos) {
   const p = participants.find(p => p.tracker_id === nodeId);
-  const heat = p ? heats.find(h => h.id === p.heat_id) : null;
+  if (!p) {
+    if (trackerMarkers[nodeId]) {
+      markersLayer.removeLayer(trackerMarkers[nodeId]);
+      delete trackerMarkers[nodeId];
+    }
+    return;
+  }
+  const heat = heats.find(h => h.id === p.heat_id);
   const { svg, cls } = RT.trackerIcon(heat, false, false);
+  const label = RT.fmtLabel(p.name);
   const icon = L.divIcon({ html: svg, className: cls, iconSize: [20, 20], iconAnchor: [10, 10] });
   if (trackerMarkers[nodeId]) {
     trackerMarkers[nodeId].setLatLng([pos.lat, pos.lon]).setIcon(icon);
+    trackerMarkers[nodeId].unbindTooltip();
+    trackerMarkers[nodeId].bindTooltip(label, { permanent: showParticipantNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
   } else {
-    trackerMarkers[nodeId] = L.marker([pos.lat, pos.lon], { icon }).addTo(markersLayer);
+    trackerMarkers[nodeId] = L.marker([pos.lat, pos.lon], { icon })
+      .bindTooltip(label, { permanent: showParticipantNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' })
+      .addTo(markersLayer);
   }
+}
+
+function updatePersonnelMarkers() {
+  if (!personnelLayer) return;
+  for (const p of personnel) {
+    if (!p.tracker_id || !p.last_lat || !p.last_lon) {
+      const ex = personnelLayer.getLayers().find(m => m._perId === p.id);
+      if (ex) personnelLayer.removeLayer(ex);
+      continue;
+    }
+    const color = p.color || '#f5a623';
+    const shape = p.shape || 'triangle';
+    const svg = RT.SHAPES[shape]?.(color, 20) || RT.SHAPES.triangle(color, 20);
+    const label = RT.fmtLabel(p.name);
+    const icon = L.divIcon({
+      html: `<div title="${label}">${svg}</div>`,
+      className: 'leaflet-div-icon', iconAnchor: [10, 10],
+    });
+    const existing = personnelLayer.getLayers().find(m => m._perId === p.id);
+    if (existing) {
+      existing.setLatLng([p.last_lat, p.last_lon]);
+      existing.setIcon(icon);
+      existing.unbindTooltip();
+      existing.bindTooltip(label, { permanent: showPersonnelNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
+    } else {
+      const m = L.marker([p.last_lat, p.last_lon], { icon });
+      m._perId = p.id;
+      m.bindTooltip(label, { permanent: showPersonnelNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
+      m.addTo(personnelLayer);
+    }
+  }
+  for (const m of [...personnelLayer.getLayers()]) {
+    if (!personnel.some(p => p.id === m._perId)) personnelLayer.removeLayer(m);
+  }
+}
+
+function toggleParticipantNametags(on) {
+  showParticipantNametags = !!on;
+  for (const [nodeId, marker] of Object.entries(trackerMarkers)) {
+    const p = participants.find(p => p.tracker_id === nodeId);
+    if (!p) continue;
+    marker.unbindTooltip();
+    marker.bindTooltip(RT.fmtLabel(p.name), { permanent: showParticipantNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
+  }
+}
+
+function togglePersonnelNametags(on) {
+  showPersonnelNametags = !!on;
+  updatePersonnelMarkers();
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -350,13 +413,18 @@ function handleWS(msg) {
     if (msg.data.messages) { messages = msg.data.messages; renderMessages(); }
     for (const [nodeId, pos] of Object.entries(msg.data.positions || {})) {
       updateMarker(nodeId, pos);
+      const per = personnel.find(x => x.tracker_id === nodeId);
+      if (per) { per.last_lat = pos.lat; per.last_lon = pos.lon; }
     }
+    updatePersonnelMarkers();
     // Restrict selector and switch to offline URLs if already ready
     updateBaseLayerSelector();
     if (race?.offline_maps && race?.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
   } else if (msg.type === 'position') {
     const p = participants.find(x => x.tracker_id === msg.data.nodeId);
     if (p) { p.last_lat = msg.data.lat; p.last_lon = msg.data.lon; }
+    const per = personnel.find(x => x.tracker_id === msg.data.nodeId);
+    if (per) { per.last_lat = msg.data.lat; per.last_lon = msg.data.lon; updatePersonnelMarkers(); }
     updateMarker(msg.data.nodeId, msg.data);
     renderLeaderboard();
   } else if (msg.type === 'participant_update') {
@@ -408,6 +476,19 @@ function handleWS(msg) {
   } else if (msg.type === 'users_online') {
     onlineUsers = msg.data;
     renderPersonnelRecipients();
+  } else if (msg.type === 'personnel_update') {
+    if (msg.data.action !== 'update') return;
+    const p = msg.data.personnel;
+    const idx = personnel.findIndex(x => x.id === p.id);
+    if (idx >= 0) {
+      p.last_lat = p.last_lat ?? personnel[idx].last_lat;
+      p.last_lon = p.last_lon ?? personnel[idx].last_lon;
+      personnel[idx] = p;
+    } else {
+      personnel.push(p);
+    }
+    updatePersonnelMarkers();
+    if (race.messaging_enabled) renderPersonnelRecipients();
   }
 }
 
