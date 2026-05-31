@@ -10,8 +10,8 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'db.sqlite');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'db.sqlite');
+if (DB_PATH !== ':memory:') fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 // ── Initialize database connection ───────────────────────────────────────────
 const db = new Database(DB_PATH);
