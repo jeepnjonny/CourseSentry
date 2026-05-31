@@ -2181,4 +2181,14 @@ function goToRFAnalysis() {
   window.location.href = url;
 }
 
+function openAdminHelp() {
+  const map = {
+    races: '#new-race', courses: '#course-setup', course: '#course-setup',
+    participants: '#participants', heats: '#participants',
+    personnel: '#new-race', infra: '#tracker-setup',
+    settings: '#tracker-setup', logs: '#overview', users: '#overview'
+  };
+  window.open(RT.BASE + 'help.html' + (map[currentTab] || '#overview'));
+}
+
 init();
