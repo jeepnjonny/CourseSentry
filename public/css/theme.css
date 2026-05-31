@@ -240,6 +240,25 @@ textarea { resize: vertical; min-height: 60px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .modal-wide { width: 680px; }
 
+/* ── PERSONNEL QUICK-ENTRY ROWS ──────────────────────────────────────────── */
+.pm-qrow-header,
+.pm-qrow {
+  display: grid;
+  grid-template-columns: 1fr 160px 130px 120px 28px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pm-qrow:last-child { border-bottom: none; }
+.pm-qrow-header span {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text3);
+  text-transform: uppercase;
+}
+#pm-qrows { max-height: 340px; overflow-y: auto; }
+
 /* ── UPLOAD ZONE ─────────────────────────────────────────────────────────── */
 .upload-zone {
   border: 1px dashed var(--border);

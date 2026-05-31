@@ -1449,6 +1449,55 @@ async function loadPersonnel() {
 
 let editingPersonnelId = null;
 
+function pmBuildStationOptions() {
+  return '<option value="">— Unassigned —</option>' +
+    '<option value="rover">Rover (mobile, no fixed station)</option>' +
+    stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+
+function pmAddQRow(focusName = true) {
+  const container = document.getElementById('pm-qrows');
+  const div = document.createElement('div');
+  div.className = 'pm-qrow';
+  div.innerHTML = `
+    <input class="pm-q-name"    placeholder="Name"       onkeydown="pmQKeydown(event,this)">
+    <select class="pm-q-station" onkeydown="pmQKeydown(event,this)">${pmBuildStationOptions()}</select>
+    <input class="pm-q-tracker" placeholder="Tracker ID" onkeydown="pmQKeydown(event,this)">
+    <input class="pm-q-phone"   placeholder="Phone"      onkeydown="pmQKeydown(event,this)">
+    <button tabindex="-1" onclick="pmRemoveQRow(this)" style="padding:2px 6px;color:var(--accent3)">✕</button>`;
+  container.appendChild(div);
+  if (focusName) div.querySelector('.pm-q-name').focus();
+  return div;
+}
+
+function pmRemoveQRow(btn) {
+  const container = document.getElementById('pm-qrows');
+  const row = btn.closest('.pm-qrow');
+  if (container.children.length > 1) {
+    row.remove();
+  } else {
+    row.querySelector('.pm-q-name').value    = '';
+    row.querySelector('.pm-q-station').value = '';
+    row.querySelector('.pm-q-tracker').value = '';
+    row.querySelector('.pm-q-phone').value   = '';
+  }
+}
+
+function pmQKeydown(e, el) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    pmAddQRow(true);
+    return;
+  }
+  if (e.key === 'Tab' && !e.shiftKey && el.classList.contains('pm-q-phone')) {
+    const allPhones = [...document.querySelectorAll('#pm-qrows .pm-q-phone')];
+    if (allPhones.indexOf(el) === allPhones.length - 1) {
+      e.preventDefault();
+      pmAddQRow(true);
+    }
+  }
+}
+
 function pmUpdatePreview() {
   const color = document.getElementById('pm-color')?.value || '#f5a623';
   const shape = document.getElementById('pm-shape')?.value || 'triangle';
@@ -1458,40 +1507,88 @@ function pmUpdatePreview() {
 
 function openPersonnelModal(id) {
   editingPersonnelId = id || null;
-  const p = id ? personnel.find(x => x.id === id) : null;
+  const inner   = document.getElementById('pm-inner');
+  const editSec = document.getElementById('pm-edit-section');
+  const newSec  = document.getElementById('pm-new-section');
   document.getElementById('personnel-modal-title').textContent = id ? 'EDIT PERSONNEL' : 'NEW PERSONNEL';
-  document.getElementById('pm-name').value       = p?.name || '';
-  document.getElementById('pm-tracker-id').value = p?.tracker_id || '';
-  document.getElementById('pm-phone').value      = p?.phone || '';
-  document.getElementById('pm-color').value      = p?.color || '#f5a623';
-  document.getElementById('pm-shape').value      = p?.shape || 'triangle';
-  const sel = document.getElementById('pm-station-id');
-  sel.innerHTML = '<option value="">— Unassigned —</option>' +
-    '<option value="rover"' + (p?.is_rover ? ' selected' : '') + '>Rover (mobile, no fixed station)</option>' +
-    stations.map(s => `<option value="${s.id}"${!p?.is_rover && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
-  pmUpdatePreview();
-  document.getElementById('personnel-modal').classList.remove('hidden');
-  document.getElementById('pm-name').focus();
+
+  if (id) {
+    inner.classList.remove('modal-wide');
+    editSec.classList.remove('hidden');
+    newSec.classList.add('hidden');
+    const p = personnel.find(x => x.id === id);
+    document.getElementById('pm-name').value       = p?.name       || '';
+    document.getElementById('pm-tracker-id').value = p?.tracker_id || '';
+    document.getElementById('pm-phone').value      = p?.phone      || '';
+    document.getElementById('pm-color').value      = p?.color      || '#f5a623';
+    document.getElementById('pm-shape').value      = p?.shape      || 'triangle';
+    const sel = document.getElementById('pm-station-id');
+    sel.innerHTML = '<option value="">— Unassigned —</option>' +
+      '<option value="rover"' + (p?.is_rover ? ' selected' : '') + '>Rover (mobile, no fixed station)</option>' +
+      stations.map(s => `<option value="${s.id}"${!p?.is_rover && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
+    pmUpdatePreview();
+    document.getElementById('personnel-modal').classList.remove('hidden');
+    document.getElementById('pm-name').focus();
+  } else {
+    inner.classList.add('modal-wide');
+    editSec.classList.add('hidden');
+    newSec.classList.remove('hidden');
+    document.getElementById('pm-qrows').innerHTML = '';
+    pmAddQRow();
+    document.getElementById('personnel-modal').classList.remove('hidden');
+  }
 }
 
 async function savePersonnel() {
-  const name       = document.getElementById('pm-name').value.trim();
-  const station_id = document.getElementById('pm-station-id').value || null;
-  const tracker_id = document.getElementById('pm-tracker-id').value.trim() || null;
-  const phone      = document.getElementById('pm-phone').value.trim() || null;
-  const color      = document.getElementById('pm-color').value || '#f5a623';
-  const shape      = document.getElementById('pm-shape').value || 'triangle';
-  if (!name) { RT.toast('Name required', 'warn'); return; }
-  const is_rover = station_id === 'rover';
-  const body = { name, station_id: is_rover || !station_id ? null : parseInt(station_id), is_rover, tracker_id, phone, color, shape };
-  const res = editingPersonnelId
-    ? await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body)
-    : await RT.post(`/api/races/${selectedRaceId}/personnel`, body);
-  if (res.ok) {
+  if (editingPersonnelId) {
+    const name       = document.getElementById('pm-name').value.trim();
+    const station_id = document.getElementById('pm-station-id').value || null;
+    const tracker_id = document.getElementById('pm-tracker-id').value.trim() || null;
+    const phone      = document.getElementById('pm-phone').value.trim() || null;
+    const color      = document.getElementById('pm-color').value || '#f5a623';
+    const shape      = document.getElementById('pm-shape').value || 'triangle';
+    if (!name) { RT.toast('Name required', 'warn'); return; }
+    const is_rover = station_id === 'rover';
+    const body = { name, station_id: is_rover || !station_id ? null : parseInt(station_id), is_rover, tracker_id, phone, color, shape };
+    const res = await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body);
+    if (res.ok) {
+      closeModal('personnel-modal');
+      await loadPersonnel();
+      RT.toast('Personnel updated', 'ok');
+    } else RT.toast(res.error, 'warn');
+    return;
+  }
+
+  const rows = [...document.querySelectorAll('#pm-qrows .pm-qrow')];
+  const toSave = rows.map(row => ({
+    name:       row.querySelector('.pm-q-name').value.trim(),
+    station_id: row.querySelector('.pm-q-station').value || null,
+    tracker_id: row.querySelector('.pm-q-tracker').value.trim() || null,
+    phone:      row.querySelector('.pm-q-phone').value.trim() || null,
+  })).filter(r => r.name);
+  if (!toSave.length) { RT.toast('Enter at least one name', 'warn'); return; }
+
+  let saved = 0;
+  for (const r of toSave) {
+    const is_rover = r.station_id === 'rover';
+    const body = {
+      name:       r.name,
+      station_id: is_rover || !r.station_id ? null : parseInt(r.station_id),
+      is_rover,
+      tracker_id: r.tracker_id,
+      phone:      r.phone,
+      color:      '#f5a623',
+      shape:      'triangle',
+    };
+    const res = await RT.post(`/api/races/${selectedRaceId}/personnel`, body);
+    if (res.ok) saved++;
+    else RT.toast(`Failed to save "${r.name}": ${res.error}`, 'warn');
+  }
+  if (saved > 0) {
     closeModal('personnel-modal');
     await loadPersonnel();
-    RT.toast(editingPersonnelId ? 'Personnel updated' : 'Personnel added', 'ok');
-  } else RT.toast(res.error, 'warn');
+    RT.toast(`${saved} personnel added`, 'ok');
+  }
 }
 
 async function deletePersonnel(id) {
@@ -1977,7 +2074,7 @@ document.addEventListener('keydown', e => {
     const modal = e.target.closest('.modal-bg');
     if (!modal) return;
     if (modal.id === 'participant-modal') saveParticipant();
-    if (modal.id === 'personnel-modal')  savePersonnel();
+    if (modal.id === 'personnel-modal' && editingPersonnelId)  savePersonnel();
     if (modal.id === 'station-modal')    saveStation();
     if (modal.id === 'user-modal')       saveUser();
   }
