@@ -96,6 +96,29 @@
     }
     .race-context-label { min-width: 100px; max-width: 130px; }
   }
+  @media (max-width: 600px) {
+    #race-context-bar { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .race-context-label {
+      min-width: 100%; max-width: 100%;
+      border-right: none; border-bottom: 1px solid var(--border);
+      padding-right: 0; padding-bottom: 6px; margin-right: 0;
+    }
+  }
+  @media (max-width: 480px) {
+    .admin-tab { flex: none; padding: 8px 10px; font-size: 13px; letter-spacing: 0.5px; }
+    #btn-rf-analysis, #btn-help { display: none; }
+    #topbar-right button { font-size: 12px; padding: 4px 8px; letter-spacing: 0; }
+    .form-row { flex-direction: column; }
+    .modal { padding: 14px 12px; }
+    .modal-footer { flex-direction: column-reverse; }
+    .modal-footer button { width: 100%; }
+    .cols-2 { grid-template-columns: 1fr !important; }
+    .card { padding: 10px; }
+  }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 700px) {
+    .data-table { min-width: 480px; }
+  }
 </style>
 </head>
 <body>
@@ -118,8 +141,8 @@
   <!-- Navigation buttons -->
   <div id="topbar-right">
     <button onclick="window.location.href=RT.BASE+'race-select.html'">OPERATOR VIEW</button>
-    <button onclick="goToRFAnalysis()">RF ANALYSIS</button>
-    <button onclick="window.open(RT.BASE+'help.html')">HELP</button>
+    <button id="btn-rf-analysis" onclick="goToRFAnalysis()">RF ANALYSIS</button>
+    <button id="btn-help" onclick="window.open(RT.BASE+'help.html')">HELP</button>
     <button onclick="RT.logout()">LOGOUT</button>
   </div>
 </div>
@@ -235,7 +258,7 @@
       </div>
     </div>
     <div class="section-header">DATASOURCES</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+    <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
       <div class="checkbox-row"><input type="checkbox" id="rm-mqtt-enabled"><label for="rm-mqtt-enabled">MQTT / Meshtastic</label></div>
       <div class="checkbox-row"><input type="checkbox" id="rm-aprs-enabled"><label for="rm-aprs-enabled">APRS-IS</label></div>
       <div class="checkbox-row"><input type="checkbox" id="rm-tnc-enabled"><label for="rm-tnc-enabled">APRS-TNC</label></div>
@@ -254,7 +277,7 @@
     <div class="section-header">FEATURES</div>
     <div style="margin-bottom:12px">
       <div style="font-size:13px;font-weight:600;color:var(--text1);margin-bottom:6px">Viewer Page Options</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+      <div class="cols-2" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
         <div class="checkbox-row"><input type="checkbox" id="rm-viewer-map" checked><label for="rm-viewer-map">Map</label></div>
         <div class="checkbox-row"><input type="checkbox" id="rm-leaderboard" checked><label for="rm-leaderboard">Leaderboard</label></div>
         <div class="checkbox-row"><input type="checkbox" id="rm-weather"><label for="rm-weather">Weather</label></div>

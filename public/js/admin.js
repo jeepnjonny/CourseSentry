@@ -488,7 +488,7 @@ function renderHeatsList() {
   if (!el) return;
   if (!heats.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No heats defined.</div>'; return; }
   const race = races.find(r => r.id === selectedRaceId);
-  el.innerHTML = `<table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
     ${heats.map(h => `<tr>
       <td style="color:var(--text4);font-size:13px">${h.id}</td>
       <td>${h.name}</td>
@@ -501,18 +501,18 @@ function renderHeatsList() {
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteHeat(${h.id})">DEL</button>
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function renderClassesList() {
   const el = document.getElementById('classes-list');
   if (!el) return;
   if (!classes.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No classes defined.</div>'; return; }
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NAME</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th></th></tr></thead><tbody>
     ${classes.map(c => `<tr><td>${c.name}</td><td style="text-align:right">
       <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteClass(${c.id})">DEL</button>
     </td></tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function openHeatModal(id) {
@@ -968,7 +968,7 @@ function renderStationsList() {
   const el = document.getElementById('stations-list');
   if (!el) return;
   if (!stations.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No stations yet. Seed from a course file above, or add manually.</div>'; return; }
-  el.innerHTML = stationWarningHtml() + `<table class="data-table"><thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>LAT</th><th>LON</th><th>CUTOFF</th><th></th></tr></thead><tbody>
+  el.innerHTML = stationWarningHtml() + `<div class="table-scroll"><table class="data-table"><thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>LAT</th><th>LON</th><th>CUTOFF</th><th></th></tr></thead><tbody>
     ${stations.map((s, i) => `<tr>
       <td class="text-dim">${i + 1}</td>
       <td>${s.name}</td>
@@ -981,7 +981,7 @@ function renderStationsList() {
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteStation(${s.id})">DEL</button>
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 
@@ -1112,7 +1112,7 @@ function renderParticipantsList() {
     return;
   }
   const STATUS_C = { dns:'var(--text3)', active:'var(--accent)', dnf:'var(--accent3)', finished:'var(--accent2)' };
-  el.innerHTML = `<table class="data-table">
+  el.innerHTML = `<div class="table-scroll"><table class="data-table">
     <thead><tr>
       <th style="width:28px"><input type="checkbox" id="pt-select-all" onchange="toggleSelectAllParticipants(this.checked)" title="Select all"></th>
       <th>#</th><th>BIB</th><th>NAME</th><th>HEAT</th><th>CLASS</th><th>TRACKER</th><th>STATUS</th><th>AGE</th><th></th>
@@ -1136,7 +1136,7 @@ function renderParticipantsList() {
           <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteParticipant(${p.id})">DEL</button>
         </td>
       </tr>`;
-    }).join('')}</tbody></table>`;
+    }).join('')}</tbody></table></div>`;
 }
 
 function toggleParticipantSelect(id, checked) {
@@ -1433,7 +1433,7 @@ async function loadPersonnel() {
   const el = document.getElementById('personnel-list');
   if (!el) return;
   if (!personnel.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No personnel yet.</div>'; return; }
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
     ${personnel.map(p => `<tr>
       <td>${p.name}</td>
       <td>${p.is_rover ? '<span style="color:var(--accent);font-size:12px;letter-spacing:1px">ROVER</span>' : (p.station_name || '<span class="text-dim">—</span>')}</td>
@@ -1444,7 +1444,7 @@ async function loadPersonnel() {
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deletePersonnel(${p.id})">DEL</button>
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 let editingPersonnelId = null;
@@ -1639,7 +1639,7 @@ async function refreshInfra() {
   const missingTimer = (races.find(r=>r.id===activeRaceId))?.missing_timer || 3600;
 
   const assignedCol = selectedRaceId ? '<th>ASSIGNED TO</th>' : '';
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NODE ID</th><th>LONG NAME</th><th>SHORT</th><th>BATTERY</th><th>LAST SEEN</th><th>POSITION</th>${assignedCol}</tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NODE ID</th><th>LONG NAME</th><th>SHORT</th><th>BATTERY</th><th>LAST SEEN</th><th>POSITION</th>${assignedCol}</tr></thead><tbody>
     ${trackers.map(t => {
       const missing = t.last_seen && (now - t.last_seen) > missingTimer;
       const age = RT.timeAgo(t.last_seen);
@@ -1660,7 +1660,7 @@ async function refreshInfra() {
         ${assignCell}
       </tr>`;
     }).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function openAssignPicker(nodeId, longName) {
@@ -1746,7 +1746,7 @@ async function loadUsers() {
   users = res.ok ? res.data : [];
   const el = document.getElementById('users-list');
   if (!el) return;
-  el.innerHTML = `<table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>PHONE</th><th>MARKER</th><th>CREATED</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>PHONE</th><th>MARKER</th><th>CREATED</th><th></th></tr></thead><tbody>
     ${users.map(u => `<tr>
       <td>${u.username}${u.id===currentUser.id?' <span class="text-dim">(you)</span>':''}</td>
       <td><span class="badge" style="color:${u.role==='admin'?'var(--accent3)':u.role==='station'?'var(--accent2)':'var(--accent)'}">${u.role.toUpperCase()}</span></td>
@@ -1759,7 +1759,7 @@ async function loadUsers() {
         ${u.id!==currentUser.id?`<button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteUser(${u.id})">DEL</button>`:''}
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function openUserModal(id) {
