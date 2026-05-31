@@ -85,7 +85,8 @@ const KissTnc = (() => {
     const ssidByte = frame[offset + 6];
     const ssid   = (ssidByte >> 1) & 0x0F;
     const isLast = (ssidByte & 0x01) !== 0;
-    return { call: ssid > 0 ? `${call}-${ssid}` : call, isLast };
+    const hBit   = (ssidByte & 0x80) !== 0; // set by digi when it repeats the frame
+    return { call: ssid > 0 ? `${call}-${ssid}` : call, isLast, hBit };
   }
 
   function _decodeAX25(frame) {
@@ -95,7 +96,9 @@ const KissTnc = (() => {
     for (let i = 0; i < 10 && offset + 7 <= frame.length; i++) {
       const a = _decodeAddr(frame, offset);
       if (!a) break;
-      addrs.push(a.call);
+      // H-bit only meaningful for via/digi addresses (index ≥ 2); append '*' to mark last repeater
+      const call = (i >= 2 && a.hBit) ? a.call + '*' : a.call;
+      addrs.push(call);
       offset += 7;
       if (a.isLast) break;
     }

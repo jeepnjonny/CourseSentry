@@ -1773,6 +1773,15 @@ function renderSettingsTab() {
     <div style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-family:monospace;color:var(--accent4)" id="aprs-filter-preview">
       Previewing filter…
     </div>
+    <div style="margin-top:10px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:16px">
+        <input type="checkbox" id="s-aprs-igate-enabled">
+        Enable RF→APRS-IS Igate
+      </label>
+      <div style="font-size:13px;color:var(--text3);margin-top:3px;margin-left:24px">
+        Forwards TNC-received packets to APRS-IS. Requires a valid callsign with a verified (authenticated) APRS-IS connection.
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="primary" onclick="saveAprsSettings()">SAVE</button>
       <button onclick="testAprs()" id="s-aprs-test-btn">TEST</button>
@@ -1823,6 +1832,7 @@ async function bindSettingsTab() {
   document.getElementById('s-aprs-port').value       = s.aprs_port || '14580';
   const filterType = s.aprs_filter_type || 'location';
   document.getElementById(`s-aprs-filter-${filterType}`).checked = true;
+  document.getElementById('s-aprs-igate-enabled').checked = s.aprs_igate_enabled === '1';
 
   document.getElementById('settings-weather-key').value = s.weather_api_key || '';
 
@@ -1853,6 +1863,7 @@ async function saveAprsSettings() {
     aprs_server:      document.getElementById('s-aprs-server').value.trim() || 'rotate.aprs2.net',
     aprs_port:        document.getElementById('s-aprs-port').value || '14580',
     aprs_filter_type: filterType,
+    aprs_igate_enabled: document.getElementById('s-aprs-igate-enabled').checked ? '1' : '0',
   });
   if (res.ok) RT.toast('APRS-IS settings saved', 'ok');
   else RT.toast(res.error, 'warn');

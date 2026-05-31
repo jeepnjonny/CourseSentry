@@ -94,6 +94,9 @@ function _updateMsgStatus(messageId, status) {
   }
 }
 
+// ── Prepared statements ───────────────────────────────────────────────────────
+const _stmtIgateEnabled = db.prepare("SELECT value FROM settings WHERE key='aprs_igate_enabled'");
+
 // ── Deduplication ─────────────────────────────────────────────────────────────
 const _dedupCache = new Map();
 const DEDUP_WINDOW_MS = 10_000;
@@ -295,6 +298,13 @@ function handleIncomingFrame(ws, { from, to, via, text }) {
     _aprs().processAprsLine(line);
   } catch (e) {
     logger.log('tnc', 'error', `processAprsLine: ${e.message}`, `TNC-${ws.tncRaceId}`);
+  }
+
+  // Igate RF packet to APRS-IS when enabled and a verified connection is available
+  if (_stmtIgateEnabled.get()?.value === '1') {
+    try { _aprs().igate(line); } catch (e) {
+      logger.log('tnc', 'error', `igate: ${e.message}`, `TNC-${ws.tncRaceId}`);
+    }
   }
 }
 
