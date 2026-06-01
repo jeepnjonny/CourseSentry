@@ -34,32 +34,39 @@ function httpGet(url) {
   });
 }
 
+// Returns {minLat, maxLat, minLon, maxLon} covering all course/track points,
+// falling back to stations and then race weather_lat/lon.
 function resolveBbox(race) {
   const lats = [], lons = [];
+
   try {
-    let text = null, filePath = null, pathIndex = 0;
     if (race.course_id) {
+      const { parseCourse } = require('./courses');
       const course = db.prepare('SELECT * FROM courses WHERE id=?').get(race.course_id);
       if (course) {
-        text = fs.readFileSync(course.file_path, 'utf8');
-        filePath = course.file_path;
-        pathIndex = course.path_index || 0;
+        const text = fs.readFileSync(course.file_path, 'utf8');
+        const { trackPoints } = parseCourse(text, course.file_path, course.path_index);
+        if (trackPoints?.length) trackPoints.forEach(([lat, lon]) => { lats.push(lat); lons.push(lon); });
       }
     }
-    if (!text && race.track_file) {
-      text = fs.readFileSync(race.track_file, 'utf8');
-      filePath = race.track_file;
-      pathIndex = race.track_path_index || 0;
-    }
-    if (text) {
-      const pts = parseTrack(text, filePath, pathIndex);
+
+    if (!lats.length && race.track_file) {
+      const text = fs.readFileSync(race.track_file, 'utf8');
+      const pts  = parseTrack(text, race.track_file, race.track_path_index || 0);
       if (pts?.length) pts.forEach(([lat, lon]) => { lats.push(lat); lons.push(lon); });
     }
   } catch (_) {}
 
+  // Fallback 1: stations
   if (!lats.length) {
     db.prepare('SELECT lat, lon FROM stations WHERE race_id=?').all(race.id)
       .forEach(r => { lats.push(r.lat); lons.push(r.lon); });
+  }
+
+  // Fallback 2: race custom weather location
+  if (!lats.length && race.weather_lat) {
+    lats.push(race.weather_lat);
+    lons.push(race.weather_lon);
   }
 
   if (!lats.length) return null;
@@ -76,13 +83,21 @@ router.get('/perimeters', requireAuth, async (req, res) => {
   if (!race) return res.status(404).json({ ok: false, error: 'Race not found' });
 
   const bbox = resolveBbox(race);
-  if (!bbox) return res.status(400).json({ ok: false, error: 'No location for this race' });
+  if (!bbox) {
+    console.warn(`[wildfire] race ${race.id}: no location data, cannot fetch perimeters`);
+    return res.status(400).json({ ok: false, error: 'No location for this race' });
+  }
 
   const cacheKey = `${race.id}:perimeters`;
   const hit = cache.get(cacheKey);
-  if (hit && (Date.now() - hit.ts) < CACHE_TTL) return res.json({ ok: true, data: hit.data, cached: true });
+  if (hit && (Date.now() - hit.ts) < CACHE_TTL) {
+    console.log(`[wildfire] race ${race.id}: perimeters cache hit (${hit.data.features?.length ?? 0} features)`);
+    return res.json({ ok: true, data: hit.data, cached: true });
+  }
 
   const env = `${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`;
+  console.log(`[wildfire] race ${race.id}: fetching NIFC perimeters bbox=${env}`);
+
   const params = new URLSearchParams({
     where: '1=1',
     geometry: env,
@@ -96,9 +111,12 @@ router.get('/perimeters', requireAuth, async (req, res) => {
 
   try {
     const data = await httpGet(url);
+    const count = data.features?.length ?? 0;
+    console.log(`[wildfire] race ${race.id}: NIFC returned ${count} perimeter(s)`);
     cache.set(cacheKey, { data, ts: Date.now() });
     res.json({ ok: true, data });
   } catch (err) {
+    console.error(`[wildfire] race ${race.id}: NIFC API error — ${err.message}`);
     res.status(502).json({ ok: false, error: `NIFC API error: ${err.message}` });
   }
 });
@@ -108,13 +126,21 @@ router.get('/hotspots', requireAuth, async (req, res) => {
   if (!race) return res.status(404).json({ ok: false, error: 'Race not found' });
 
   const bbox = resolveBbox(race);
-  if (!bbox) return res.status(400).json({ ok: false, error: 'No location for this race' });
+  if (!bbox) {
+    console.warn(`[wildfire] race ${race.id}: no location data, cannot fetch hotspots`);
+    return res.status(400).json({ ok: false, error: 'No location for this race' });
+  }
 
   const cacheKey = `${race.id}:hotspots`;
   const hit = cache.get(cacheKey);
-  if (hit && (Date.now() - hit.ts) < CACHE_TTL) return res.json({ ok: true, data: hit.data, cached: true });
+  if (hit && (Date.now() - hit.ts) < CACHE_TTL) {
+    console.log(`[wildfire] race ${race.id}: hotspots cache hit (${hit.data.features?.length ?? 0} features)`);
+    return res.json({ ok: true, data: hit.data, cached: true });
+  }
 
   const env = `${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`;
+  console.log(`[wildfire] race ${race.id}: fetching FIRMS hotspots bbox=${env}`);
+
   const params = new URLSearchParams({
     where: '1=1',
     geometry: env,
@@ -128,9 +154,12 @@ router.get('/hotspots', requireAuth, async (req, res) => {
 
   try {
     const data = await httpGet(url);
+    const count = data.features?.length ?? 0;
+    console.log(`[wildfire] race ${race.id}: FIRMS returned ${count} hotspot(s)`);
     cache.set(cacheKey, { data, ts: Date.now() });
     res.json({ ok: true, data });
   } catch (err) {
+    console.error(`[wildfire] race ${race.id}: FIRMS API error — ${err.message}`);
     res.status(502).json({ ok: false, error: `FIRMS API error: ${err.message}` });
   }
 });
