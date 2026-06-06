@@ -11,6 +11,7 @@ const wsManager = require('./src/websocket');
 const mqttClient = require('./src/mqtt-client');
 
 const logger = require('./src/logger');
+const { version } = require('./src/utils/version');
 const aprsClient = require('./src/aprs-client');
 const localTnc = require('./src/local-tnc');
 const beacon        = require('./src/beacon');
@@ -209,6 +210,9 @@ app.post('/api/weather/test', requireRole('admin'), async (req, res) => {
   }
 });
 
+// ── Version ───────────────────────────────────────────────────────────────────
+app.get('/api/version', (_req, res) => res.json({ ok: true, version }));
+
 // ── System health / diagnostics ───────────────────────────────────────────────
 app.get('/api/system/health', requireRole('admin'), (req, res) => {
 
@@ -275,7 +279,7 @@ beacon.start();
 inreachPoller.start();
 
 server.listen(PORT, () => {
-  console.log(`[server] CourseSentry listening on port ${PORT}`);
-  logger.log('system', 'info', `CourseSentry started on port ${PORT}`);
+  console.log(`[server] CourseSentry v${version} listening on port ${PORT}`);
+  logger.log('system', 'info', `CourseSentry v${version} started on port ${PORT}`);
 
 });

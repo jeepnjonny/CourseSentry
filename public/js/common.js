@@ -244,3 +244,9 @@ const RT = (() => {
            fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo, fmtLabel,
            trackerIcon, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES };
 })();
+
+(function () {
+  const el = document.getElementById('app-version');
+  if (!el) return;
+  fetch('/api/version').then(r => r.json()).then(j => { if (j.version) el.textContent = `v${j.version}`; }).catch(() => {});
+}());
