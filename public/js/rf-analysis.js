@@ -7,6 +7,7 @@ let heatLayer       = null;
 let routeLayer      = null;
 let stationLayer    = null;
 let coverageLayers  = {};   // src → L.polygon
+let gapLayers       = [];   // L.polyline instances for silence gaps
 
 let races        = [];
 let currentRaceId = null;
@@ -15,6 +16,10 @@ let nodeSummary   = [];   // from /nodes endpoint
 let summary       = {};   // per-source stats (unfiltered)
 let stationData   = [];
 let routePoints   = [];
+let trackMeta     = null; // pre-computed from routePoints via geoBuildTrackMeta
+
+let segmentData       = null;  // computed lazily on SEGS tab, reset when source/time changes
+let stationMatrixData = null;  // fetched lazily on STNS tab, reset on race change
 
 let activeSources   = new Set();
 let metric          = 'density';   // 'density' | 'snr' | 'rssi'
@@ -26,6 +31,8 @@ let timeWindowMode  = 'race';      // 'race' | 'all'
 let raceWindowStart = null;        // computed unix ts
 let raceWindowEnd   = null;        // computed unix ts (null = live/now)
 let showCoverage    = false;
+let showGaps        = false;
+let gapMinutes      = 5;
 
 // Source metadata
 const SOURCE_META = {
@@ -39,6 +46,300 @@ function srcMeta(src) {
 
 // Signal quality gradient: weak (red) → strong (blue) — industry standard
 const SIGNAL_GRADIENT = { 0.0: '#f85149', 0.35: '#ffa657', 0.55: '#fafa00', 0.75: '#3fb950', 1.0: '#58a6ff' };
+
+// ── Ported geo helpers (mirrors src/geo.js — pure math, no dependencies) ──────
+function geoToRad(d) { return d * Math.PI / 180; }
+function geoHaversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = geoToRad(lat2 - lat1), dLon = geoToRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(geoToRad(lat1))*Math.cos(geoToRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function geoPointToSegment(pLat, pLon, aLat, aLon, bLat, bLon) {
+  const ax = geoToRad(aLon)*Math.cos(geoToRad(aLat)), ay = geoToRad(aLat);
+  const bx = geoToRad(bLon)*Math.cos(geoToRad(aLat)), by = geoToRad(bLat);
+  const px = geoToRad(pLon)*Math.cos(geoToRad(aLat)), py = geoToRad(pLat);
+  const dx = bx-ax, dy = by-ay, lenSq = dx*dx+dy*dy;
+  const t = lenSq > 0 ? Math.max(0, Math.min(1, ((px-ax)*dx+(py-ay)*dy)/lenSq)) : 0;
+  return { dist: Math.sqrt((px-ax-t*dx)**2+(py-ay-t*dy)**2)*6371000, t };
+}
+function geoBuildTrackMeta(points) {
+  const dists = [0];
+  for (let i = 1; i < points.length; i++)
+    dists.push(dists[i-1] + geoHaversine(points[i-1][0], points[i-1][1], points[i][0], points[i][1]));
+  return { dists, total: dists[dists.length-1] };
+}
+function geoDistAlongRoute(lat, lon, points, meta) {
+  let minDist = Infinity, bestAlong = 0;
+  for (let i = 0; i < points.length-1; i++) {
+    const [lat1,lon1] = points[i], [lat2,lon2] = points[i+1];
+    const { dist, t } = geoPointToSegment(lat, lon, lat1, lon1, lat2, lon2);
+    if (dist < minDist) { minDist = dist; bestAlong = meta.dists[i] + t*(meta.dists[i+1]-meta.dists[i]); }
+  }
+  return bestAlong;
+}
+
+// ── Node display name helper ───────────────────────────────────────────────────
+function getNodeDisplayName(nodeId) {
+  const n = nodeSummary.find(x => x.node_id === nodeId);
+  if (!n) return nodeId ? nodeId.slice(-8) : '?';
+  if (n.participant_name) return `#${n.bib} ${n.participant_name}`;
+  return n.long_name || n.short_name || (nodeId ? nodeId.slice(-8) : '?');
+}
+
+// ── Health scores (packet rate vs. fleet median) ───────────────────────────────
+function computeHealthScores() {
+  const rates = nodeSummary.map(n => {
+    const elapsed = (n.last_seen || 0) - (n.first_seen || 0);
+    return elapsed >= 120 ? n.packet_count / (elapsed / 3600) : null; // packets/hr
+  });
+  const valid = rates.filter(r => r !== null).sort((a, b) => a - b);
+  if (!valid.length) return rates.map(() => null);
+  const median = valid[Math.floor(valid.length / 2)];
+  return rates.map(r => {
+    if (r === null || median === 0) return null;
+    const pct = r / median;
+    return pct >= 0.75 ? '#3fb950' : pct >= 0.50 ? '#ffa657' : '#f85149';
+  });
+}
+
+// ── Interval sparkline (5 buckets: <1m, 1–3m, 3–5m, 5–10m, >10m) ─────────────
+function computeNodeIntervals(nodeId) {
+  const pts = allPositions.filter(p => p.node_id === nodeId).sort((a, b) => a.timestamp - b.timestamp);
+  const buckets = [0, 0, 0, 0, 0];
+  for (let i = 1; i < pts.length; i++) {
+    const g = pts[i].timestamp - pts[i-1].timestamp;
+    if (g < 60) buckets[0]++;
+    else if (g < 180) buckets[1]++;
+    else if (g < 300) buckets[2]++;
+    else if (g < 600) buckets[3]++;
+    else buckets[4]++;
+  }
+  return buckets;
+}
+const SPARK_COLORS = ['#3fb950', '#58a6ff', '#fafa00', '#ffa657', '#f85149'];
+const SPARK_LABELS = ['<1m', '1–3m', '3–5m', '5–10m', '>10m'];
+function renderSparkline(buckets) {
+  const max = Math.max(...buckets, 1);
+  const tip = SPARK_LABELS.map((l, i) => `${l}:${buckets[i]}`).join(' ');
+  const bars = buckets.map((v, i) => {
+    const h = Math.max(1, Math.round((v / max) * 12));
+    return `<span class="spark-bar" style="height:${h}px;background:${SPARK_COLORS[i]}"></span>`;
+  }).join('');
+  return `<span class="spark" title="Intervals — ${tip}">${bars}</span>`;
+}
+
+// ── Reception gap computation (client-side from allPositions) ─────────────────
+function computeGaps() {
+  const minSec = gapMinutes * 60;
+  // Sort a filtered copy by node then time
+  const pts = filteredPositions()
+    .slice()
+    .sort((a, b) => a.node_id < b.node_id ? -1 : a.node_id > b.node_id ? 1 : a.timestamp - b.timestamp);
+
+  const gaps = [];
+  let prev = null;
+  for (const p of pts) {
+    if (prev && prev.node_id === p.node_id && p.timestamp - prev.timestamp >= minSec) {
+      gaps.push({
+        node_id: p.node_id,
+        start_lat: prev.lat, start_lon: prev.lon,
+        end_lat: p.lat,      end_lon: p.lon,
+        duration_sec: p.timestamp - prev.timestamp,
+      });
+    }
+    prev = p;
+  }
+  return gaps;
+}
+
+function clearGapLines() {
+  for (const l of gapLayers) leafletMap.removeLayer(l);
+  gapLayers = [];
+  document.getElementById('gap-legend')?.classList.remove('visible');
+}
+
+function renderGapLines() {
+  clearGapLines();
+  if (!showGaps || !leafletMap) return;
+  const gaps = computeGaps();
+  for (const g of gaps) {
+    const d = g.duration_sec;
+    const color = d >= 1800 ? '#f85149' : d >= 900 ? '#ffa657' : '#fafa00';
+    const mins  = Math.round(d / 60);
+    const name  = getNodeDisplayName(g.node_id);
+    const line  = L.polyline([[g.start_lat, g.start_lon], [g.end_lat, g.end_lon]], {
+      color, weight: 2.5, dashArray: '7,5', opacity: 0.9,
+    }).bindTooltip(`${name} — silent ${mins} min`).addTo(leafletMap);
+    gapLayers.push(line);
+  }
+  if (gapLayers.length) document.getElementById('gap-legend')?.classList.add('visible');
+}
+
+function toggleGaps(checked) {
+  showGaps = checked;
+  if (checked) renderGapLines();
+  else clearGapLines();
+}
+
+function setGapMin(val) {
+  gapMinutes = parseInt(val);
+  document.getElementById('lbl-gap-min').textContent = val + ' min';
+  if (showGaps) renderGapLines();
+}
+
+// ── Segment peer comparison (computed client-side from allPositions + routePoints) ──
+function computeSegmentData() {
+  if (!routePoints.length || !trackMeta) return null;
+  const SEGMENT_M = 1000;
+  const pts = filteredPositions();
+  if (!pts.length) return { segments: [], nodeIds: [], cells: [] };
+
+  const nodeCells = {}; // node_id -> { seg_idx -> count }
+  for (const pos of pts) {
+    const along = geoDistAlongRoute(pos.lat, pos.lon, routePoints, trackMeta);
+    const idx   = Math.floor(along / SEGMENT_M);
+    if (!nodeCells[pos.node_id]) nodeCells[pos.node_id] = {};
+    nodeCells[pos.node_id][idx] = (nodeCells[pos.node_id][idx] || 0) + 1;
+  }
+
+  const totalSegs = Math.ceil(trackMeta.total / SEGMENT_M);
+
+  // Per-segment fleet median (only over nodes that reported in that segment)
+  const segCounts = {};
+  for (const segs of Object.values(nodeCells))
+    for (const [idxStr, cnt] of Object.entries(segs)) {
+      const i = parseInt(idxStr);
+      if (!segCounts[i]) segCounts[i] = [];
+      segCounts[i].push(cnt);
+    }
+  const segMedians = {};
+  for (const [idxStr, cnts] of Object.entries(segCounts)) {
+    const s = [...cnts].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    segMedians[parseInt(idxStr)] = s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+  }
+
+  const nodeIds = Object.keys(nodeCells);
+  const segments = Array.from({length: totalSegs}, (_, i) => ({
+    idx: i, label: `${(i * SEGMENT_M / 1000).toFixed(1)}`, hasData: !!segCounts[i],
+  }));
+  const cells = [];
+  for (const [nodeId, segs] of Object.entries(nodeCells))
+    for (const [idxStr, cnt] of Object.entries(segs)) {
+      const idx = parseInt(idxStr);
+      const med = segMedians[idx] || 1;
+      cells.push({ node_id: nodeId, segment_idx: idx, count: cnt, pct: Math.round((cnt/med)*100) });
+    }
+
+  return { segments, nodeIds, cells };
+}
+
+function renderSegmentGrid() {
+  const wrap = document.getElementById('seg-grid-wrap');
+  if (!wrap) return;
+
+  if (!routePoints.length) {
+    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No route defined for this race</span>';
+    return;
+  }
+  if (!allPositions.length) {
+    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No position data</span>';
+    return;
+  }
+
+  if (!segmentData) {
+    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">Computing…</span>';
+    setTimeout(() => { segmentData = computeSegmentData(); renderSegmentGrid(); }, 10);
+    return;
+  }
+
+  const { segments, nodeIds, cells } = segmentData;
+  if (!nodeIds.length) {
+    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No data</span>';
+    return;
+  }
+
+  const activeSegs = segments.filter(s => s.hasData);
+  const cellMap = {};
+  for (const c of cells) cellMap[`${c.node_id}:${c.segment_idx}`] = c;
+
+  const headerCells = nodeIds.map(nid => {
+    const n = nodeSummary.find(x => x.node_id === nid);
+    const short = n?.participant_name ? `#${n.bib}` : (n?.short_name || nid.slice(-4));
+    const full  = n?.participant_name ? `#${n.bib} ${n.participant_name}` : (n?.long_name || n?.short_name || nid);
+    return `<th title="${full}">${short}</th>`;
+  }).join('');
+
+  const bodyRows = activeSegs.map(seg => {
+    const tds = nodeIds.map(nid => {
+      const c = cellMap[`${nid}:${seg.idx}`];
+      if (!c) return `<td class="seg-cell-none">—</td>`;
+      const cls = c.pct >= 75 ? 'seg-cell-ok' : c.pct >= 50 ? 'seg-cell-warn' : 'seg-cell-bad';
+      return `<td class="${cls}" title="${c.count} pkts (${c.pct}% of median)">${c.count}</td>`;
+    }).join('');
+    return `<tr><td>${seg.label} km</td>${tds}</tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <table class="seg-grid">
+      <thead><tr><th></th>${headerCells}</tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>`;
+}
+
+// ── Station reception matrix (lazy: fetches /station-matrix on first view) ────
+async function renderStationMatrix() {
+  const wrap = document.getElementById('station-matrix-wrap');
+  if (!wrap) return;
+
+  if (!stationMatrixData) {
+    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">Loading…</span>';
+    const res = await RT.get(`/api/races/${currentRaceId}/rf-analysis/station-matrix`);
+    if (!res.ok) {
+      wrap.innerHTML = '<span class="text-dim" style="font-size:13px">Failed to load station data</span>';
+      return;
+    }
+    stationMatrixData = res.data;
+  }
+
+  const { stations, participants, cells } = stationMatrixData;
+  if (!cells.length) {
+    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No confirmed station arrivals found — check that participants have trackers assigned and aid_arrive events exist</span>';
+    return;
+  }
+
+  const cellMap = {};
+  for (const c of cells) cellMap[`${c.participant_id}:${c.station_id}`] = c;
+
+  const pIds = new Set(cells.map(c => c.participant_id));
+  const sIds = new Set(cells.map(c => c.station_id));
+  const activeParts = participants.filter(p => pIds.has(p.id));
+  const activeStns  = stations.filter(s => sIds.has(s.id));
+
+  const headerCells = activeParts.map(p =>
+    `<th title="${p.name}" style="white-space:nowrap">#${p.bib}</th>`
+  ).join('');
+
+  const bodyRows = activeStns.map(s => {
+    const tds = activeParts.map(p => {
+      const c = cellMap[`${p.id}:${s.id}`];
+      if (!c) return `<td class="stn-cell-na" title="${p.name} not confirmed at ${s.name}">·</td>`;
+      return c.has_packet
+        ? `<td class="stn-cell-ok"   title="${p.name} — packet received near ${s.name}">✓</td>`
+        : `<td class="stn-cell-miss" title="${p.name} — no RF packet near ${s.name}">✗</td>`;
+    }).join('');
+    return `<tr><td>${s.name}</td>${tds}</tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="stn-matrix-inner">
+      <table class="stn-matrix">
+        <thead><tr><th>Station</th>${headerCells}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 async function init() {
@@ -97,6 +398,14 @@ async function selectRace(raceId) {
   stationData  = (stnRes.ok && stnRes.data?.length) ? stnRes.data : [];
   routePoints  = (trackRes.ok && trackRes.data?.trackPoints?.length)
     ? trackRes.data.trackPoints.map(([lat, lon]) => [lat, lon]) : [];
+
+  // Pre-compute track metadata for client-side segment projection
+  trackMeta = routePoints.length >= 2 ? geoBuildTrackMeta(routePoints) : null;
+
+  // Reset lazy-computed data for the new race
+  segmentData = null;
+  stationMatrixData = null;
+  clearGapLines();
 
   // Compute race time bounds before any rendering
   computeRaceBounds();
@@ -171,11 +480,14 @@ function computeRaceBounds() {
 
 function setTimeWindow(val) {
   timeWindowMode = val;
+  segmentData = null; // recompute segments with new time window
   renderHeatmap();
   renderCoveragePolygons();
   renderRawTable();
   renderStats();
   updateTimeWindowInfo();
+  if (showGaps) renderGapLines();
+  if (rightTab === 'segs') renderSegmentGrid();
 }
 
 function updateTimeWindowInfo() {
@@ -330,19 +642,27 @@ function renderNodeList() {
     el.innerHTML = '<span class="text-dim" style="font-size:13px">No data</span>';
     return;
   }
-  el.innerHTML = nodeSummary.map(n => {
+
+  const healthColors = computeHealthScores();
+
+  el.innerHTML = nodeSummary.map((n, i) => {
     const m = srcMeta(n.rf_source);
     const displayName = n.participant_name
       ? `#${n.bib} ${n.participant_name}`
       : (n.long_name || n.short_name || n.node_id);
+    const hColor  = healthColors[i];
+    const hDot    = hColor ? `<span class="health-dot" style="background:${hColor}" title="Packet rate health"></span>` : '';
+    const intervals = computeNodeIntervals(n.node_id);
+    const spark   = intervals.some(v => v > 0) ? renderSparkline(intervals) : '';
     const snrStr  = n.avg_snr  != null ? `SNR ${Math.round(n.avg_snr)} dB`   : '';
     const rssiStr = n.avg_rssi != null ? `RSSI ${Math.round(n.avg_rssi)} dBm` : '';
     const sigStr  = [snrStr, rssiStr].filter(Boolean).join('  ');
     return `
       <div class="node-row" title="${n.node_id}">
+        ${hDot}
         <span class="src-dot" style="background:${m.color}"></span>
         <span class="node-name">${displayName}</span>
-        <span class="node-pkt">${n.packet_count.toLocaleString()}</span>
+        <span class="node-pkt">${n.packet_count.toLocaleString()}${spark}</span>
       </div>
       ${sigStr ? `<div style="font-size:11px;color:${snrQualityColor(n.avg_snr)};padding:0 4px 4px 22px">${sigStr}</div>` : ''}`;
   }).join('');
@@ -510,23 +830,28 @@ function renderHeatmap() {
 // ── Right panel tabs ───────────────────────────────────────────────────────────
 function switchTab(id) {
   rightTab = id;
-  ['stats', 'nodes', 'raw'].forEach(t => {
+  ['stats', 'nodes', 'segs', 'stns', 'raw'].forEach(t => {
     document.getElementById(`rp-tab-${t}`)?.classList.toggle('active', t === id);
     const el = document.getElementById(`rp-${t}`);
     if (el) el.style.display = t === id ? '' : 'none';
   });
-  if (id === 'raw') renderRawTable();
+  if (id === 'raw')  renderRawTable();
+  if (id === 'segs') renderSegmentGrid();
+  if (id === 'stns') renderStationMatrix();
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────────
 function toggleSource(src, checked) {
   if (checked) activeSources.add(src);
   else         activeSources.delete(src);
+  segmentData = null; // recompute segments with new source filter
   renderHeatmap();
   renderCoveragePolygons();
   updateTimeWindowInfo();
-  if (rightTab === 'raw') renderRawTable();
+  if (showGaps) renderGapLines();
+  if (rightTab === 'raw')  renderRawTable();
   if (rightTab === 'stats') renderStats();
+  if (rightTab === 'segs')  renderSegmentGrid();
 }
 
 function setMetric(m) {
@@ -573,5 +898,6 @@ function showLoading(on) {
 init();
 
 return { selectRace, toggleSource, setMetric, setOpacity, setRadius, setBlur,
-         clearData, switchTab, setTimeWindow, toggleCoverage };
+         clearData, switchTab, setTimeWindow, toggleCoverage,
+         toggleGaps, setGapMin };
 })();
