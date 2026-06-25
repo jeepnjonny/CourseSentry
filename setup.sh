@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CourseSentry — first-time server setup
-# Run as a user with sudo access on apps.k7swi.org
+# Run as a user with sudo access on coursesentry.k7swi.org
 # Usage: bash setup.sh [--ssl]
 
 set -euo pipefail
@@ -8,7 +8,8 @@ set -euo pipefail
 INSTALL_DIR="/srv/CourseSentry"
 SERVICE_USER="www-data"
 NODE_MIN="18"
-HOSTNAME="apps.k7swi.org"
+HOSTNAME="coursesentry.k7swi.org"
+CERTBOT_EMAIL="kg7kmv@gmail.com"
 SSL=${1:-""}
 
 echo "=== CourseSentry Setup ==="
@@ -71,57 +72,65 @@ sudo systemctl restart coursesentry
 echo "  coursesentry service started"
 
 # ── nginx ──────────────────────────────────────────────────────────────────
-LOCATION_BLOCK='
-    location /CourseSentry/ {
+NGINX_AVAILABLE=/etc/nginx/sites-available/coursesentry
+NGINX_ENABLED=/etc/nginx/sites-enabled/coursesentry
+
+# Temporary HTTP-only block used before certs exist
+HTTP_ONLY_CONF="server {
+    listen 80;
+    listen [::]:80;
+    server_name ${HOSTNAME};
+    location / {
         proxy_pass         http://127.0.0.1:3000/;
         proxy_http_version 1.1;
         client_max_body_size 50m;
-        proxy_set_header   Upgrade    $http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       $host;
-        proxy_set_header   X-Real-IP  $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout  3600s;
-        proxy_send_timeout  3600s;
-        proxy_buffering     off;
-    }'
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \"upgrade\";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+}"
 
 if [ ! -d /etc/nginx/sites-available ]; then
   echo "  nginx sites-available not found — copy nginx-coursesentry.conf manually."
 else
-  # Find an existing server block for this hostname
-  EXISTING_CONF=$(grep -rl "server_name.*${HOSTNAME}" /etc/nginx/sites-enabled/ 2>/dev/null | head -1)
+  if [ "${SSL}" = "--ssl" ]; then
+    # ── Phase 1: deploy HTTP-only so certbot can validate the domain ──────
+    echo "  nginx: deploying temporary HTTP config for cert validation..."
+    echo "${HTTP_ONLY_CONF}" | sudo tee "${NGINX_AVAILABLE}" > /dev/null
+    sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
+    sudo nginx -t && sudo systemctl reload nginx
 
-  if [ -n "${EXISTING_CONF}" ]; then
-    # Check if our location block is already present
-    if grep -q "location /CourseSentry/" "${EXISTING_CONF}"; then
-      echo "  nginx: /CourseSentry/ location already present in ${EXISTING_CONF}"
-    else
-      echo "  nginx: injecting /CourseSentry/ location into ${EXISTING_CONF}"
-      # Insert location block before the last closing brace
-      sudo sed -i "$ s|^\s*}|${LOCATION_BLOCK}\n}|" "${EXISTING_CONF}"
-      sudo nginx -t && sudo systemctl reload nginx
-      echo "  nginx reloaded"
+    # ── Phase 2: obtain cert (certonly — does not modify nginx config) ────
+    echo "  certbot: requesting certificate..."
+    if ! command -v certbot &>/dev/null; then
+      sudo apt-get install -y certbot python3-certbot-nginx
     fi
+    sudo certbot certonly --nginx \
+      -d "${HOSTNAME}" \
+      --non-interactive --agree-tos -m "${CERTBOT_EMAIL}"
+
+    # ── Phase 3: deploy full SSL config now that certs exist ──────────────
+    echo "  nginx: deploying full SSL config..."
+    sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" "${NGINX_AVAILABLE}"
+    sudo nginx -t && sudo systemctl reload nginx
+    echo "  SSL configured — https://${HOSTNAME}/"
   else
-    # No existing server block — deploy our standalone config
-    echo "  nginx: no existing server block for ${HOSTNAME}, deploying standalone config"
-    sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" /etc/nginx/sites-available/coursesentry.conf
-    sudo ln -sf /etc/nginx/sites-available/coursesentry.conf /etc/nginx/sites-enabled/coursesentry.conf
+    # No SSL yet — deploy HTTP-only config
+    echo "  nginx: deploying HTTP config (run with --ssl to enable HTTPS)..."
+    echo "${HTTP_ONLY_CONF}" | sudo tee "${NGINX_AVAILABLE}" > /dev/null
+    sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
     sudo nginx -t && sudo systemctl reload nginx
     echo "  nginx configured"
   fi
 fi
 
-# ── SSL via certbot ────────────────────────────────────────────────────────
-if [ "${SSL}" = "--ssl" ]; then
-  echo "Setting up SSL with certbot..."
-  if ! command -v certbot &>/dev/null; then
-    sudo apt-get install -y certbot python3-certbot-nginx
-  fi
-  sudo certbot --nginx -d "${HOSTNAME}" --non-interactive --agree-tos -m admin@${HOSTNAME} || true
-  echo "  SSL configured (check output above for any errors)"
-else
+if [ "${SSL}" != "--ssl" ]; then
   echo ""
   echo "  TIP: Re-run with --ssl to configure HTTPS via certbot:"
   echo "       bash setup.sh --ssl"
@@ -129,6 +138,6 @@ fi
 
 echo ""
 echo "=== Setup complete ==="
-echo "  App:    http://${HOSTNAME}/CourseSentry/"
+echo "  App:    $([ "${SSL}" = "--ssl" ] && echo "https" || echo "http")://${HOSTNAME}/"
 echo "  Status: sudo systemctl status coursesentry"
 echo "  Logs:   sudo journalctl -u coursesentry -f"
