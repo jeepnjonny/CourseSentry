@@ -19,8 +19,20 @@
   #help-nav {
     width: 220px; flex-shrink: 0;
     background: var(--surface); border-right: 1px solid var(--border);
-    overflow-y: auto; padding: 12px 0;
+    display: flex; flex-direction: column; padding: 0;
   }
+  #help-search-wrap {
+    padding: 10px 12px 8px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  #help-search {
+    width: 100%; box-sizing: border-box;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text); font-family: var(--font);
+    font-size: 13px; padding: 5px 8px; outline: none;
+  }
+  #help-search:focus { border-color: var(--accent); }
+  #help-search::placeholder { color: var(--text3); }
+  #help-nav-scroll { flex: 1; overflow-y: auto; padding: 12px 0; }
   .nav-section-head {
     font-size: 10px; letter-spacing: 2px; color: var(--text3);
     padding: 14px 16px 4px; text-transform: uppercase; font-weight: bold;
@@ -34,6 +46,15 @@
   }
   .nav-link:hover { color: var(--text); background: var(--surface2); }
   .nav-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--surface2); }
+  .nav-sub-link {
+    display: block; padding: 3px 16px 3px 28px; font-size: 13px;
+    color: var(--text3); border-left: 2px solid transparent;
+    text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color 0.1s, background 0.1s; cursor: pointer;
+  }
+  .nav-sub-link:hover { color: var(--text2); background: var(--surface2); }
+  .nav-sub-link.active { color: var(--accent); border-left-color: var(--accent); background: var(--surface2); }
+  #help-no-results { padding: 10px 16px; font-size: 13px; color: var(--text3); display: none; }
 
   /* ── Content ── */
   #help-content {
@@ -143,29 +164,69 @@
 
   <!-- ── Sidebar navigation ── -->
   <nav id="help-nav">
-    <div class="nav-section-head">Overview</div>
-    <a class="nav-link" href="#overview">What is CourseSentry?</a>
-    <a class="nav-link" href="#features">Key Features</a>
+    <div id="help-search-wrap">
+      <input id="help-search" type="text" placeholder="Search help…" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="help-nav-scroll">
 
-    <div class="nav-section-head">Admin Guide</div>
-    <a class="nav-link" href="#new-race">Setting Up a New Race</a>
-    <a class="nav-link" href="#race-types">Race Types &amp; Formats</a>
-    <a class="nav-link" href="#course-setup">Course &amp; Stations</a>
-    <a class="nav-link" href="#participants">Participants &amp; Heats</a>
-    <a class="nav-link" href="#tracker-setup">Tracker Infrastructure</a>
-    <a class="nav-link" href="#viewer">Public Viewer</a>
+      <div class="nav-section-head">Overview</div>
+      <a class="nav-link" href="#overview">What is CourseSentry?</a>
+      <a class="nav-link" href="#features">Key Features</a>
 
-    <div class="nav-section-head">Operator Guide</div>
-    <a class="nav-link" href="#op-before">Before the Race</a>
-    <a class="nav-link" href="#op-start">Starting the Race</a>
-    <a class="nav-link" href="#op-manage">Managing the Race</a>
-    <a class="nav-link" href="#op-alerts">Alerts &amp; Incidents</a>
-    <a class="nav-link" href="#op-messaging">Messaging</a>
-    <a class="nav-link" href="#op-end">Finishing the Race</a>
+      <div class="nav-section-head">Admin Guide</div>
+      <a class="nav-link" href="#new-race">Setting Up a New Race</a>
+      <a class="nav-sub-link" href="#new-race-create">Create the Race</a>
+      <a class="nav-sub-link" href="#new-race-course">Upload the Course</a>
+      <a class="nav-sub-link" href="#new-race-stations">Configure Stations</a>
+      <a class="nav-sub-link" href="#new-race-heats">Set Up Heats</a>
+      <a class="nav-sub-link" href="#new-race-participants">Add Participants</a>
+      <a class="nav-sub-link" href="#new-race-infrastructure">Tracker Infrastructure</a>
+      <a class="nav-sub-link" href="#new-race-personnel">Add Personnel</a>
+      <a class="nav-sub-link" href="#new-race-activate">Activate the Race</a>
+      <a class="nav-link" href="#race-types">Race Types &amp; Formats</a>
+      <a class="nav-sub-link" href="#race-types-p2p">Point-to-Point</a>
+      <a class="nav-sub-link" href="#race-types-oab">Out-and-Back</a>
+      <a class="nav-sub-link" href="#race-types-modes">Tracked vs. Manual</a>
+      <a class="nav-link" href="#course-setup">Course &amp; Stations</a>
+      <a class="nav-sub-link" href="#course-upload">Uploading a Course File</a>
+      <a class="nav-sub-link" href="#course-edit">Editing the Course</a>
+      <a class="nav-sub-link" href="#course-ordering">Station Ordering</a>
+      <a class="nav-sub-link" href="#course-waypoints">Importing Waypoints</a>
+      <a class="nav-link" href="#participants">Participants &amp; Heats</a>
+      <a class="nav-sub-link" href="#participants-fields">Participant Fields</a>
+      <a class="nav-sub-link" href="#participants-heats">Heats</a>
+      <a class="nav-sub-link" href="#participants-csv">CSV Import</a>
+      <a class="nav-link" href="#tracker-setup">Tracker Infrastructure</a>
+      <a class="nav-sub-link" href="#tracker-meshtastic">Meshtastic (MQTT)</a>
+      <a class="nav-sub-link" href="#tracker-aprs">APRS</a>
+      <a class="nav-sub-link" href="#tracker-tnc">KISS TNC</a>
+      <a class="nav-sub-link" href="#tracker-inreach">Garmin InReach</a>
+      <a class="nav-link" href="#viewer">Public Viewer</a>
+      <a class="nav-sub-link" href="#viewer-link">Generating a Viewer Link</a>
+      <a class="nav-sub-link" href="#viewer-privacy">Viewer Privacy Controls</a>
 
-    <div class="nav-section-head">Reference</div>
-    <a class="nav-link" href="#station-types">Station Types</a>
-    <a class="nav-link" href="#settings-ref">Settings Reference</a>
+      <div class="nav-section-head">Operator Guide</div>
+      <a class="nav-link" href="#op-before">Before the Race</a>
+      <a class="nav-sub-link" href="#op-before-checklist">Pre-Race Checklist</a>
+      <a class="nav-link" href="#op-start">Starting the Race</a>
+      <a class="nav-sub-link" href="#op-start-window">Start Window</a>
+      <a class="nav-sub-link" href="#op-start-race">Starting the Race</a>
+      <a class="nav-sub-link" href="#op-start-manual">Manual Start Events</a>
+      <a class="nav-link" href="#op-manage">Managing the Race</a>
+      <a class="nav-sub-link" href="#op-manage-leaderboard">Leaderboard</a>
+      <a class="nav-sub-link" href="#op-manage-checkins">Manual Check-Ins</a>
+      <a class="nav-sub-link" href="#op-manage-dnf">Logging a DNF</a>
+      <a class="nav-sub-link" href="#op-manage-map">Map Controls</a>
+      <a class="nav-link" href="#op-alerts">Alerts &amp; Incidents</a>
+      <a class="nav-link" href="#op-messaging">Messaging</a>
+      <a class="nav-link" href="#op-end">Finishing the Race</a>
+
+      <div class="nav-section-head">Reference</div>
+      <a class="nav-link" href="#station-types">Station Types</a>
+      <a class="nav-link" href="#settings-ref">Settings Reference</a>
+
+      <div id="help-no-results">No matching sections found.</div>
+    </div>
   </nav>
 
   <!-- ── Main content ── -->
@@ -205,7 +266,7 @@
       <h2>SETTING UP A NEW RACE</h2>
       <p>Race setup happens entirely in the <b>Admin</b> page. Work through the tabs in roughly this order before race day.</p>
 
-      <h3>Step 1 — Create the Race</h3>
+      <h3 id="new-race-create">Step 1 — Create the Race</h3>
       <ol class="steps">
         <li><span>Open <b>Admin → Races</b> and click <b>NEW RACE</b>.</span></li>
         <li><span>Enter the race <b>name</b>, <b>date</b>, and select a <b>race format</b> (see Race Types section below).</span></li>
@@ -217,7 +278,7 @@
         <p><b>Tip:</b> If you ran a similar event before, use <b>CLONE</b> on an existing race to copy all settings, heats, classes, stations, and personnel. Then just adjust what changed.</p>
       </div>
 
-      <h3>Step 2 — Upload the Course</h3>
+      <h3 id="new-race-course">Step 2 — Upload the Course</h3>
       <ol class="steps">
         <li><span>Go to <b>Admin → Courses</b> and upload your GPX or KML track file. Supported sources: Strava export, Gaia GPS, CalTopo, Garmin Connect, Google Earth.</span></li>
         <li><span>If the file contains multiple tracks or routes, select the correct path from the dropdown.</span></li>
@@ -226,7 +287,7 @@
         <li><span>Click <b>AUTO-CREATE START/FINISH</b> to seed station markers at the course endpoints.</span></li>
       </ol>
 
-      <h3>Step 3 — Configure Stations</h3>
+      <h3 id="new-race-stations">Step 3 — Configure Stations</h3>
       <ol class="steps">
         <li><span>Go to <b>Races → STATIONS</b>. The start and finish markers from Step 2 should already be there.</span></li>
         <li><span>Add any aid stations, checkpoints, turnarounds, or net-control stations your event uses.</span></li>
@@ -234,7 +295,7 @@
         <li><span>Optionally set a <b>cutoff time</b> in minutes from race start for each aid station.</span></li>
       </ol>
 
-      <h3>Step 4 — Set Up Heats (Optional)</h3>
+      <h3 id="new-race-heats">Step 4 — Set Up Heats (Optional)</h3>
       <ol class="steps">
         <li><span>Go to <b>Races → HEATS</b> and click <b>NEW HEAT</b>.</span></li>
         <li><span>Name the heat (e.g., "Open", "Masters", "Wave 1"), assign a <b>color</b> and <b>marker shape</b>.</span></li>
@@ -242,7 +303,7 @@
         <li><span>Repeat for each wave or category that needs its own color coding on the map.</span></li>
       </ol>
 
-      <h3>Step 5 — Add Participants</h3>
+      <h3 id="new-race-participants">Step 5 — Add Participants</h3>
       <ol class="steps">
         <li><span>Go to <b>Races → PARTICIPANTS</b>. Add participants individually or bulk-import via <b>IMPORT CSV</b>.</span></li>
         <li><span>CSV columns: <kbd>bib</kbd>, <kbd>name</kbd>, <kbd>tracker_id</kbd>, <kbd>heat</kbd>, <kbd>class</kbd>, <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>, <kbd>inreach_url</kbd>.</span></li>
@@ -253,10 +314,10 @@
         <p><b>Tracker ID matching:</b> The system looks up incoming positions by tracker ID. If an APRS or Meshtastic node transmits and its ID matches a participant's tracker_id field, the position is attributed to that participant automatically. Unmatched nodes appear in the Infrastructure tab as discovered nodes — you can assign them from there.</p>
       </div>
 
-      <h3>Step 6 — Configure Tracker Infrastructure</h3>
+      <h3 id="new-race-infrastructure">Step 6 — Configure Tracker Infrastructure</h3>
       <p>See the <a class="nav-link" style="display:inline;padding:0;border:none" href="#tracker-setup">Tracker Infrastructure</a> section for full details. At minimum, enable the datasources your event uses (MQTT for Meshtastic, APRS for radio, etc.) and confirm the green status lights appear in the topbar.</p>
 
-      <h3>Step 7 — Add Personnel (Optional)</h3>
+      <h3 id="new-race-personnel">Step 7 — Add Personnel (Optional)</h3>
       <ol class="steps">
         <li><span>Go to <b>Races → PERSONNEL</b> and add volunteer names with optional tracker IDs and station assignments.</span></li>
         <li><span>Personnel with trackers appear on the operator map as distinct icons so you can see where your staff are relative to the course.</span></li>
@@ -273,7 +334,7 @@
         <tr><td>Stopped detection</td><td>Alerts when a participant has not moved for more than the configured interval (default 10 min)</td></tr>
       </table>
 
-      <h3>Step 9 — Activate the Race</h3>
+      <h3 id="new-race-activate">Step 9 — Activate the Race</h3>
       <div class="callout warn">
         <p><b>Required before activation:</b> A course file must be assigned. The system will not allow activation without one.</p>
       </div>
@@ -289,17 +350,17 @@
       <h2>RACE TYPES &amp; FORMATS</h2>
       <p>CourseSentry supports three race formats that affect how course progress, leaderboard position, and station logic work.</p>
 
-      <h3>Point-to-Point</h3>
+      <h3 id="race-types-p2p">Point-to-Point</h3>
       <p>Participants start at one end of the course and finish at the other. Progress is calculated as distance traveled from the start station toward the finish, expressed as a percentage of total course distance. The leaderboard ranks participants by their percentage complete (highest first).</p>
       <p><b>Station setup:</b> Create a <b>Start</b> and a <b>Finish</b> station. Aid stations between them are ordered automatically by their position along the route.</p>
       <p><b>Use for:</b> Trail runs, road races, point-to-point cycling events.</p>
 
-      <h3>Out-and-Back (OAB)</h3>
+      <h3 id="race-types-oab">Out-and-Back (OAB)</h3>
       <p>Participants travel from the start to a turnaround point and return to the finish. Progress is calculated as follows: 0–50% represents the outbound leg, 50–100% represents the return leg. Participants who have reached the turnaround but carry no GPS tracker are assumed at 50% until their next check-in. The leaderboard correctly ranks a returning participant above an outbound participant at the same raw distance from start.</p>
       <p><b>Station setup:</b> Use a <b>Start/Finish</b> (combined) station at the starting line and a <b>Turnaround</b> station at the midpoint. Aid stations on the course appear on both legs.</p>
       <p><b>Use for:</b> Out-and-back trail runs, 50K or 100K ultras with a single turnaround.</p>
 
-      <h3>Fully Tracked vs. Manual Check-In</h3>
+      <h3 id="race-types-modes">Fully Tracked vs. Manual Check-In</h3>
       <p>These are not separate race formats but rather modes of operation that can be mixed freely within any format.</p>
       <table class="help-table">
         <tr><th>Mode</th><th>How it works</th><th>Best for</th></tr>
@@ -325,11 +386,11 @@
     <div class="help-section" id="course-setup">
       <h2>COURSE &amp; STATIONS</h2>
 
-      <h3>Uploading a Course File</h3>
+      <h3 id="course-upload">Uploading a Course File</h3>
       <p>Go to <b>Admin → Courses</b> and drag or browse to a <b>GPX</b> or <b>KML</b> file. CourseSentry extracts track points (the route line) and named waypoints (which become candidate aid station locations). Files up to 50 MB are supported; typical course files are well under 1 MB.</p>
       <p>If the file has multiple tracks or route segments, a path selector appears — choose the one that matches your course.</p>
 
-      <h3>Editing the Course</h3>
+      <h3 id="course-edit">Editing the Course</h3>
       <p>Select a course in the list and click <b>EDIT MAP</b> (only available when the course is not assigned to an active race). The map editor opens in a new tab with:</p>
       <ul>
         <li><b>Edit Vertices</b> (pencil toolbar button) — drag any point on the track. Click the midpoint of a segment to insert a new vertex. Right-click a vertex to remove it.</li>
@@ -338,10 +399,10 @@
         <li><b>SAVE</b> — writes the edited geometry back to the server as a GPX file.</li>
       </ul>
 
-      <h3>Station Ordering</h3>
+      <h3 id="course-ordering">Station Ordering</h3>
       <p>When a course is assigned to a race, stations are automatically ordered along the route by projecting each station's coordinates onto the course line. You do not need to manually sort them — the system determines which station comes first, second, etc., and uses that order for the leaderboard and progress calculations.</p>
 
-      <h3>Importing Waypoints as Stations</h3>
+      <h3 id="course-waypoints">Importing Waypoints as Stations</h3>
       <p>Named waypoints embedded in your GPX or KML file (e.g., "Aid 1", "Turnaround") appear in the course preview. You can bulk-import these as stations by clicking <b>IMPORT WAYPOINTS</b> in the Course tab of the race configuration. Each waypoint becomes an aid-type station that you can then edit individually.</p>
     </div>
 
@@ -349,7 +410,7 @@
     <div class="help-section" id="participants">
       <h2>PARTICIPANTS &amp; HEATS</h2>
 
-      <h3>Participant Fields</h3>
+      <h3 id="participants-fields">Participant Fields</h3>
       <table class="help-table">
         <tr><th>Field</th><th>Notes</th></tr>
         <tr><td>BIB</td><td>Unique identifier. Can be a number or text. Shown on map markers and leaderboard.</td></tr>
@@ -361,11 +422,11 @@
         <tr><td>InReach URL</td><td>Garmin InReach share link. The server polls this for satellite position updates.</td></tr>
       </table>
 
-      <h3>Heats</h3>
+      <h3 id="participants-heats">Heats</h3>
       <p>Heats are colored start waves shown as distinct marker types on the map. Configure them under <b>Races → HEATS</b>. Each heat gets a color and one of six shapes: circle, triangle, square, diamond, star, or pentagon. When a participant has a heat assigned, their map marker uses that color and shape — making it easy to visually distinguish runners by wave at a glance.</p>
       <p>If a heat has its own <b>start time</b>, all participants in that heat begin timing from that moment rather than the race start. This is important for staggered starts — without per-heat start times, everyone's pace and ETA calculations use the same reference clock.</p>
 
-      <h3>CSV Import</h3>
+      <h3 id="participants-csv">CSV Import</h3>
       <p>Prepare a CSV with column headers. Required: <kbd>bib</kbd>, <kbd>name</kbd>. Optional: <kbd>tracker_id</kbd>, <kbd>heat</kbd> (heat name), <kbd>class</kbd> (class name), <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>, <kbd>inreach_url</kbd>. Heat and class values are matched by name — create them in the HEATS and CLASSES tabs first. Unknown heat or class names are silently skipped.</p>
     </div>
 
@@ -374,7 +435,7 @@
       <h2>TRACKER INFRASTRUCTURE</h2>
       <p>CourseSentry can receive position data from four sources simultaneously. Enable each one under the race's RF settings.</p>
 
-      <h3>Meshtastic (MQTT)</h3>
+      <h3 id="tracker-meshtastic">Meshtastic (MQTT)</h3>
       <p>Meshtastic is a LoRa-based open-source mesh radio network. Devices communicate over unlicensed spectrum (915 MHz in North America) and relay positions via a mesh — meaning participants do not need direct line-of-sight to a gateway, only to any other node in the mesh.</p>
       <h4>Setup</h4>
       <ol class="steps">
@@ -387,7 +448,7 @@
         <p><b>MQTT RF Tech:</b> The default mode is Meshtastic-formatted JSON position packets. If your mesh gateway publishes raw APRS-format packets over MQTT, select the APRS-over-MQTT mode instead.</p>
       </div>
 
-      <h3>APRS (HF/VHF/UHF / TCP/AX.25/LoRa)</h3>
+      <h3 id="tracker-aprs">APRS (HF/VHF/UHF / TCP/AX.25/LoRa)</h3>
       <p>APRS (Automatic Packet Reporting System) transmits position packets over amateur radio across a wide range of bands and transports — HF, VHF, UHF, TCP/IP (APRS-IS), AX.25 packet radio, and LoRa. CourseSentry connects to the APRS-IS internet backbone to receive these packets in real time. A valid amateur radio license is required to transmit APRS; receiving requires no license.</p>
       <h4>Setup</h4>
       <ol class="steps">
@@ -399,7 +460,7 @@
         <p><b>License requirement:</b> Transmitting on APRS requires a valid FCC amateur radio license (Technician class or higher). CourseSentry's APRS integration is receive-only by default; two-way messaging via APRS requires a licensed control operator managing the gateway.</p>
       </div>
 
-      <h3>KISS TNC (Serial Radio)</h3>
+      <h3 id="tracker-tnc">KISS TNC (Serial Radio)</h3>
       <p>A KISS TNC (Terminal Node Controller) connects CourseSentry to a traditional VHF/UHF radio for direct APRS packet transmission and reception — without needing internet connectivity. This is the recommended setup for events in areas with no cell or internet coverage.</p>
       <h4>Setup</h4>
       <ol class="steps">
@@ -411,7 +472,7 @@
         <p><b>Multi-client TNC:</b> Multiple computers can connect to the same TNC session. Only the "primary" client transmits; others receive. This lets a backup laptop monitor traffic without double-transmitting.</p>
       </div>
 
-      <h3>Garmin InReach (Satellite)</h3>
+      <h3 id="tracker-inreach">Garmin InReach (Satellite)</h3>
       <p>Garmin InReach devices communicate over the Iridium satellite network — they work anywhere on Earth with no ground infrastructure. Coverage comes at the cost of update frequency (typically every 10 minutes) and requires a paid Garmin subscription per device.</p>
       <h4>Setup</h4>
       <ol class="steps">
@@ -426,7 +487,7 @@
       <h2>PUBLIC VIEWER</h2>
       <p>The public viewer is a read-only, token-gated page you can share with spectators, family members, crews, and the media. It shows the live map and/or leaderboard with no login required.</p>
 
-      <h3>Generating a Viewer Link</h3>
+      <h3 id="viewer-link">Generating a Viewer Link</h3>
       <ol class="steps">
         <li><span>In Admin → Races, select your race and open its settings.</span></li>
         <li><span>Click <b>GEN VIEWER</b> to generate a unique access token. A shareable URL appears.</span></li>
@@ -434,7 +495,7 @@
         <li><span>To invalidate the link (e.g., after the race), click <b>REVOKE</b> and the token is immediately disabled.</span></li>
       </ol>
 
-      <h3>Viewer Privacy Controls</h3>
+      <h3 id="viewer-privacy">Viewer Privacy Controls</h3>
       <table class="help-table">
         <tr><th>Setting</th><th>Effect</th></tr>
         <tr><td>Viewer map enabled</td><td>Shows the live map with participant positions. Disable to show leaderboard only.</td></tr>
@@ -449,7 +510,7 @@
       <h2>BEFORE THE RACE</h2>
       <p>The <b>Operator</b> page is the real-time race command interface, typically running on the net control station's laptop or tablet. Open it from the Admin topbar (<b>OPERATOR VIEW</b>) or navigate directly to the race-select page.</p>
 
-      <h3>Pre-Race Checklist</h3>
+      <h3 id="op-before-checklist">Pre-Race Checklist</h3>
       <ul>
         <li>Confirm the correct race is active (race name shown in the topbar pill).</li>
         <li>Verify datasource status lights are green for the sources you are using (MQTT, APRS, TNC, InReach).</li>
@@ -467,7 +528,7 @@
     <div class="help-section" id="op-start">
       <h2>STARTING THE RACE</h2>
 
-      <h3>Start Window (Optional)</h3>
+      <h3 id="op-start-window">Start Window (Optional)</h3>
       <p>For events with a defined pre-race window (e.g., participants can start anytime between 6:00 AM and 6:30 AM), use the <b>Start Window</b> feature:</p>
       <ol class="steps">
         <li><span>Click <b>OPEN START WINDOW</b> in the operator topbar. The start window opens and a countdown timer begins.</span></li>
@@ -475,14 +536,14 @@
         <li><span>When the window closes (or you click to close it), any remaining participants who have not been checked in are marked <b>DNS</b>.</span></li>
       </ol>
 
-      <h3>Starting the Race</h3>
+      <h3 id="op-start-race">Starting the Race</h3>
       <ol class="steps">
         <li><span>At race time, click <b>START RACE</b> in the operator topbar. This sets the official race start time to the current clock.</span></li>
         <li><span>All participants marked as Active have their start time recorded. The leaderboard begins calculating pace and ETA.</span></li>
         <li><span>For participants without GPS trackers, create a <b>Start</b> event manually (select the participant on the leaderboard, then log a start event) to begin their timing.</span></li>
       </ol>
 
-      <h3>Manual Start Events</h3>
+      <h3 id="op-start-manual">Manual Start Events</h3>
       <p>For fully manual or hybrid events, you can create individual start events as participants cross the line:</p>
       <ol class="steps">
         <li><span>Click a participant's row on the leaderboard to open their detail panel.</span></li>
@@ -495,10 +556,10 @@
     <div class="help-section" id="op-manage">
       <h2>MANAGING THE RACE</h2>
 
-      <h3>Leaderboard</h3>
+      <h3 id="op-manage-leaderboard">Leaderboard</h3>
       <p>The leaderboard shows all participants sorted by race position (highest progress percentage first) by default. Use the sort buttons to switch to BIB order, pace, name, or heat. Click any row to see that participant's detail panel with full event history, last GPS position, battery level, and signal strength.</p>
 
-      <h3>Manual Check-Ins (Aid Station Reporting)</h3>
+      <h3 id="op-manage-checkins">Manual Check-Ins (Aid Station Reporting)</h3>
       <p>When a volunteer at an aid station radios a bib number to net control, log it here:</p>
       <ol class="steps">
         <li><span>Find the participant by BIB on the leaderboard (use the search/filter if needed) or click <b>CHECK-IN</b> to open the batch check-in modal.</span></li>
@@ -510,14 +571,14 @@
         <p><b>Departure is the significant marker:</b> Departure time drives leaderboard position, pace, and ETA calculations. Always log a <b>DEPART</b> event when a participant leaves a station. If <b>Auto-log arrivals</b> is enabled, arrival events are created automatically when a GPS tracker enters a station's geofence — this is a convenience bonus, but departure must still be logged.</p>
       </div>
 
-      <h3>Logging a DNF</h3>
+      <h3 id="op-manage-dnf">Logging a DNF</h3>
       <ol class="steps">
         <li><span>Click the participant's row on the leaderboard.</span></li>
         <li><span>Click <b>LOG EVENT → DNF</b>. Optionally note the station or location where they withdrew.</span></li>
         <li><span>The participant is moved to the DNF section of the leaderboard and their marker changes to indicate withdrawn status.</span></li>
       </ol>
 
-      <h3>Map Controls</h3>
+      <h3 id="op-manage-map">Map Controls</h3>
       <ul>
         <li><b>Base layer:</b> Switch between Topo, Satellite, Street, and Dark in the topbar selector. If offline maps are enabled and ready, only Topo and Satellite are available.</li>
         <li><b>Nametags:</b> Toggle persistent name/BIB labels on all map markers.</li>
@@ -647,31 +708,78 @@
 <script src="js/common.js"></script>
 <script>
 'use strict';
-// Highlight active nav link based on scroll position
+const allLinks  = document.querySelectorAll('.nav-link, .nav-sub-link');
 const sections  = document.querySelectorAll('.help-section');
-const navLinks  = document.querySelectorAll('.nav-link');
 const content   = document.getElementById('help-content');
+const searchEl  = document.getElementById('help-search');
+const noResults = document.getElementById('help-no-results');
 
-function updateActiveLink() {
-  let current = null;
-  sections.forEach(s => {
-    if (s.offsetTop - content.scrollTop <= 60) current = s.id;
-  });
-  navLinks.forEach(l => {
-    l.classList.toggle('active', l.getAttribute('href') === '#' + current);
-  });
-}
-
-navLinks.forEach(link => {
+// Smooth-scroll any nav link to its target
+allLinks.forEach(link => {
   link.addEventListener('click', e => {
     e.preventDefault();
     const target = document.getElementById(link.getAttribute('href').slice(1));
     if (target) content.scrollTo({ top: target.offsetTop - 16, behavior: 'smooth' });
+    searchEl.value = '';
+    applySearch('');
   });
 });
 
+// Highlight the active nav link while scrolling
+function updateActiveLink() {
+  let current = null;
+  document.querySelectorAll('#help-content [id]').forEach(el => {
+    if (el.offsetTop - content.scrollTop <= 70) current = el.id;
+  });
+  allLinks.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + current));
+}
 content.addEventListener('scroll', updateActiveLink, { passive: true });
 updateActiveLink();
+
+// Jump to hash on load (context-sensitive entry from admin/operator pages)
+const initialHash = location.hash;
+if (initialHash) {
+  const target = document.getElementById(initialHash.slice(1));
+  if (target) setTimeout(() => content.scrollTo({ top: target.offsetTop - 16, behavior: 'smooth' }), 50);
+}
+
+// Live search: filter sections and sidebar links
+function applySearch(q) {
+  if (!q) {
+    sections.forEach(s => s.style.display = '');
+    allLinks.forEach(l => l.style.display = '');
+    document.querySelectorAll('.nav-section-head').forEach(h => h.style.display = '');
+    noResults.style.display = 'none';
+    return;
+  }
+  let anyVisible = false;
+  sections.forEach(s => {
+    const match = s.textContent.toLowerCase().includes(q);
+    s.style.display = match ? '' : 'none';
+    if (match) anyVisible = true;
+  });
+  allLinks.forEach(l => {
+    const id = l.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    const parentSection = el && el.closest('.help-section');
+    const visible = parentSection
+      ? parentSection.style.display !== 'none'
+      : (el && el.style.display !== 'none');
+    l.style.display = visible ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-section-head').forEach(head => {
+    let sib = head.nextElementSibling;
+    let anyShown = false;
+    while (sib && !sib.classList.contains('nav-section-head') && sib.id !== 'help-no-results') {
+      if (sib.style.display !== 'none') anyShown = true;
+      sib = sib.nextElementSibling;
+    }
+    head.style.display = anyShown ? '' : 'none';
+  });
+  noResults.style.display = anyVisible ? 'none' : '';
+}
+
+searchEl.addEventListener('input', () => applySearch(searchEl.value.trim().toLowerCase()));
 </script>
 </body>
 </html>

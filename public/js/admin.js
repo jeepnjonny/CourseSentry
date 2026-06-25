@@ -488,7 +488,7 @@ function renderHeatsList() {
   if (!el) return;
   if (!heats.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No heats defined.</div>'; return; }
   const race = races.find(r => r.id === selectedRaceId);
-  el.innerHTML = `<table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
     ${heats.map(h => `<tr>
       <td style="color:var(--text4);font-size:13px">${h.id}</td>
       <td>${h.name}</td>
@@ -501,18 +501,18 @@ function renderHeatsList() {
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteHeat(${h.id})">DEL</button>
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function renderClassesList() {
   const el = document.getElementById('classes-list');
   if (!el) return;
   if (!classes.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No classes defined.</div>'; return; }
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NAME</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th></th></tr></thead><tbody>
     ${classes.map(c => `<tr><td>${c.name}</td><td style="text-align:right">
       <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteClass(${c.id})">DEL</button>
     </td></tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function openHeatModal(id) {
@@ -968,7 +968,7 @@ function renderStationsList() {
   const el = document.getElementById('stations-list');
   if (!el) return;
   if (!stations.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No stations yet. Seed from a course file above, or add manually.</div>'; return; }
-  el.innerHTML = stationWarningHtml() + `<table class="data-table"><thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>LAT</th><th>LON</th><th>CUTOFF</th><th></th></tr></thead><tbody>
+  el.innerHTML = stationWarningHtml() + `<div class="table-scroll"><table class="data-table"><thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>LAT</th><th>LON</th><th>CUTOFF</th><th></th></tr></thead><tbody>
     ${stations.map((s, i) => `<tr>
       <td class="text-dim">${i + 1}</td>
       <td>${s.name}</td>
@@ -981,7 +981,7 @@ function renderStationsList() {
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteStation(${s.id})">DEL</button>
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 
@@ -1112,7 +1112,7 @@ function renderParticipantsList() {
     return;
   }
   const STATUS_C = { dns:'var(--text3)', active:'var(--accent)', dnf:'var(--accent3)', finished:'var(--accent2)' };
-  el.innerHTML = `<table class="data-table">
+  el.innerHTML = `<div class="table-scroll"><table class="data-table">
     <thead><tr>
       <th style="width:28px"><input type="checkbox" id="pt-select-all" onchange="toggleSelectAllParticipants(this.checked)" title="Select all"></th>
       <th>#</th><th>BIB</th><th>NAME</th><th>HEAT</th><th>CLASS</th><th>TRACKER</th><th>STATUS</th><th>AGE</th><th></th>
@@ -1136,7 +1136,7 @@ function renderParticipantsList() {
           <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteParticipant(${p.id})">DEL</button>
         </td>
       </tr>`;
-    }).join('')}</tbody></table>`;
+    }).join('')}</tbody></table></div>`;
 }
 
 function toggleParticipantSelect(id, checked) {
@@ -1433,7 +1433,7 @@ async function loadPersonnel() {
   const el = document.getElementById('personnel-list');
   if (!el) return;
   if (!personnel.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No personnel yet.</div>'; return; }
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
     ${personnel.map(p => `<tr>
       <td>${p.name}</td>
       <td>${p.is_rover ? '<span style="color:var(--accent);font-size:12px;letter-spacing:1px">ROVER</span>' : (p.station_name || '<span class="text-dim">—</span>')}</td>
@@ -1444,10 +1444,59 @@ async function loadPersonnel() {
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deletePersonnel(${p.id})">DEL</button>
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 let editingPersonnelId = null;
+
+function pmBuildStationOptions() {
+  return '<option value="">— Unassigned —</option>' +
+    '<option value="rover">Rover (mobile, no fixed station)</option>' +
+    stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+
+function pmAddQRow(focusName = true) {
+  const container = document.getElementById('pm-qrows');
+  const div = document.createElement('div');
+  div.className = 'pm-qrow';
+  div.innerHTML = `
+    <input class="pm-q-name"    placeholder="Name"       onkeydown="pmQKeydown(event,this)">
+    <select class="pm-q-station" onkeydown="pmQKeydown(event,this)">${pmBuildStationOptions()}</select>
+    <input class="pm-q-tracker" placeholder="Tracker ID" onkeydown="pmQKeydown(event,this)">
+    <input class="pm-q-phone"   placeholder="Phone"      onkeydown="pmQKeydown(event,this)">
+    <button tabindex="-1" onclick="pmRemoveQRow(this)" style="padding:2px 6px;color:var(--accent3)">✕</button>`;
+  container.appendChild(div);
+  if (focusName) div.querySelector('.pm-q-name').focus();
+  return div;
+}
+
+function pmRemoveQRow(btn) {
+  const container = document.getElementById('pm-qrows');
+  const row = btn.closest('.pm-qrow');
+  if (container.children.length > 1) {
+    row.remove();
+  } else {
+    row.querySelector('.pm-q-name').value    = '';
+    row.querySelector('.pm-q-station').value = '';
+    row.querySelector('.pm-q-tracker').value = '';
+    row.querySelector('.pm-q-phone').value   = '';
+  }
+}
+
+function pmQKeydown(e, el) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    pmAddQRow(true);
+    return;
+  }
+  if (e.key === 'Tab' && !e.shiftKey && el.classList.contains('pm-q-phone')) {
+    const allPhones = [...document.querySelectorAll('#pm-qrows .pm-q-phone')];
+    if (allPhones.indexOf(el) === allPhones.length - 1) {
+      e.preventDefault();
+      pmAddQRow(true);
+    }
+  }
+}
 
 function pmUpdatePreview() {
   const color = document.getElementById('pm-color')?.value || '#f5a623';
@@ -1458,40 +1507,88 @@ function pmUpdatePreview() {
 
 function openPersonnelModal(id) {
   editingPersonnelId = id || null;
-  const p = id ? personnel.find(x => x.id === id) : null;
+  const inner   = document.getElementById('pm-inner');
+  const editSec = document.getElementById('pm-edit-section');
+  const newSec  = document.getElementById('pm-new-section');
   document.getElementById('personnel-modal-title').textContent = id ? 'EDIT PERSONNEL' : 'NEW PERSONNEL';
-  document.getElementById('pm-name').value       = p?.name || '';
-  document.getElementById('pm-tracker-id').value = p?.tracker_id || '';
-  document.getElementById('pm-phone').value      = p?.phone || '';
-  document.getElementById('pm-color').value      = p?.color || '#f5a623';
-  document.getElementById('pm-shape').value      = p?.shape || 'triangle';
-  const sel = document.getElementById('pm-station-id');
-  sel.innerHTML = '<option value="">— Unassigned —</option>' +
-    '<option value="rover"' + (p?.is_rover ? ' selected' : '') + '>Rover (mobile, no fixed station)</option>' +
-    stations.map(s => `<option value="${s.id}"${!p?.is_rover && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
-  pmUpdatePreview();
-  document.getElementById('personnel-modal').classList.remove('hidden');
-  document.getElementById('pm-name').focus();
+
+  if (id) {
+    inner.classList.remove('modal-wide');
+    editSec.classList.remove('hidden');
+    newSec.classList.add('hidden');
+    const p = personnel.find(x => x.id === id);
+    document.getElementById('pm-name').value       = p?.name       || '';
+    document.getElementById('pm-tracker-id').value = p?.tracker_id || '';
+    document.getElementById('pm-phone').value      = p?.phone      || '';
+    document.getElementById('pm-color').value      = p?.color      || '#f5a623';
+    document.getElementById('pm-shape').value      = p?.shape      || 'triangle';
+    const sel = document.getElementById('pm-station-id');
+    sel.innerHTML = '<option value="">— Unassigned —</option>' +
+      '<option value="rover"' + (p?.is_rover ? ' selected' : '') + '>Rover (mobile, no fixed station)</option>' +
+      stations.map(s => `<option value="${s.id}"${!p?.is_rover && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
+    pmUpdatePreview();
+    document.getElementById('personnel-modal').classList.remove('hidden');
+    document.getElementById('pm-name').focus();
+  } else {
+    inner.classList.add('modal-wide');
+    editSec.classList.add('hidden');
+    newSec.classList.remove('hidden');
+    document.getElementById('pm-qrows').innerHTML = '';
+    pmAddQRow();
+    document.getElementById('personnel-modal').classList.remove('hidden');
+  }
 }
 
 async function savePersonnel() {
-  const name       = document.getElementById('pm-name').value.trim();
-  const station_id = document.getElementById('pm-station-id').value || null;
-  const tracker_id = document.getElementById('pm-tracker-id').value.trim() || null;
-  const phone      = document.getElementById('pm-phone').value.trim() || null;
-  const color      = document.getElementById('pm-color').value || '#f5a623';
-  const shape      = document.getElementById('pm-shape').value || 'triangle';
-  if (!name) { RT.toast('Name required', 'warn'); return; }
-  const is_rover = station_id === 'rover';
-  const body = { name, station_id: is_rover || !station_id ? null : parseInt(station_id), is_rover, tracker_id, phone, color, shape };
-  const res = editingPersonnelId
-    ? await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body)
-    : await RT.post(`/api/races/${selectedRaceId}/personnel`, body);
-  if (res.ok) {
+  if (editingPersonnelId) {
+    const name       = document.getElementById('pm-name').value.trim();
+    const station_id = document.getElementById('pm-station-id').value || null;
+    const tracker_id = document.getElementById('pm-tracker-id').value.trim() || null;
+    const phone      = document.getElementById('pm-phone').value.trim() || null;
+    const color      = document.getElementById('pm-color').value || '#f5a623';
+    const shape      = document.getElementById('pm-shape').value || 'triangle';
+    if (!name) { RT.toast('Name required', 'warn'); return; }
+    const is_rover = station_id === 'rover';
+    const body = { name, station_id: is_rover || !station_id ? null : parseInt(station_id), is_rover, tracker_id, phone, color, shape };
+    const res = await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body);
+    if (res.ok) {
+      closeModal('personnel-modal');
+      await loadPersonnel();
+      RT.toast('Personnel updated', 'ok');
+    } else RT.toast(res.error, 'warn');
+    return;
+  }
+
+  const rows = [...document.querySelectorAll('#pm-qrows .pm-qrow')];
+  const toSave = rows.map(row => ({
+    name:       row.querySelector('.pm-q-name').value.trim(),
+    station_id: row.querySelector('.pm-q-station').value || null,
+    tracker_id: row.querySelector('.pm-q-tracker').value.trim() || null,
+    phone:      row.querySelector('.pm-q-phone').value.trim() || null,
+  })).filter(r => r.name);
+  if (!toSave.length) { RT.toast('Enter at least one name', 'warn'); return; }
+
+  let saved = 0;
+  for (const r of toSave) {
+    const is_rover = r.station_id === 'rover';
+    const body = {
+      name:       r.name,
+      station_id: is_rover || !r.station_id ? null : parseInt(r.station_id),
+      is_rover,
+      tracker_id: r.tracker_id,
+      phone:      r.phone,
+      color:      '#f5a623',
+      shape:      'triangle',
+    };
+    const res = await RT.post(`/api/races/${selectedRaceId}/personnel`, body);
+    if (res.ok) saved++;
+    else RT.toast(`Failed to save "${r.name}": ${res.error}`, 'warn');
+  }
+  if (saved > 0) {
     closeModal('personnel-modal');
     await loadPersonnel();
-    RT.toast(editingPersonnelId ? 'Personnel updated' : 'Personnel added', 'ok');
-  } else RT.toast(res.error, 'warn');
+    RT.toast(`${saved} personnel added`, 'ok');
+  }
 }
 
 async function deletePersonnel(id) {
@@ -1542,7 +1639,7 @@ async function refreshInfra() {
   const missingTimer = (races.find(r=>r.id===activeRaceId))?.missing_timer || 3600;
 
   const assignedCol = selectedRaceId ? '<th>ASSIGNED TO</th>' : '';
-  el.innerHTML = `<table class="data-table"><thead><tr><th>NODE ID</th><th>LONG NAME</th><th>SHORT</th><th>BATTERY</th><th>LAST SEEN</th><th>POSITION</th>${assignedCol}</tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NODE ID</th><th>LONG NAME</th><th>SHORT</th><th>BATTERY</th><th>LAST SEEN</th><th>POSITION</th>${assignedCol}</tr></thead><tbody>
     ${trackers.map(t => {
       const missing = t.last_seen && (now - t.last_seen) > missingTimer;
       const age = RT.timeAgo(t.last_seen);
@@ -1563,7 +1660,7 @@ async function refreshInfra() {
         ${assignCell}
       </tr>`;
     }).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function openAssignPicker(nodeId, longName) {
@@ -1649,7 +1746,7 @@ async function loadUsers() {
   users = res.ok ? res.data : [];
   const el = document.getElementById('users-list');
   if (!el) return;
-  el.innerHTML = `<table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>PHONE</th><th>MARKER</th><th>CREATED</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>PHONE</th><th>MARKER</th><th>CREATED</th><th></th></tr></thead><tbody>
     ${users.map(u => `<tr>
       <td>${u.username}${u.id===currentUser.id?' <span class="text-dim">(you)</span>':''}</td>
       <td><span class="badge" style="color:${u.role==='admin'?'var(--accent3)':u.role==='station'?'var(--accent2)':'var(--accent)'}">${u.role.toUpperCase()}</span></td>
@@ -1662,7 +1759,7 @@ async function loadUsers() {
         ${u.id!==currentUser.id?`<button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteUser(${u.id})">DEL</button>`:''}
       </td>
     </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>`;
 }
 
 function openUserModal(id) {
@@ -1773,6 +1870,15 @@ function renderSettingsTab() {
     <div style="font-size:13px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-family:monospace;color:var(--accent4)" id="aprs-filter-preview">
       Previewing filter…
     </div>
+    <div style="margin-top:10px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:16px">
+        <input type="checkbox" id="s-aprs-igate-enabled">
+        Enable RF→APRS-IS Igate
+      </label>
+      <div style="font-size:13px;color:var(--text3);margin-top:3px;margin-left:24px">
+        Forwards TNC-received packets to APRS-IS. Requires a valid callsign with a verified (authenticated) APRS-IS connection.
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="primary" onclick="saveAprsSettings()">SAVE</button>
       <button onclick="testAprs()" id="s-aprs-test-btn">TEST</button>
@@ -1823,6 +1929,7 @@ async function bindSettingsTab() {
   document.getElementById('s-aprs-port').value       = s.aprs_port || '14580';
   const filterType = s.aprs_filter_type || 'location';
   document.getElementById(`s-aprs-filter-${filterType}`).checked = true;
+  document.getElementById('s-aprs-igate-enabled').checked = s.aprs_igate_enabled === '1';
 
   document.getElementById('settings-weather-key').value = s.weather_api_key || '';
 
@@ -1853,6 +1960,7 @@ async function saveAprsSettings() {
     aprs_server:      document.getElementById('s-aprs-server').value.trim() || 'rotate.aprs2.net',
     aprs_port:        document.getElementById('s-aprs-port').value || '14580',
     aprs_filter_type: filterType,
+    aprs_igate_enabled: document.getElementById('s-aprs-igate-enabled').checked ? '1' : '0',
   });
   if (res.ok) RT.toast('APRS-IS settings saved', 'ok');
   else RT.toast(res.error, 'warn');
@@ -1966,7 +2074,7 @@ document.addEventListener('keydown', e => {
     const modal = e.target.closest('.modal-bg');
     if (!modal) return;
     if (modal.id === 'participant-modal') saveParticipant();
-    if (modal.id === 'personnel-modal')  savePersonnel();
+    if (modal.id === 'personnel-modal' && editingPersonnelId)  savePersonnel();
     if (modal.id === 'station-modal')    saveStation();
     if (modal.id === 'user-modal')       saveUser();
   }
@@ -2071,6 +2179,16 @@ function clearLogView() {
 function goToRFAnalysis() {
   const url = RT.BASE + 'rf-analysis.html' + (activeRaceId ? `?race=${activeRaceId}` : '');
   window.location.href = url;
+}
+
+function openAdminHelp() {
+  const map = {
+    races: '#new-race', courses: '#course-setup', course: '#course-setup',
+    participants: '#participants', heats: '#participants',
+    personnel: '#new-race', infra: '#tracker-setup',
+    settings: '#tracker-setup', logs: '#overview', users: '#overview'
+  };
+  window.open(RT.BASE + 'help.html' + (map[currentTab] || '#overview'));
 }
 
 init();

@@ -7,6 +7,8 @@ let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
 let showNametags = false, showPersonnelMarkers = true;
 let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
+let wildfirePerimeterLayer = null, wildfireHotspotLayer = null;
+let wildfireLayersAdded = false;
 let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
@@ -27,6 +29,8 @@ const LAYER_LEGENDS = {
   'Temperature':   { label:'TEMPERATURE (°F)', grad:'#820eb4,#1464d2,#20e8e8,#28b428,#f0f032,#fa8c32,#fa3232', ticks:['-4','32','59','86','104'] },
   'Radar':         { label:'RADAR (dBZ)',      grad:'#00ccff,#0066ff,#00ff00,#ffff00,#ff6600,#ff0000,#8b0000', ticks:['-30','-10','10','30','50','70'] },
   'Lightning':     { label:'LIGHTNING STRIKES', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['0','1h','6h','24h'] },
+  'Fire Perimeters': { label:'FIRE PERIMETERS',     grad:'#ff8c0033,#ff4500aa,#cc0000', ticks:['Low','Active','High'] },
+  'Hotspots':        { label:'FIRE RADIATIVE POWER', grad:'#ffff00,#ff8800,#ff0000',    ticks:['Low FRP','Med','High'] },
 };
 let clockInterval = null, missingCheckInterval = null, stoppedCheckInterval = null, lastSeenInterval = null;
 let fmt24 = false;
@@ -255,6 +259,7 @@ function handleInit(data) {
   checkStationWarnings();
   if (!trackPoints) loadTrackData(); // fallback API fetch if WS didn't include track
   setupWeatherLayers(data.weatherKey);
+  loadWildfireData();
   // If offline tiles are already ready, restrict selector and switch to offline URLs
   updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
@@ -381,6 +386,7 @@ async function loadInitialData(urlRaceId) {
   updateStats();
   checkStationWarnings();
   loadTrackData();
+  loadWildfireData();
 
   // Auto-link this user's personnel record for the race (fire-and-forget)
   RT.post(`/api/races/${race.id}/personnel/link-me`, {}).then(r => {
@@ -401,6 +407,69 @@ async function loadTrackData() {
     document.getElementById('stat-dist').textContent = RT.fmtDist(res.data.totalDistance, race?.units);
     renderRoute();
   }
+}
+
+async function loadWildfireData() {
+  if (!race) return;
+  const [permRes, hotRes] = await Promise.all([
+    RT.get(`/api/races/${race.id}/wildfire/perimeters`),
+    RT.get(`/api/races/${race.id}/wildfire/hotspots`),
+  ]);
+
+  if (wildfirePerimeterLayer) { leafletMap.removeLayer(wildfirePerimeterLayer); wildfirePerimeterLayer = null; }
+  if (wildfireHotspotLayer)   { leafletMap.removeLayer(wildfireHotspotLayer);   wildfireHotspotLayer   = null; }
+  wildfireLayersAdded = false;
+
+  if (permRes.ok && permRes.data?.features?.length) {
+    wildfirePerimeterLayer = L.geoJSON(permRes.data, {
+      style: () => ({ color:'#cc3300', weight:2, opacity:0.9, fillColor:'#ff4500', fillOpacity:0.25 }),
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const name = p.IncidentName || 'Unknown Fire';
+        const parts = [
+          p.GISAcres         != null ? Math.round(p.GISAcres).toLocaleString() + ' acres' : '',
+          p.PercentContained != null ? p.PercentContained + '% contained'                 : '',
+          p.CreateDate               ? new Date(p.CreateDate).toLocaleDateString()         : '',
+        ].filter(Boolean).join(' · ');
+        layer.bindTooltip(
+          `<strong>${name}</strong>${parts ? '<br>' + parts : ''}`,
+          { sticky: true, className: 'wildfire-tooltip' }
+        );
+      },
+    });
+  }
+
+  if (hotRes.ok && hotRes.data?.features?.length) {
+    wildfireHotspotLayer = L.geoJSON(hotRes.data, {
+      pointToLayer: (feature, latlng) => {
+        const frp = feature.properties?.FRP || 0;
+        const r   = Math.min(10, Math.max(4, 4 + frp / 20));
+        return L.circleMarker(latlng, { radius:r, color:'#ff4400', weight:1, fillColor:'#ffaa00', fillOpacity:0.85 });
+      },
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const parts = [
+          p.FRP        != null ? `FRP: ${p.FRP} MW`                    : '',
+          p.BRIGHTNESS != null ? `Brightness: ${Math.round(p.BRIGHTNESS)} K` : '',
+          p.CONFIDENCE != null ? `Conf: ${p.CONFIDENCE}%`              : '',
+          p.ACQ_DATE   || '',
+        ].filter(Boolean).join(' · ');
+        layer.bindTooltip(
+          `<strong>Hotspot</strong>${parts ? '<br>' + parts : ''}`,
+          { sticky: true, className: 'wildfire-tooltip' }
+        );
+      },
+    });
+  }
+
+  _addWildfireLayersToControl();
+}
+
+function _addWildfireLayersToControl() {
+  if (!weatherLayersControl || wildfireLayersAdded) return;
+  if (wildfirePerimeterLayer) weatherLayersControl.addOverlay(wildfirePerimeterLayer, '&#128293; Fire Perimeters');
+  if (wildfireHotspotLayer)   weatherLayersControl.addOverlay(wildfireHotspotLayer,   '&#128293; Hotspots');
+  wildfireLayersAdded = !!(wildfirePerimeterLayer || wildfireHotspotLayer);
 }
 
 // ── Map ───────────────────────────────────────────────────────────────────────
@@ -475,11 +544,11 @@ async function setupWeatherLayers(key) {
       { opacity: weatherOpacity, attribution: '© Blitzortung', maxZoom: 16, zIndex: 200 }
     );
   }
-  if (Object.keys(overlays).length) {
-    weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
-    weatherLegendControl = createWeatherLegendControl();
-    weatherLegendControl.addTo(leafletMap);
-  }
+  weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
+  weatherLegendControl = createWeatherLegendControl();
+  weatherLegendControl.addTo(leafletMap);
+  wildfireLayersAdded = false;
+  _addWildfireLayersToControl();
   wxSetupInProgress = false;
 }
 
@@ -2467,6 +2536,16 @@ function togglePersonnel(on) {
   }
 }
 
+function openHelp() {
+  const rightMap = {
+    info: '#op-before', leaderboard: '#op-manage',
+    messages: '#op-messaging', weather: '#op-manage', alerts: '#op-alerts'
+  };
+  const leftMap = { participants: '#participants', stations: '#course-setup' };
+  const anchor = rightMap[rightTab] || leftMap[leftTab] || '#overview';
+  window.open(RT.BASE + 'help.html' + anchor);
+}
+
 init();
 
 return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipant,
@@ -2480,5 +2559,5 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          addPersonnel, deletePersonnel, assignPersonnel,
          startNext, setWeatherOpacity, toggleTnc,
          toggleNametags, togglePersonnel,
-         switchToRace };
+         switchToRace, openHelp };
 })();

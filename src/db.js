@@ -10,8 +10,8 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'db.sqlite');
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'db.sqlite');
+if (DB_PATH !== ':memory:') fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 // ── Initialize database connection ───────────────────────────────────────────
 const db = new Database(DB_PATH);
@@ -419,6 +419,7 @@ try { db.prepare('ALTER TABLE races ADD COLUMN viewer_nametags INTEGER NOT NULL 
 try { db.prepare('ALTER TABLE races ADD COLUMN tnc_enabled INTEGER NOT NULL DEFAULT 1').run(); } catch {}
 try { db.prepare('ALTER TABLE users ADD COLUMN active_session_token TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE personnel ADD COLUMN is_rover INTEGER NOT NULL DEFAULT 0').run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('aprs_igate_enabled', '0')").run(); } catch {}
 
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.

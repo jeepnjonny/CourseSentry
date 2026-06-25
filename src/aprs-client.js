@@ -26,6 +26,7 @@ let currentConfig = null;
 let lineBuffer = '';
 let reconnectTimer = null;
 let _connected = false;
+let _loggedIn  = false;
 let _messagingCallsign = null; // set to logged-in user's callsign when available
 const _pendingAcks = new Map(); // key: "CALLSIGN:seqNum" → { messageId, timer, attempt, toCallsign, packet }
 
@@ -345,6 +346,7 @@ function processLine(line) {
   if (line.startsWith('#')) {
     // Skip periodic server heartbeat banners (# aprsc ...) — only log meaningful server responses
     if (/^# aprsc\b/.test(line)) return;
+    if (/logresp.*\bverified\b/i.test(line)) _loggedIn = true;
     logger.log('aprs', 'info', line);
     return;
   }
@@ -586,6 +588,7 @@ function scheduleReconnect() {
 // ── Disconnection and settings-based connection ───────────────────────────────
 function disconnect() {
   _connected = false;
+  _loggedIn  = false;
   currentConfig = null;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -755,4 +758,23 @@ function previewFilter(filterType) {
 
 function isConnected() { return _connected; }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, setMessagingCallsign, getActiveCallsign, processAprsLine: processLine };
+// Forward an RF-received APRS line to APRS-IS (igating).
+// Requires a verified (authenticated) APRS-IS connection.
+// Q-codes (qAR, qAC, etc.) indicate the packet already came from IS — skip those to prevent loops.
+function igate(rawLine) {
+  if (!socket || !_loggedIn) return false;
+  if (/,qA[RCZSX]/i.test(rawLine)) return false;
+  const ci = rawLine.indexOf(':');
+  if (ci < 0) return false;
+  const igated = `${rawLine.slice(0, ci)},qAR,${currentConfig.callsign}${rawLine.slice(ci)}\r\n`;
+  try {
+    socket.write(igated);
+    logger.log('aprs', 'debug', `IGATE: ${rawLine.slice(0, 80)}`);
+    return true;
+  } catch (e) {
+    logger.log('aprs', 'error', `igate send failed: ${e.message}`);
+    return false;
+  }
+}
+
+module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, igate, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, setMessagingCallsign, getActiveCallsign, processAprsLine: processLine };
