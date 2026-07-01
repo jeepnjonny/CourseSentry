@@ -129,6 +129,60 @@
   /* ── Danger button ── */
   .btn-danger { background: rgba(248,81,73,.15); border-color: #f85149; color: #f85149; width: 100%; margin-top: 6px; }
   .btn-danger:hover { background: rgba(248,81,73,.28); }
+
+  /* ── Health score badges ── */
+  .health-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+
+  /* ── Interval sparklines ── */
+  .spark { display: inline-flex; align-items: flex-end; gap: 1px; height: 13px; vertical-align: middle; margin-left: 3px; }
+  .spark-bar { width: 4px; border-radius: 1px 1px 0 0; min-height: 1px; }
+
+  /* ── Segment grid ── */
+  .seg-grid-wrap { overflow: auto; }
+  .seg-grid { border-collapse: collapse; font-size: 11px; }
+  .seg-grid th {
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+    padding: 3px 4px; color: var(--text3); font-size: 10px; letter-spacing: .3px;
+    border-bottom: 1px solid var(--border); text-align: center;
+    min-width: 38px; max-width: 60px; overflow: hidden; white-space: nowrap;
+  }
+  .seg-grid th:first-child { left: 0; z-index: 2; text-align: right; min-width: 52px; }
+  .seg-grid td { padding: 2px 4px; border: 1px solid var(--border); text-align: center; white-space: nowrap; }
+  .seg-grid td:first-child {
+    position: sticky; left: 0; background: var(--surface2);
+    color: var(--text3); font-size: 10px; text-align: right;
+    border-right: 2px solid var(--border);
+  }
+  .seg-cell-ok   { background: rgba(63,185,80,.25); color: #3fb950; }
+  .seg-cell-warn { background: rgba(255,166,87,.25); color: #ffa657; }
+  .seg-cell-bad  { background: rgba(248,81,73,.25);  color: #f85149; }
+  .seg-cell-none { color: var(--text3); }
+
+  /* ── Station matrix ── */
+  .stn-matrix-inner { overflow: auto; }
+  .stn-matrix { border-collapse: collapse; font-size: 12px; }
+  .stn-matrix th {
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+    padding: 3px 4px; color: var(--text3); border-bottom: 1px solid var(--border);
+    font-size: 10px; text-align: center; min-width: 28px;
+  }
+  .stn-matrix th:first-child { left: 0; z-index: 2; text-align: left; min-width: 80px; }
+  .stn-matrix td { padding: 3px 5px; border: 1px solid var(--border); text-align: center; }
+  .stn-matrix td:first-child {
+    position: sticky; left: 0; background: var(--surface2);
+    color: var(--text2); font-size: 11px; text-align: left; white-space: nowrap;
+  }
+  .stn-cell-ok   { color: #3fb950; }
+  .stn-cell-miss { color: #f85149; }
+  .stn-cell-na   { color: var(--text3); }
+
+  /* ── Gap map legend ── */
+  #gap-legend {
+    position: absolute; bottom: 66px; left: 10px; z-index: 1000;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; color: var(--text2); display: none;
+  }
+  #gap-legend.visible { display: block; }
 </style>
 </head>
 <body>
@@ -182,15 +236,27 @@
         </div>
       </div>
 
-      <!-- Coverage overlay -->
+      <!-- Coverage overlay + gap map -->
       <div class="ctrl-block">
-        <div class="ctrl-title">Coverage Overlay</div>
+        <div class="ctrl-title">Map Overlays</div>
         <div class="src-row" style="padding:2px 0">
           <input type="checkbox" id="chk-coverage" onchange="RF.toggleCoverage(this.checked)">
-          <label for="chk-coverage" style="font-size:13px;cursor:pointer">Show coverage polygon</label>
+          <label for="chk-coverage" style="font-size:13px;cursor:pointer">Coverage polygon</label>
         </div>
-        <div style="font-size:12px;color:var(--text3);margin-top:3px;line-height:1.4">
-          Convex hull of received positions per technology source.
+        <div style="font-size:12px;color:var(--text3);margin-top:2px;margin-bottom:6px;line-height:1.4">
+          Convex hull of received positions per source.
+        </div>
+        <div class="src-row" style="padding:2px 0">
+          <input type="checkbox" id="chk-gaps" onchange="RF.toggleGaps(this.checked)">
+          <label for="chk-gaps" style="font-size:13px;cursor:pointer">Reception silence gaps</label>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px;line-height:1.4">
+          Dashed lines where a tracker went silent.
+        </div>
+        <div class="slider-row" style="margin-top:6px">
+          <label style="font-size:12px">Min gap</label>
+          <input type="range" min="2" max="30" value="5" id="sl-gap-min" oninput="RF.setGapMin(this.value)">
+          <span id="lbl-gap-min" style="font-size:13px;color:var(--accent);min-width:40px;text-align:right">5 min</span>
         </div>
       </div>
 
@@ -231,15 +297,27 @@
     <!-- Signal quality legend — populated by renderLegend() in rf-analysis.js -->
     <div id="signal-legend"></div>
 
+    <!-- Gap map legend -->
+    <div id="gap-legend">
+      <div style="font-size:11px;letter-spacing:1px;color:var(--text3);margin-bottom:4px">SILENCE GAPS</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:12px">
+        <div><span style="display:inline-block;width:18px;border-top:2px dashed #fafa00;margin-right:5px;vertical-align:middle"></span>5–15 min</div>
+        <div><span style="display:inline-block;width:18px;border-top:2px dashed #ffa657;margin-right:5px;vertical-align:middle"></span>15–30 min</div>
+        <div><span style="display:inline-block;width:18px;border-top:2px dashed #f85149;margin-right:5px;vertical-align:middle"></span>&gt;30 min</div>
+      </div>
+    </div>
+
     <div id="loading-overlay" style="display:none">LOADING…</div>
   </div>
 
   <!-- ── Right panel: stats / nodes / raw data ── -->
   <div id="right-panel">
     <div class="rp-tabs">
-      <div class="rp-tab active" onclick="RF.switchTab('stats')" id="rp-tab-stats">SUMMARY</div>
+      <div class="rp-tab active" onclick="RF.switchTab('stats')" id="rp-tab-stats">STATS</div>
       <div class="rp-tab" onclick="RF.switchTab('nodes')" id="rp-tab-nodes">NODES</div>
-      <div class="rp-tab" onclick="RF.switchTab('raw')" id="rp-tab-raw">RAW DATA</div>
+      <div class="rp-tab" onclick="RF.switchTab('segs')"  id="rp-tab-segs">SEGS</div>
+      <div class="rp-tab" onclick="RF.switchTab('stns')"  id="rp-tab-stns">STNS</div>
+      <div class="rp-tab" onclick="RF.switchTab('raw')"   id="rp-tab-raw">RAW</div>
     </div>
     <div class="rp-body">
       <!-- Stats tab -->
@@ -248,7 +326,38 @@
       </div>
       <!-- Nodes tab -->
       <div id="rp-nodes" style="display:none">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">
+          Health: <span style="color:#3fb950">●</span> ≥75%&nbsp;
+          <span style="color:#ffa657">●</span> 50–74%&nbsp;
+          <span style="color:#f85149">●</span> &lt;50% of fleet median packet rate.
+          Sparkline shows interval distribution.
+        </div>
         <div id="node-list"><span class="text-dim" style="font-size:13px">No data</span></div>
+      </div>
+      <!-- Segment peer comparison tab -->
+      <div id="rp-segs" style="display:none">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;line-height:1.5">
+          Packets per 1 km segment vs. fleet median.
+          <span style="color:#3fb950">■</span> ≥75%
+          <span style="color:#ffa657">■</span> 50–74%
+          <span style="color:#f85149">■</span> &lt;50%
+          <span style="color:var(--text3)">—</span> no data
+        </div>
+        <div id="seg-grid-wrap" class="seg-grid-wrap">
+          <span class="text-dim" style="font-size:13px">Select a race to view</span>
+        </div>
+      </div>
+      <!-- Station reception matrix tab -->
+      <div id="rp-stns" style="display:none">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;line-height:1.5">
+          Position packet received within 500 m of confirmed station arrivals.
+          <span class="stn-cell-ok">✓</span> packet &nbsp;
+          <span class="stn-cell-miss">✗</span> no RF &nbsp;
+          <span class="stn-cell-na">·</span> unconfirmed
+        </div>
+        <div id="station-matrix-wrap">
+          <span class="text-dim" style="font-size:13px">Select a race to view</span>
+        </div>
       </div>
       <!-- Raw data tab -->
       <div id="rp-raw" style="display:none">

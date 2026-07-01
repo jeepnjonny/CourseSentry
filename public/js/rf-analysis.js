@@ -7,6 +7,7 @@ let cellLayers      = {};   // src → L.layerGroup (grid squares)
 let routeLayer      = null;
 let stationLayer    = null;
 let coverageLayers  = {};   // src → L.polygon
+let gapLayers       = [];   // L.polyline instances for silence gaps
 
 let races        = [];
 let currentRaceId = null;
@@ -15,6 +16,10 @@ let nodeSummary   = [];   // from /nodes endpoint
 let summary       = {};   // per-source stats (unfiltered)
 let stationData   = [];
 let routePoints   = [];
+let trackMeta     = null; // pre-computed from routePoints via geoBuildTrackMeta
+
+let segmentData       = null;  // computed lazily on SEGS tab, reset when source/time changes
+let stationMatrixData = null;  // fetched lazily on STNS tab, reset on race change
 
 let activeSources   = new Set();
 let metric          = 'density';   // 'density' | 'snr' | 'rssi'
@@ -25,6 +30,8 @@ let timeWindowMode  = 'race';      // 'race' | 'all'
 let raceWindowStart = null;        // computed unix ts
 let raceWindowEnd   = null;        // computed unix ts (null = live/now)
 let showCoverage    = false;
+let showGaps        = false;
+let gapMinutes      = 5;
 
 // Source metadata
 const SOURCE_META = {
@@ -93,6 +100,14 @@ async function selectRace(raceId) {
   stationData  = (stnRes.ok && stnRes.data?.length) ? stnRes.data : [];
   routePoints  = (trackRes.ok && trackRes.data?.trackPoints?.length)
     ? trackRes.data.trackPoints.map(([lat, lon]) => [lat, lon]) : [];
+
+  // Pre-compute track metadata for client-side segment projection
+  trackMeta = routePoints.length >= 2 ? geoBuildTrackMeta(routePoints) : null;
+
+  // Reset lazy-computed data for the new race
+  segmentData = null;
+  stationMatrixData = null;
+  clearGapLines();
 
   // Compute race time bounds before any rendering
   computeRaceBounds();
@@ -172,6 +187,8 @@ function setTimeWindow(val) {
   renderRawTable();
   renderStats();
   updateTimeWindowInfo();
+  if (showGaps) renderGapLines();
+  if (rightTab === 'segs') renderSegmentGrid();
 }
 
 function updateTimeWindowInfo() {
@@ -326,19 +343,27 @@ function renderNodeList() {
     el.innerHTML = '<span class="text-dim" style="font-size:13px">No data</span>';
     return;
   }
-  el.innerHTML = nodeSummary.map(n => {
+
+  const healthColors = computeHealthScores();
+
+  el.innerHTML = nodeSummary.map((n, i) => {
     const m = srcMeta(n.rf_source);
     const displayName = n.participant_name
       ? `#${n.bib} ${n.participant_name}`
       : (n.long_name || n.short_name || n.node_id);
+    const hColor  = healthColors[i];
+    const hDot    = hColor ? `<span class="health-dot" style="background:${hColor}" title="Packet rate health"></span>` : '';
+    const intervals = computeNodeIntervals(n.node_id);
+    const spark   = intervals.some(v => v > 0) ? renderSparkline(intervals) : '';
     const snrStr  = n.avg_snr  != null ? `SNR ${Math.round(n.avg_snr)} dB`   : '';
     const rssiStr = n.avg_rssi != null ? `RSSI ${Math.round(n.avg_rssi)} dBm` : '';
     const sigStr  = [snrStr, rssiStr].filter(Boolean).join('  ');
     return `
       <div class="node-row" title="${n.node_id}">
+        ${hDot}
         <span class="src-dot" style="background:${m.color}"></span>
         <span class="node-name">${displayName}</span>
-        <span class="node-pkt">${n.packet_count.toLocaleString()}</span>
+        <span class="node-pkt">${n.packet_count.toLocaleString()}${spark}</span>
       </div>
       ${sigStr ? `<div style="font-size:11px;color:${snrQualityColor(n.avg_snr)};padding:0 4px 4px 22px">${sigStr}</div>` : ''}`;
   }).join('');
@@ -583,12 +608,14 @@ function renderLegend(hasCells) {
 // ── Right panel tabs ───────────────────────────────────────────────────────────
 function switchTab(id) {
   rightTab = id;
-  ['stats', 'nodes', 'raw'].forEach(t => {
+  ['stats', 'nodes', 'segs', 'stns', 'raw'].forEach(t => {
     document.getElementById(`rp-tab-${t}`)?.classList.toggle('active', t === id);
     const el = document.getElementById(`rp-${t}`);
     if (el) el.style.display = t === id ? '' : 'none';
   });
-  if (id === 'raw') renderRawTable();
+  if (id === 'raw')  renderRawTable();
+  if (id === 'segs') renderSegmentGrid();
+  if (id === 'stns') renderStationMatrix();
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────────
@@ -598,8 +625,10 @@ function toggleSource(src, checked) {
   renderGrid();
   renderCoveragePolygons();
   updateTimeWindowInfo();
-  if (rightTab === 'raw') renderRawTable();
+  if (showGaps) renderGapLines();
+  if (rightTab === 'raw')  renderRawTable();
   if (rightTab === 'stats') renderStats();
+  if (rightTab === 'segs')  renderSegmentGrid();
 }
 
 function setMetric(m) {
