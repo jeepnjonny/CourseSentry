@@ -12,6 +12,7 @@ const WebSocket = require('ws');
 const crypto    = require('crypto');
 const db        = require('./db');
 const { loadTrackPoints } = require('./utils/course');
+const { getStationRoleAccess } = require('./infra-access');
 
 let wss = null;
 const clients = new Set();
@@ -300,9 +301,30 @@ function broadcastToRole(roles, msg) {
   }
 }
 
+// Broadcasts an infrastructure change to clients authorized to see it: every
+// admin/operator socket for the race, plus 'station' sockets that either have
+// full network visibility (rover) or are scoped to the node's own station.
+// Applies the same visibility rule as the REST GET in routes/infrastructure.js
+// so live updates never leak another station's node to a fixed-station client.
+function broadcastInfra(raceId, payload) {
+  const str = JSON.stringify({ type: 'infra_update', data: payload });
+
+  for (const ws of clients) {
+    if (ws.readyState !== WebSocket.OPEN || ws.raceId !== raceId || !ws.user) continue;
+    if (ws.user.role === 'admin' || ws.user.role === 'operator') { ws.send(str); continue; }
+    if (ws.user.role !== 'station') continue;
+
+    const access = getStationRoleAccess(ws.user.id, raceId);
+    if (access.full) { ws.send(str); continue; }
+    // Deletions only carry an id (no station_id to check) — forward them anyway;
+    // removing an unrelated node client-side is a harmless no-op.
+    if (payload.action === 'delete' || payload.node?.station_id === access.stationId) ws.send(str);
+  }
+}
+
 function getClientById(id) {
   for (const ws of clients) if (ws.id === id) return ws;
   return null;
 }
 
-module.exports = { init, broadcast, broadcastToRole, broadcastToRace, send, getOnlineUsers, getClientById };
+module.exports = { init, broadcast, broadcastToRole, broadcastToRace, broadcastInfra, send, getOnlineUsers, getClientById };

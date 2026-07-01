@@ -523,6 +523,40 @@
   </div>
 </div>
 
+<!-- Infrastructure Node Modal: Register/edit a digipeater, iGate, repeater, or beacon
+     and assign it to a station, mirroring the personnel-modal edit-mode pattern. -->
+<div class="modal-bg hidden" id="infra-node-modal">
+  <div class="modal">
+    <h2 id="infra-node-modal-title">NEW INFRASTRUCTURE NODE</h2>
+    <div class="form-group"><label>NAME</label><input id="in-name" placeholder="e.g. Summit Digi"></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>TYPE</label>
+        <select id="in-type">
+          <option value="digipeater">Digipeater</option>
+          <option value="igate">iGate</option>
+          <option value="repeater" selected>Repeater</option>
+          <option value="beacon">Beacon</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>STATION</label>
+        <select id="in-station-id"><option value="">— Unassigned —</option></select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>NODE ID <span class="text-dim">(node ID, longname, or shortname)</span></label>
+      <input id="in-node-id" placeholder="leave blank until it beacons">
+    </div>
+    <div class="form-group"><label>NOTES</label><input id="in-notes" placeholder="optional"></div>
+    <div class="modal-footer">
+      <button onclick="closeModal('infra-node-modal')">CANCEL</button>
+      <button class="primary" onclick="saveInfraNode()">SAVE</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════════════════════════════
      SCRIPTS: Common utilities and admin-specific logic
      ═══════════════════════════════════════════════════════════════════ -->

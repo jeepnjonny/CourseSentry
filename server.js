@@ -79,6 +79,7 @@ raceRouter.use('/tracks',       require('./src/routes/tracks'));
 raceRouter.use('/stations',     require('./src/routes/stations'));
 raceRouter.use('/participants', require('./src/routes/participants'));
 raceRouter.use('/personnel',    require('./src/routes/personnel'));
+raceRouter.use('/infrastructure', require('./src/routes/infrastructure'));
 raceRouter.use('/heats',        require('./src/routes/heats'));
 raceRouter.use('/classes',      require('./src/routes/classes'));
 raceRouter.use('/events',       require('./src/routes/events'));
