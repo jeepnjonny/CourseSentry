@@ -334,6 +334,7 @@
     <div id="mo-nametag-controls">
       <label><input type="checkbox" id="chk-p-nametags" onchange="toggleParticipantNametags(this.checked)"> Participant names</label>
       <label><input type="checkbox" id="chk-per-nametags" onchange="togglePersonnelNametags(this.checked)"> Personnel names</label>
+      <label><input type="checkbox" id="chk-infra" checked onchange="toggleInfra(this.checked)"> Infrastructure</label>
     </div>
   </div>
   <div id="mo-lb-wrap">
@@ -375,6 +376,13 @@
   <div class="mo-panel-close-btn"><span>CHECK IN / OUT</span><button onclick="switchTab('map')" title="Close">&times;</button></div>
   <div id="mo-log-inner">
     <div id="mo-no-station" class="hidden">No station assigned — tap the station badge above to select one.</div>
+    <!-- Network section: full infra list for rover sessions, or just this station's
+         own node(s) for a fixed-station session — the server already scopes the
+         /infrastructure response, so this renders whatever it receives. -->
+    <div id="mo-infra-section" class="hidden">
+      <div class="mo-events-head" id="mo-infra-head">NETWORK</div>
+      <div id="mo-infra-list"></div>
+    </div>
     <div id="mo-rover-station-row">
       <span style="font-size:12px;letter-spacing:1px;color:var(--text3);white-space:nowrap">AT STATION:</span>
       <select id="mo-rover-station-sel" onchange="roverStationId=this.value?parseInt(this.value):null;buildCheckedInSet(stationEvents);renderPendingList()"

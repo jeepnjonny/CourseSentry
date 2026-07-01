@@ -6,6 +6,7 @@ let personnel = [], messages = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
 let showNametags = false, showPersonnelMarkers = true;
+let infraNodes = [], infraLayer = null, showInfraMarkers = true;
 let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
 let wildfirePerimeterLayer = null, wildfireHotspotLayer = null;
 let wildfireLayersAdded = false;
@@ -91,6 +92,7 @@ function handleWS(msg) {
   else if (type === 'race_update')    handleRaceUpdate(data);
   else if (type === 'users_online')   { onlineUsers = data; renderPersonnelRecipients(); }
   else if (type === 'tnc_tx')         handleTncTx(data);
+  else if (type === 'infra_update')   handleInfraUpdate(data);
 }
 
 function handleRaceUpdate(data) {
@@ -357,13 +359,14 @@ async function loadInitialData(urlRaceId) {
   applyWeatherFlag();
   updateEndRaceBtn();
 
-  const [pr, sr, hr, cr, personnelR, msgR] = await Promise.all([
+  const [pr, sr, hr, cr, personnelR, msgR, infraR] = await Promise.all([
     RT.get(`/api/races/${race.id}/participants`),
     RT.get(`/api/races/${race.id}/stations`),
     RT.get(`/api/races/${race.id}/heats`),
     RT.get(`/api/races/${race.id}/classes`),
     RT.get(`/api/races/${race.id}/personnel`),
     RT.get(`/api/races/${race.id}/messages?limit=100`),
+    RT.get(`/api/races/${race.id}/infrastructure`),
   ]);
 
   heats = {}; (hr.data || []).forEach(h => heats[h.id] = h);
@@ -371,6 +374,9 @@ async function loadInitialData(urlRaceId) {
   stations = sr.data || [];
   personnel = personnelR.data || [];
   messages = msgR.data || [];
+  // The server already scopes this list to what the current session may see
+  // (full network for operator/admin/rover, own-station-only for a fixed station).
+  infraNodes = infraR.data || [];
 
   participants = {};
   (pr.data || []).forEach(p => { participants[p.id] = p; });
@@ -381,6 +387,8 @@ async function loadInitialData(urlRaceId) {
   renderStationList();
   renderAllMarkers();
   updatePersonnelMarkers();
+  updateInfraMarkers();
+  renderInfraList();
   renderLeaderboard();
   renderPersonnelRecipients();
   updateStats();
@@ -477,6 +485,7 @@ function initMap() {
   leafletMap = L.map('map', { zoomControl: true, maxZoom: 16 });
   markerLayer = L.layerGroup().addTo(leafletMap);
   personnelLayer = L.layerGroup().addTo(leafletMap);
+  infraLayer = L.layerGroup().addTo(leafletMap);
   setBaseLayer('topo');
   leafletMap.setView([39.5, -98.5], 5);
   leafletMap.on('click', onMapClick);
@@ -741,6 +750,59 @@ function updatePersonnelMarkers() {
   }
 }
 
+// ── Infrastructure markers ────────────────────────────────────────────────────
+// Colors/letters per node_type, following the same per-type convention already
+// used for station markers (see STN_COLORS/stnColor below).
+const INFRA_COLORS  = { digipeater: '#a371f7', igate: '#58a6ff', repeater: '#6e7681', beacon: '#3fb950', other: '#d2a679' };
+const INFRA_LETTERS = { digipeater: 'D', igate: 'I', repeater: 'R', beacon: 'B', other: '?' };
+
+function updateInfraMarkers() {
+  if (!infraLayer) return;
+  for (const n of infraNodes) {
+    if (n.resolved_lat == null || n.resolved_lon == null) {
+      // No GPS fix yet and no station assigned — nothing to plot.
+      const ex = infraLayer.getLayers().find(m => m._infraId === n.id);
+      if (ex) infraLayer.removeLayer(ex);
+      continue;
+    }
+    const color = INFRA_COLORS[n.node_type] || INFRA_COLORS.other;
+    const dim = n.health !== 'ok'; // stale or never_seen — same dimming convention used elsewhere
+    const icon = L.divIcon({
+      html: `<div style="width:20px;height:20px;border-radius:4px;background:${color};opacity:${dim ? 0.45 : 1};
+              border:2px solid #fff4;display:flex;align-items:center;justify-content:center;
+              font-size:11px;font-weight:bold;color:#000;font-family:'Courier New'">${INFRA_LETTERS[n.node_type] || '?'}</div>`,
+      className: '', iconAnchor: [10, 10],
+    });
+    const healthNote = n.health !== 'ok' ? ` — ${n.health.replace('_', ' ')}` : '';
+    const tooltip = `${n.name} (${n.node_type})${healthNote}`;
+    const existing = infraLayer.getLayers().find(m => m._infraId === n.id);
+    if (existing) {
+      existing.setLatLng([n.resolved_lat, n.resolved_lon]);
+      existing.setIcon(icon);
+      existing.unbindTooltip();
+      existing.bindTooltip(tooltip, { permanent: false, direction: 'top' });
+    } else {
+      const m = L.marker([n.resolved_lat, n.resolved_lon], { icon });
+      m._infraId = n.id;
+      m.bindTooltip(tooltip, { permanent: false, direction: 'top' });
+      m.on('click', () => { if (n.station_id) selectStation(n.station_id); });
+      m.addTo(infraLayer);
+    }
+  }
+  for (const m of [...infraLayer.getLayers()]) {
+    if (!infraNodes.some(n => n.id === m._infraId)) infraLayer.removeLayer(m);
+  }
+}
+
+function toggleInfra(on) {
+  showInfraMarkers = !!on;
+  if (showInfraMarkers) {
+    if (!leafletMap.hasLayer(infraLayer)) infraLayer.addTo(leafletMap);
+  } else {
+    if (leafletMap.hasLayer(infraLayer)) leafletMap.removeLayer(infraLayer);
+  }
+}
+
 // ── Leaderboard ───────────────────────────────────────────────────────────────
 function renderLeaderboard() {
   const el = document.getElementById('leaderboard-body');
@@ -981,8 +1043,10 @@ function switchLeftTab(tab) {
   leftTab = tab;
   document.getElementById('lp-tab-participants')?.classList.toggle('active', tab === 'participants');
   document.getElementById('lp-tab-stations')?.classList.toggle('active', tab === 'stations');
+  document.getElementById('lp-tab-network')?.classList.toggle('active', tab === 'network');
   document.getElementById('lp-participants').style.display = tab === 'participants' ? 'flex' : 'none';
   document.getElementById('lp-stations').style.display    = tab === 'stations'     ? ''     : 'none';
+  document.getElementById('lp-network').style.display     = tab === 'network'      ? ''     : 'none';
 }
 
 // ── Station list (left panel) ─────────────────────────────────────────────────
@@ -1020,7 +1084,30 @@ function renderStationList() {
     }).join('');
 }
 
+// ── Infrastructure list (left panel) ──────────────────────────────────────────
+function renderInfraList() {
+  const el = document.getElementById('network-list-body');
+  if (!el) return;
+  if (!infraNodes.length) {
+    el.innerHTML = '<div class="text-dim" style="padding:12px;font-size:14px">No infrastructure registered.</div>';
+    return;
+  }
+  el.innerHTML = infraNodes.map(n => {
+    const color = INFRA_COLORS[n.node_type] || INFRA_COLORS.other;
+    const healthColor = n.health === 'stale' ? 'var(--accent3)' : n.health === 'never_seen' ? 'var(--text3)' : 'var(--accent2)';
+    return `<div class="stn-list-row" onclick="OP.selectStation(${n.station_id || 'null'})" style="${n.station_id ? '' : 'cursor:default'}">
+      <span class="stn-type-dot" style="background:${color}"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.name}</div>
+        <div style="font-size:12px;color:var(--text3)">${n.node_type} · ${n.station_name || 'Unassigned'}${n.battery_level != null ? ` · ${RT.fmtBattery(n.battery_level)}` : ''}</div>
+      </div>
+      <span style="font-size:11px;letter-spacing:1px;color:${healthColor}">${n.health.replace('_', ' ').toUpperCase()}</span>
+    </div>`;
+  }).join('');
+}
+
 function selectStation(id) {
+  if (!id) return;
   selectedStationId = id;
   selectedPId = null;
   switchLeftTab('stations');
@@ -1510,6 +1597,74 @@ async function deletePersonnel(id) {
   if (selectedStationId === personnelStationId) showStationInfo(personnelStationId);
 }
 
+// ── Infrastructure Assign Modal ───────────────────────────────────────────────
+// Node identity (name/type/node_id) is managed by admins in the NETWORK tab —
+// this modal only handles reassigning an already-registered node's station,
+// mirroring how the personnel modal's "ASSIGN EXISTING PERSONNEL" section works.
+let infraStationId = null;
+
+function openInfraAssignModal(stationId) {
+  infraStationId = stationId;
+  const s = stations.find(x => x.id === stationId);
+  document.getElementById('im-station-name').textContent = s?.name || '';
+  renderInfraAssignCurrentList();
+  populateInfraAssignDropdown();
+  document.getElementById('infra-assign-modal').classList.remove('hidden');
+}
+
+function renderInfraAssignCurrentList() {
+  const el = document.getElementById('im-current-list');
+  if (!el) return;
+  const assigned = infraNodes.filter(n => n.station_id === infraStationId);
+  if (!assigned.length) {
+    el.innerHTML = '<div class="text-dim" style="font-size:14px">No nodes assigned to this station.</div>';
+    return;
+  }
+  el.innerHTML = assigned.map(n => `
+    <div class="list-row">
+      <span>${n.name}</span>
+      <span class="text-dim" style="font-size:13px">${n.node_type}</span>
+      <button style="font-size:11px;padding:1px 6px;color:var(--accent3);border-color:var(--accent3)"
+        onclick="OP.unassignInfraNode(${n.id})">UNASSIGN</button>
+    </div>`).join('');
+}
+
+function populateInfraAssignDropdown() {
+  const sel = document.getElementById('im-assign-sel');
+  if (!sel) return;
+  const others = infraNodes.filter(n => n.station_id !== infraStationId);
+  if (!others.length) {
+    sel.innerHTML = '<option value="">— No other nodes —</option>';
+    return;
+  }
+  sel.innerHTML = others.map(n =>
+    `<option value="${n.id}">${n.name} (${n.station_name || 'Unassigned'})</option>`
+  ).join('');
+}
+
+async function assignInfraNode() {
+  const sel = document.getElementById('im-assign-sel');
+  const id = parseInt(sel?.value);
+  if (!id) return;
+  await _putInfraStation(id, infraStationId);
+}
+
+async function unassignInfraNode(id) {
+  await _putInfraStation(id, null);
+}
+
+async function _putInfraStation(id, stationId) {
+  const res = await RT.put(`/api/races/${race.id}/infrastructure/${id}`, { station_id: stationId });
+  if (!res.ok) { RT.toast('Failed to update assignment', 'warn'); return; }
+  const idx = infraNodes.findIndex(x => x.id === id);
+  if (idx !== -1) infraNodes[idx] = res.data;
+  renderInfraAssignCurrentList();
+  populateInfraAssignDropdown();
+  updateInfraMarkers();
+  renderInfraList();
+  if (selectedStationId === infraStationId) showStationInfo(infraStationId);
+}
+
 function showStationInfo(id) {
   clearInterval(lastSeenInterval);
   selectedStationId = id;
@@ -1557,6 +1712,20 @@ function showStationInfo(id) {
           ${p.tracker_id ? `<span class="text-dim" style="font-size:13px">${p.tracker_id}</span>` : ''}
           ${p.phone ? `<span class="text-dim" style="font-size:13px">${p.phone}</span>` : ''}
         </div>`).join('') : '<div class="text-dim" style="font-size:14px;margin-bottom:8px">None assigned.</div>'}
+      ${(() => {
+        const stInfra = infraNodes.filter(n => n.station_id === id);
+        return `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px">
+          <span style="font-size:13px;letter-spacing:2px;color:var(--text3)">INFRASTRUCTURE (${stInfra.length})</span>
+          <button style="font-size:11px;padding:1px 7px" onclick="OP.openInfraAssignModal(${id})">EDIT</button>
+        </div>
+        ${stInfra.length ? stInfra.map(n =>
+          `<div class="list-row" style="cursor:default">
+            <span>${n.name}</span>
+            <span class="text-dim" style="font-size:13px">${n.node_type}</span>
+            ${n.battery_level != null ? `<span class="text-dim" style="font-size:13px">${RT.fmtBattery(n.battery_level)}</span>` : ''}
+            <span class="text-dim" style="font-size:13px">${n.health.replace('_', ' ')}</span>
+          </div>`).join('') : '<div class="text-dim" style="font-size:14px;margin-bottom:8px">None assigned.</div>'}`;
+      })()}
       ${s.type !== 'netcontrol' && s.type !== 'repeater' ? `<div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px">
         <span style="font-size:13px;letter-spacing:2px;color:var(--text3)">ARRIVALS / DEPARTURES</span>
         <button style="font-size:12px;padding:1px 7px;margin-left:auto" onclick="OP.openBatchCheckIn(${id})">+ LOG</button>
@@ -1680,6 +1849,19 @@ function handlePosition(data) {
   if (per) {
     per.last_lat = lat; per.last_lon = lon;
     updatePersonnelMarkers();
+  }
+  // Update infrastructure node position if its node_id matches (own-GPS takes
+  // over from any station fallback, same "resolved location" rule as the server)
+  const infra = infraNodes.find(x => x.node_id && x.node_id === nodeId);
+  if (infra) {
+    infra.resolved_lat = lat; infra.resolved_lon = lon;
+    infra.last_lat = lat; infra.last_lon = lon;
+    infra.location_source = 'gps';
+    if (battery != null) infra.battery_level = battery;
+    infra.last_seen = timestamp;
+    infra.health = 'ok';
+    updateInfraMarkers();
+    renderInfraList();
   }
   renderLeaderboard();
 }
@@ -1853,6 +2035,19 @@ function handleStationUpdate(data) {
   updatePersonnelMarkers();
   renderStationList();
   checkStationWarnings();
+  // A moved station can change resolved_lat/lon for nodes that fall back to
+  // their assigned station's location (no own GPS yet). Deletions are rare
+  // enough that the next infra_update/full reload catches up the station_id.
+  if (data.action === 'update' && data.station) {
+    for (const n of infraNodes) {
+      if (n.station_id === data.station.id && !n.last_lat) {
+        n.resolved_lat = data.station.lat;
+        n.resolved_lon = data.station.lon;
+      }
+    }
+  }
+  updateInfraMarkers();
+  renderInfraList();
 }
 
 function handleTrackerInfo(data) {
@@ -1865,6 +2060,32 @@ function handleTrackerInfo(data) {
     updateOrCreateMarker(p);
     renderLeaderboard();
   }
+  // Patch battery/last-seen for a matching infra node without a full refetch —
+  // health/resolved_lat/lon are recomputed server-side on the next full load,
+  // but the battery reading itself should show up immediately.
+  const n = infraNodes.find(x => x.node_id && x.node_id === data.nodeId);
+  if (n) {
+    if (data.battery != null) n.battery_level = data.battery;
+    n.last_seen = data.timestamp;
+    n.health = 'ok';
+    renderInfraList();
+    if (selectedStationId === n.station_id) showStationInfo(n.station_id);
+  }
+}
+
+// Applies a live add/update/delete from the server's role/station-scoped
+// broadcastInfra() (see src/websocket.js) — the payload already reflects only
+// what this session is authorized to see.
+function handleInfraUpdate(data) {
+  if (data.action === 'delete') {
+    infraNodes = infraNodes.filter(n => n.id !== data.id);
+  } else if (data.node) {
+    const idx = infraNodes.findIndex(n => n.id === data.node.id);
+    if (idx >= 0) infraNodes[idx] = data.node; else infraNodes.push(data.node);
+  }
+  updateInfraMarkers();
+  renderInfraList();
+  if (selectedStationId != null) showStationInfo(selectedStationId);
 }
 
 function updateMqttPill(status) {
@@ -2557,7 +2778,8 @@ return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipa
          openEditEvent, saveEditEvent, deleteStationEvent,
          openPersonnelModal, renderPersonnelTable, editPersonnelRow, savePersonnelRow,
          addPersonnel, deletePersonnel, assignPersonnel,
+         openInfraAssignModal, assignInfraNode, unassignInfraNode,
          startNext, setWeatherOpacity, toggleTnc,
-         toggleNametags, togglePersonnel,
+         toggleNametags, togglePersonnel, toggleInfra,
          switchToRace, openHelp };
 })();

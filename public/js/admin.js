@@ -33,6 +33,7 @@ const RACE_TABS = [
   { id: 'participants', label: 'PARTICIPANTS' },
   { id: 'course',       label: 'COURSE' },
   { id: 'personnel',    label: 'PERSONNEL' },
+  { id: 'network',      label: 'NETWORK' },
 ];
 let currentTab = 'races';
 
@@ -97,6 +98,7 @@ function handleWS(msg) {
     if (msg.data.id === selectedRaceId) renderOfflineMapsStatus(msg.data);
   }
   if (msg.type === 'log_entry' && currentTab === 'logs') appendLogEntry(msg.data);
+  if (msg.type === 'infra_update' && currentTab === 'network') loadInfraNodes();
 }
 
 function updateMqttPill(status) {
@@ -165,6 +167,7 @@ function renderTab() {
     case 'participants': el.innerHTML = renderParticipantsTab(); bindParticipantsTab(); break;
     case 'course':       el.innerHTML = renderCourseTab(); bindCourseTab(); break;
     case 'personnel':    el.innerHTML = renderPersonnelTab(); bindPersonnelTab(); break;
+    case 'network':      el.innerHTML = renderNetworkTab(); bindNetworkTab(); break;
     case 'infra':     el.innerHTML = renderInfraTab(); refreshInfra(); break;
     case 'users':     el.innerHTML = renderUsersTab(); loadUsers(); break;
     case 'settings':  el.innerHTML = renderSettingsTab(); bindSettingsTab(); break;
@@ -1602,6 +1605,109 @@ async function clearAllPersonnel() {
   else RT.toast(res.error || 'Failed', 'warn');
 }
 
+// ── Network (race-scoped infrastructure: digipeaters, iGates, repeaters, beacons) ──
+// This is distinct from the global "INFRASTRUCTURE" tab below (which lists every
+// tracker_registry row seen via MQTT/APRS and assigns a tracker to a *person*).
+// This tab manages infra_nodes: race-scoped devices that can be assigned to a
+// station and pre-registered before they've ever beaconed.
+let infraNodes = [];
+
+function renderNetworkTab() {
+  return `
+  <div class="card">
+    <h3>NETWORK <span class="text-dim">(digipeaters, iGates, repeaters &amp; beacons)</span></h3>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="primary" onclick="openInfraNodeModal()">+ REGISTER NODE</button>
+    </div>
+    <div id="network-list"></div>
+  </div>`;
+}
+
+async function bindNetworkTab() {
+  await loadStationsForNetwork();
+  await loadInfraNodes();
+}
+
+// Stations are needed for the "assign to station" dropdown; loaded independently
+// of loadPersonnel() so the NETWORK tab works even if PERSONNEL hasn't been visited.
+async function loadStationsForNetwork() {
+  if (!selectedRaceId) return;
+  const sr = await RT.get(`/api/races/${selectedRaceId}/stations`);
+  if (sr.ok) stations = sr.data;
+}
+
+const INFRA_HEALTH_LABEL = { ok: 'OK', stale: 'STALE', never_seen: 'NEVER SEEN' };
+
+async function loadInfraNodes() {
+  if (!selectedRaceId) return;
+  const res = await RT.get(`/api/races/${selectedRaceId}/infrastructure`);
+  infraNodes = res.ok ? res.data : [];
+  const el = document.getElementById('network-list');
+  if (!el) return;
+  if (!infraNodes.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No infrastructure registered yet.</div>'; return; }
+
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>
+    <th>NAME</th><th>TYPE</th><th>STATION</th><th>NODE ID</th><th>BATTERY</th><th>LAST SEEN</th><th>HEALTH</th><th></th>
+  </tr></thead><tbody>
+    ${infraNodes.map(n => `<tr style="${n.health !== 'ok' ? 'opacity:0.6' : ''}">
+      <td>${n.name}</td>
+      <td class="text-dim">${n.node_type}</td>
+      <td>${n.station_name || '<span class="text-dim">— Unassigned —</span>'}</td>
+      <td class="text-accent">${n.node_id || '<span class="text-dim">—</span>'}</td>
+      <td>${n.battery_level != null ? RT.fmtBattery(n.battery_level) : '—'}</td>
+      <td>${n.last_seen ? RT.timeAgo(n.last_seen) : '—'}</td>
+      <td class="${n.health === 'stale' ? 'text-warn' : n.health === 'never_seen' ? 'text-dim' : 'text-accent2'}">${INFRA_HEALTH_LABEL[n.health]}</td>
+      <td style="text-align:right">
+        <button style="font-size:13px;padding:2px 8px" onclick="openInfraNodeModal(${n.id})">EDIT</button>
+        <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteInfraNode(${n.id})">DEL</button>
+      </td>
+    </tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+let editingInfraNodeId = null;
+
+function openInfraNodeModal(id) {
+  editingInfraNodeId = id || null;
+  const n = id ? infraNodes.find(x => x.id === id) : null;
+  document.getElementById('infra-node-modal-title').textContent = id ? 'EDIT INFRASTRUCTURE NODE' : 'NEW INFRASTRUCTURE NODE';
+  document.getElementById('in-name').value    = n?.name    || '';
+  document.getElementById('in-type').value    = n?.node_type || 'repeater';
+  document.getElementById('in-node-id').value = n?.node_id || '';
+  document.getElementById('in-notes').value   = n?.notes   || '';
+  const sel = document.getElementById('in-station-id');
+  sel.innerHTML = '<option value="">— Unassigned —</option>' +
+    stations.map(s => `<option value="${s.id}"${s.id === n?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
+  document.getElementById('infra-node-modal').classList.remove('hidden');
+  document.getElementById('in-name').focus();
+}
+
+async function saveInfraNode() {
+  const name       = document.getElementById('in-name').value.trim();
+  const node_type  = document.getElementById('in-type').value;
+  const node_id    = document.getElementById('in-node-id').value.trim() || null;
+  const station_id = document.getElementById('in-station-id').value || null;
+  const notes      = document.getElementById('in-notes').value.trim() || null;
+  if (!name) { RT.toast('Name required', 'warn'); return; }
+
+  const body = { name, node_type, node_id, station_id: station_id ? parseInt(station_id) : null, notes };
+  const res = editingInfraNodeId
+    ? await RT.put(`/api/races/${selectedRaceId}/infrastructure/${editingInfraNodeId}`, body)
+    : await RT.post(`/api/races/${selectedRaceId}/infrastructure`, body);
+
+  if (res.ok) {
+    closeModal('infra-node-modal');
+    await loadInfraNodes();
+    RT.toast(editingInfraNodeId ? 'Node updated' : 'Node registered', 'ok');
+  } else RT.toast(res.error || 'Failed', 'warn');
+}
+
+async function deleteInfraNode(id) {
+  const res = await RT.del(`/api/races/${selectedRaceId}/infrastructure/${id}`);
+  if (res.ok) await loadInfraNodes();
+  else RT.toast(res.error || 'Failed', 'warn');
+}
+
 // ── Infrastructure ────────────────────────────────────────────────────────────
 function renderInfraTab() {
   return `
@@ -2077,6 +2183,7 @@ document.addEventListener('keydown', e => {
     if (modal.id === 'personnel-modal' && editingPersonnelId)  savePersonnel();
     if (modal.id === 'station-modal')    saveStation();
     if (modal.id === 'user-modal')       saveUser();
+    if (modal.id === 'infra-node-modal') saveInfraNode();
   }
 });
 

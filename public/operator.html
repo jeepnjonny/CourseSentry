@@ -194,6 +194,7 @@
     <div style="display:flex;flex-shrink:0;border-bottom:1px solid var(--border)">
       <button class="tab-btn active" id="lp-tab-participants" onclick="OP.switchLeftTab('participants')" style="flex:1">PARTICIPANTS</button>
       <button class="tab-btn" id="lp-tab-stations" onclick="OP.switchLeftTab('stations')" style="flex:1">STATIONS</button>
+      <button class="tab-btn" id="lp-tab-network" onclick="OP.switchLeftTab('network')" style="flex:1">NETWORK</button>
     </div>
     
     <!-- Participants pane: Leaderboard with real-time standings and sorting options -->
@@ -219,6 +220,11 @@
     <!-- Stations pane: List of course stations (aid, checkpoint, start, finish) -->
     <div id="lp-stations" style="display:none;flex:1;overflow-y:auto">
       <div id="station-list-body"></div>
+    </div>
+
+    <!-- Network pane: Infrastructure nodes (digipeaters, iGates, repeaters, beacons) -->
+    <div id="lp-network" style="display:none;flex:1;overflow-y:auto">
+      <div id="network-list-body"></div>
     </div>
   </div>
 
@@ -246,6 +252,10 @@
       <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text3);cursor:pointer;user-select:none;margin-top:4px">
         <input type="checkbox" id="chk-personnel" checked onchange="OP.togglePersonnel(this.checked)">
         Personnel
+      </label>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text3);cursor:pointer;user-select:none;margin-top:4px">
+        <input type="checkbox" id="chk-infra" checked onchange="OP.toggleInfra(this.checked)">
+        Infrastructure
       </label>
     </div>
   </div>
@@ -450,6 +460,26 @@
     <div id="pm-status" style="font-size:13px;color:var(--accent3);margin-top:6px;min-height:18px"></div>
     <div class="modal-footer">
       <button onclick="document.getElementById('personnel-modal').classList.add('hidden')">CLOSE</button>
+    </div>
+  </div>
+</div>
+
+<!-- Infrastructure Assign Modal: reassign an existing node (registered in admin's NETWORK
+     tab) to this station. Node identity/type is managed in admin.html — this only reassigns. -->
+<div class="modal-bg hidden" id="infra-assign-modal">
+  <div class="modal" style="max-width:480px">
+    <h2>INFRASTRUCTURE @ <span id="im-station-name" style="color:var(--accent4)"></span></h2>
+    <div id="im-current-list" style="margin-bottom:12px"></div>
+    <div style="border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:11px;letter-spacing:1px;color:var(--text3);margin-bottom:6px">ASSIGN A NODE TO THIS STATION</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="im-assign-sel" style="flex:1;font-size:14px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 6px;font-family:var(--font)"></select>
+        <button class="primary" onclick="OP.assignInfraNode()" style="font-size:12px;padding:3px 9px;flex-shrink:0">ASSIGN</button>
+      </div>
+      <div class="text-dim" style="font-size:12px;margin-top:6px">New nodes are registered by an admin in the NETWORK tab.</div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="document.getElementById('infra-assign-modal').classList.add('hidden')">CLOSE</button>
     </div>
   </div>
 </div>

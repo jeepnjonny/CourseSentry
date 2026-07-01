@@ -18,6 +18,7 @@ let stationEvents = []; // latest events for current station (for buildCheckedIn
 let activeRaces = [];
 let map, markersLayer, personnelLayer = null, stationMarkers = {}, routeLayer = null, trackPoints = null;
 let showParticipantNametags = false, showPersonnelNametags = false;
+let infraNodes = [], infraLayer = null, showInfraMarkers = true;
 let fmt24 = false;
 let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
 let clockInterval = null;
@@ -77,6 +78,13 @@ async function init() {
 
   const pRes = await RT.get(`/api/races/${raceId}/personnel`);
   personnel = pRes.ok ? pRes.data : [];
+
+  // The server scopes this to what the session is authorized to see: the full
+  // race network for a rover-assigned user, or just this station's own node(s)
+  // for a fixed-station user. No client-side role branching needed.
+  const infraRes = await RT.get(`/api/races/${raceId}/infrastructure`);
+  infraNodes = infraRes.ok ? infraRes.data : [];
+
   if (race.messaging_enabled) {
     document.getElementById('tab-msg').classList.remove('hidden');
     document.getElementById('mo-msg-sidebar').style.display = 'flex';
@@ -97,6 +105,8 @@ async function init() {
   }
 
   initMap();
+  updateInfraMarkers();
+  renderInfraList();
   startClock();
   _wsConn = RT.connectWS(handleWS, null, raceId);
 
@@ -234,6 +244,14 @@ async function assignStation(station) {
 
   // Register station on the server (callsign matching happens here)
   await RT.post(`/api/races/${raceId}/stations/${station.id}/assign`, {});
+
+  // Re-fetch infrastructure: a fixed-station pick may narrow visibility from
+  // "no station yet" to just this station's node(s), or a rover pick may widen
+  // it to the full network — the server resolves this from the session, not us.
+  const infraRes = await RT.get(`/api/races/${raceId}/infrastructure`);
+  infraNodes = infraRes.ok ? infraRes.data : [];
+  updateInfraMarkers();
+  renderInfraList();
 }
 
 // ── Map ───────────────────────────────────────────────────────────────────────
@@ -310,6 +328,7 @@ function initMap() {
   setBaseLayer('Street');
   markersLayer = L.layerGroup().addTo(map);
   personnelLayer = L.layerGroup().addTo(map);
+  infraLayer = L.layerGroup().addTo(map);
   renderStationMarkers();
   if (!stations.length) map.setView([39.5, -98.5], 5);
 }
@@ -389,6 +408,82 @@ function togglePersonnelNametags(on) {
   updatePersonnelMarkers();
 }
 
+// ── Infrastructure markers ────────────────────────────────────────────────────
+// Same colors/letters and dimming convention as operator.js's updateInfraMarkers,
+// duplicated here rather than shared since this file already duplicates similar
+// per-marker rendering for participants/personnel (no shared module between pages).
+const INFRA_COLORS  = { digipeater: '#a371f7', igate: '#58a6ff', repeater: '#6e7681', beacon: '#3fb950', other: '#d2a679' };
+const INFRA_LETTERS = { digipeater: 'D', igate: 'I', repeater: 'R', beacon: 'B', other: '?' };
+
+function updateInfraMarkers() {
+  if (!infraLayer) return;
+  for (const n of infraNodes) {
+    if (n.resolved_lat == null || n.resolved_lon == null) {
+      const ex = infraLayer.getLayers().find(m => m._infraId === n.id);
+      if (ex) infraLayer.removeLayer(ex);
+      continue;
+    }
+    const color = INFRA_COLORS[n.node_type] || INFRA_COLORS.other;
+    const dim = n.health !== 'ok';
+    const icon = L.divIcon({
+      html: `<div style="width:20px;height:20px;border-radius:4px;background:${color};opacity:${dim ? 0.45 : 1};
+              border:2px solid #fff4;display:flex;align-items:center;justify-content:center;
+              font-size:11px;font-weight:bold;color:#000">${INFRA_LETTERS[n.node_type] || '?'}</div>`,
+      className: '', iconAnchor: [10, 10],
+    });
+    const healthNote = n.health !== 'ok' ? ` — ${n.health.replace('_', ' ')}` : '';
+    const tooltip = `${n.name} (${n.node_type})${healthNote}`;
+    const existing = infraLayer.getLayers().find(m => m._infraId === n.id);
+    if (existing) {
+      existing.setLatLng([n.resolved_lat, n.resolved_lon]);
+      existing.setIcon(icon);
+      existing.unbindTooltip();
+      existing.bindTooltip(tooltip);
+    } else {
+      const m = L.marker([n.resolved_lat, n.resolved_lon], { icon });
+      m._infraId = n.id;
+      m.bindTooltip(tooltip);
+      m.addTo(infraLayer);
+    }
+  }
+  for (const m of [...infraLayer.getLayers()]) {
+    if (!infraNodes.some(n => n.id === m._infraId)) infraLayer.removeLayer(m);
+  }
+}
+
+function toggleInfra(on) {
+  showInfraMarkers = !!on;
+  if (!map) return;
+  if (showInfraMarkers) { if (!map.hasLayer(infraLayer)) infraLayer.addTo(map); }
+  else { if (map.hasLayer(infraLayer)) map.removeLayer(infraLayer); }
+}
+
+// ── Infrastructure list (LOG tab) ─────────────────────────────────────────────
+// Doubles as the "fixed station" inline view: a non-rover session's /infrastructure
+// response is already scoped server-side to just that station's node(s), so this
+// renders whatever it receives with no client-side role branching.
+function renderInfraList() {
+  const section = document.getElementById('mo-infra-section');
+  const head = document.getElementById('mo-infra-head');
+  const list = document.getElementById('mo-infra-list');
+  if (!section || !list) return;
+
+  if (!infraNodes.length) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+
+  const isRover = currentStation?.type === 'rover';
+  if (head) head.textContent = isRover ? 'NETWORK' : `NETWORK @ ${currentStation?.name || ''}`;
+
+  list.innerHTML = infraNodes.map(n => {
+    const healthColor = n.health === 'stale' ? 'var(--accent3)' : n.health === 'never_seen' ? 'var(--text3)' : 'var(--accent2)';
+    return `<div class="mo-event-row">
+      <span class="mo-event-type" style="color:${INFRA_COLORS[n.node_type] || INFRA_COLORS.other}">${n.node_type}</span>
+      <span class="mo-event-who">${n.name}${n.battery_level != null ? ` · ${RT.fmtBattery(n.battery_level)}` : ''}</span>
+      <span style="font-size:11px;letter-spacing:1px;color:${healthColor}">${n.health.replace('_', ' ').toUpperCase()}</span>
+    </div>`;
+  }).join('');
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
 function handleWS(msg) {
@@ -425,6 +520,16 @@ function handleWS(msg) {
     if (p) { p.last_lat = msg.data.lat; p.last_lon = msg.data.lon; }
     const per = personnel.find(x => x.tracker_id === msg.data.nodeId);
     if (per) { per.last_lat = msg.data.lat; per.last_lon = msg.data.lon; updatePersonnelMarkers(); }
+    const infra = infraNodes.find(x => x.node_id && x.node_id === msg.data.nodeId);
+    if (infra) {
+      infra.resolved_lat = msg.data.lat; infra.resolved_lon = msg.data.lon;
+      infra.last_lat = msg.data.lat; infra.last_lon = msg.data.lon;
+      if (msg.data.battery != null) infra.battery_level = msg.data.battery;
+      infra.last_seen = msg.data.timestamp;
+      infra.health = 'ok';
+      updateInfraMarkers();
+      renderInfraList();
+    }
     updateMarker(msg.data.nodeId, msg.data);
     renderLeaderboard();
   } else if (msg.type === 'participant_update') {
@@ -489,6 +594,17 @@ function handleWS(msg) {
     }
     updatePersonnelMarkers();
     if (race.messaging_enabled) renderPersonnelRecipients();
+  } else if (msg.type === 'infra_update') {
+    // Payload already reflects only what this session is authorized to see
+    // (see broadcastInfra() in src/websocket.js) — apply it directly.
+    if (msg.data.action === 'delete') {
+      infraNodes = infraNodes.filter(n => n.id !== msg.data.id);
+    } else if (msg.data.node) {
+      const idx = infraNodes.findIndex(n => n.id === msg.data.node.id);
+      if (idx >= 0) infraNodes[idx] = msg.data.node; else infraNodes.push(msg.data.node);
+    }
+    updateInfraMarkers();
+    renderInfraList();
   }
 }
 

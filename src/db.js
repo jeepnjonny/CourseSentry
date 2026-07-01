@@ -122,6 +122,30 @@ CREATE TABLE IF NOT EXISTS personnel (
   created_at  INTEGER DEFAULT (unixepoch())
 );
 
+-- Infrastructure nodes: digipeaters, iGates, repeaters, and standalone beacons.
+-- Race-scoped (unlike tracker_registry, which is global across all races) so a
+-- node can be pre-registered by an admin before it has ever beaconed, and so
+-- "assigned to a station" mirrors how personnel are assigned to a station.
+-- node_id is a loosely-matched TEXT field (against tracker_registry.node_id,
+-- long_name, or short_name) rather than a hard FK, since tracker_registry is
+-- unscoped and the same convention is already used by personnel.tracker_id.
+CREATE TABLE IF NOT EXISTS infra_nodes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  race_id     INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
+  name        TEXT    NOT NULL,
+  node_type   TEXT    NOT NULL DEFAULT 'repeater'
+              CHECK(node_type IN ('digipeater','igate','repeater','beacon','other')),
+  node_id     TEXT,
+  station_id  INTEGER REFERENCES stations(id) ON DELETE SET NULL,
+  notes       TEXT,
+  created_at  INTEGER DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_infra_nodes_station ON infra_nodes(station_id);
+-- Prevent double-registering the same physical node within a race; nodes not
+-- yet matched to a beacon (node_id IS NULL) are exempt from the uniqueness check.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_infra_nodes_race_node
+  ON infra_nodes(race_id, node_id) WHERE node_id IS NOT NULL;
+
 -- Participants: racers/competitors
 CREATE TABLE IF NOT EXISTS participants (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
