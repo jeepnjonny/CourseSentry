@@ -96,41 +96,54 @@ HTTP_ONLY_CONF="server {
     }
 }"
 
+CERT_EXISTS=false
+[ -f "/etc/letsencrypt/live/${HOSTNAME}/fullchain.pem" ] && CERT_EXISTS=true
+
 if [ ! -d /etc/nginx/sites-available ]; then
   echo "  nginx sites-available not found — copy nginx-coursesentry.conf manually."
-else
-  if [ "${SSL}" = "--ssl" ]; then
-    # ── Phase 1: deploy HTTP-only so certbot can validate the domain ──────
-    echo "  nginx: deploying temporary HTTP config for cert validation..."
-    echo "${HTTP_ONLY_CONF}" | sudo tee "${NGINX_AVAILABLE}" > /dev/null
-    sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
-    sudo nginx -t && sudo systemctl reload nginx
+elif [ "${CERT_EXISTS}" = true ]; then
+  # Cert already issued — always safe to (re)deploy the full SSL config.
+  # This keeps repeat runs (e.g. redeploying app code) from clobbering HTTPS.
+  echo "  nginx: cert already exists for ${HOSTNAME}, deploying full SSL config..."
+  sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" "${NGINX_AVAILABLE}"
+  sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
+  sudo nginx -t && sudo systemctl reload nginx
+  echo "  nginx: SSL config deployed — https://${HOSTNAME}/"
+elif [ "${SSL}" = "--ssl" ]; then
+  # ── Phase 1: deploy HTTP-only so certbot can validate the domain ──────
+  echo "  nginx: deploying temporary HTTP config for cert validation..."
+  echo "${HTTP_ONLY_CONF}" | sudo tee "${NGINX_AVAILABLE}" > /dev/null
+  sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
+  sudo nginx -t && sudo systemctl reload nginx
 
-    # ── Phase 2: obtain cert (certonly — does not modify nginx config) ────
-    echo "  certbot: requesting certificate..."
-    if ! command -v certbot &>/dev/null; then
-      sudo apt-get install -y certbot python3-certbot-nginx
-    fi
-    sudo certbot certonly --nginx \
-      -d "${HOSTNAME}" \
-      --non-interactive --agree-tos -m "${CERTBOT_EMAIL}"
-
-    # ── Phase 3: deploy full SSL config now that certs exist ──────────────
-    echo "  nginx: deploying full SSL config..."
-    sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" "${NGINX_AVAILABLE}"
-    sudo nginx -t && sudo systemctl reload nginx
-    echo "  SSL configured — https://${HOSTNAME}/"
-  else
-    # No SSL yet — deploy HTTP-only config
-    echo "  nginx: deploying HTTP config (run with --ssl to enable HTTPS)..."
-    echo "${HTTP_ONLY_CONF}" | sudo tee "${NGINX_AVAILABLE}" > /dev/null
-    sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
-    sudo nginx -t && sudo systemctl reload nginx
-    echo "  nginx configured"
+  # ── Phase 2: obtain cert (certonly — does not modify nginx config) ────
+  echo "  certbot: requesting certificate..."
+  if ! command -v certbot &>/dev/null; then
+    sudo apt-get install -y certbot python3-certbot-nginx
   fi
+  sudo certbot certonly --nginx \
+    -d "${HOSTNAME}" \
+    --non-interactive --agree-tos -m "${CERTBOT_EMAIL}"
+
+  # ── Phase 3: deploy full SSL config now that certs exist ──────────────
+  echo "  nginx: deploying full SSL config..."
+  sudo cp "${INSTALL_DIR}/nginx-coursesentry.conf" "${NGINX_AVAILABLE}"
+  sudo nginx -t && sudo systemctl reload nginx
+  echo "  SSL configured — https://${HOSTNAME}/"
+elif [ -f "${NGINX_AVAILABLE}" ]; then
+  # No cert, no --ssl, and a config already exists (e.g. hand-edited) — leave it alone.
+  echo "  nginx: ${NGINX_AVAILABLE} already exists, leaving it untouched."
+  echo "         Run with --ssl to enable HTTPS."
+else
+  # No SSL yet, nothing deployed yet — deploy HTTP-only config
+  echo "  nginx: deploying HTTP config (run with --ssl to enable HTTPS)..."
+  echo "${HTTP_ONLY_CONF}" | sudo tee "${NGINX_AVAILABLE}" > /dev/null
+  sudo ln -sf "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
+  sudo nginx -t && sudo systemctl reload nginx
+  echo "  nginx configured"
 fi
 
-if [ "${SSL}" != "--ssl" ]; then
+if [ "${SSL}" != "--ssl" ] && [ "${CERT_EXISTS}" = false ]; then
   echo ""
   echo "  TIP: Re-run with --ssl to configure HTTPS via certbot:"
   echo "       bash setup.sh --ssl"
@@ -138,6 +151,6 @@ fi
 
 echo ""
 echo "=== Setup complete ==="
-echo "  App:    $([ "${SSL}" = "--ssl" ] && echo "https" || echo "http")://${HOSTNAME}/"
+echo "  App:    $([ "${SSL}" = "--ssl" ] || [ "${CERT_EXISTS}" = true ] && echo "https" || echo "http")://${HOSTNAME}/"
 echo "  Status: sudo systemctl status coursesentry"
 echo "  Logs:   sudo journalctl -u coursesentry -f"
