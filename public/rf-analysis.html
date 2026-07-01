@@ -12,19 +12,22 @@
   - Top Bar: Navigation and logout
   
   Key Features:
-  - Heatmap visualization of signal density, SNR (Signal-to-Noise Ratio), or RSSI (Received Signal Strength)
+  - Grid-square visualization of signal density, SNR, or RSSI — one L.rectangle layer per RF source
+  - Density mode: cell opacity scales with packet count (5 log-scale levels: 1 / 2–4 / 5–11 / 12–30 / 31+)
+  - SNR/RSSI mode: cell fill color maps to quality thresholds (red → orange → yellow → green → blue)
   - Coverage analysis via convex hull of received positions per technology source
-  - Technology filtering (Meshtastic, APRS, inReach, etc.)
+  - Technology filtering (Meshtastic, APRS, LoRa APRS, etc.)
   - Time window selection (race duration or all historical data)
-  - Interactive heatmap tuning (opacity, radius, blur)
-  - Signal legend showing color gradient for selected metric
+  - Configurable grid cell size (100 m / 250 m / 500 m / 1 km)
+  - Signal legend showing discrete color/opacity swatches for the active metric
   - Raw RF data table with per-node statistics
   - Real-time data clearing and refresh
-  
+
   Algorithms:
-  - Heatmap Generation: Uses Leaflet.heat library to create weighted density visualization
+  - Grid Cells: positions bucketed by Math.round(lat/cellDeg)*cellDeg (uniform lat/lon grid)
+  - Longitude correction: cell width adjusted by cos(midLat) so cells are roughly square
   - Coverage Polygon: Computes convex hull of received positions to show RF reach
-  - Signal Metrics: Aggregates packet-level RSSI/SNR data by location
+  - Signal Metrics: Aggregates packet-level RSSI/SNR data per cell by averaging
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -42,8 +45,6 @@
   <link id="rt-theme-css" rel="stylesheet">
   <!-- Leaflet JavaScript library for map rendering -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <!-- Leaflet.heat plugin for heatmap generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
 <style>
   body { overflow: hidden; }
 
@@ -118,13 +119,7 @@
     padding: 8px 10px; font-size: 12px; color: var(--text2); display: none;
   }
   #signal-legend.visible { display: block; }
-  .legend-bar {
-    height: 10px; width: 160px; border-radius: 3px; margin: 4px 0 2px;
-    background: linear-gradient(to right, #f85149, #fafa00, #3fb950, #58a6ff);
-  }
-  .legend-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text3); }
-
-  /* ── Loading overlay ── */
+/* ── Loading overlay ── */
   #loading-overlay {
     position: absolute; inset: 0; background: rgba(0,0,0,.5);
     display: flex; align-items: center; justify-content: center;
@@ -179,7 +174,7 @@
 
       <!-- Metric -->
       <div class="ctrl-block">
-        <div class="ctrl-title">Heatmap Layer</div>
+        <div class="ctrl-title">Coverage Layer</div>
         <div style="display:flex;gap:4px">
           <button class="metric-btn active" onclick="RF.setMetric('density')" id="btn-density">DENSITY</button>
           <button class="metric-btn" onclick="RF.setMetric('snr')" id="btn-snr">SNR</button>
@@ -209,14 +204,13 @@
             <span id="lbl-opacity">70%</span>
           </div>
           <div class="slider-row">
-            <label>Radius</label>
-            <input type="range" min="5" max="60" value="20" id="sl-radius" oninput="RF.setRadius(this.value)">
-            <span id="lbl-radius">20</span>
-          </div>
-          <div class="slider-row">
-            <label>Blur</label>
-            <input type="range" min="5" max="40" value="12" id="sl-blur" oninput="RF.setBlur(this.value)">
-            <span id="lbl-blur">12</span>
+            <label>Grid Size</label>
+            <select id="sl-gridsize" onchange="RF.setGridSize(this.value)" style="flex:1;font-size:13px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 4px">
+              <option value="100">100 m</option>
+              <option value="250" selected>250 m</option>
+              <option value="500">500 m</option>
+              <option value="1000">1 km</option>
+            </select>
           </div>
         </div>
       </div>
@@ -234,15 +228,8 @@
   <div id="map-wrap">
     <div id="map"></div>
 
-    <!-- Signal quality legend (shown for SNR/RSSI modes) -->
-    <div id="signal-legend">
-      <div style="font-size:11px;letter-spacing:1px;color:var(--text3);margin-bottom:2px" id="legend-title">SNR</div>
-      <div class="legend-bar"></div>
-      <div class="legend-labels">
-        <span id="legend-min">Weak</span>
-        <span id="legend-max">Strong</span>
-      </div>
-    </div>
+    <!-- Signal quality legend — populated by renderLegend() in rf-analysis.js -->
+    <div id="signal-legend"></div>
 
     <div id="loading-overlay" style="display:none">LOADING…</div>
   </div>

@@ -3,7 +3,7 @@ const RF = (() => {
 
 // ── State ──────────────────────────────────────────────────────────────────────
 let leafletMap = null;
-let heatLayer       = null;
+let cellLayers      = {};   // src → L.layerGroup (grid squares)
 let routeLayer      = null;
 let stationLayer    = null;
 let coverageLayers  = {};   // src → L.polygon
@@ -18,9 +18,8 @@ let routePoints   = [];
 
 let activeSources   = new Set();
 let metric          = 'density';   // 'density' | 'snr' | 'rssi'
-let heatRadius      = 20;
-let heatBlur        = 12;
 let heatOpacity     = 0.70;
+let gridSizeM       = 250;  // grid cell edge in meters
 let rightTab        = 'stats';
 let timeWindowMode  = 'race';      // 'race' | 'all'
 let raceWindowStart = null;        // computed unix ts
@@ -36,9 +35,6 @@ const SOURCE_META = {
 function srcMeta(src) {
   return SOURCE_META[src] || { color: '#8b949e', label: src, freq: '' };
 }
-
-// Signal quality gradient: weak (red) → strong (blue) — industry standard
-const SIGNAL_GRADIENT = { 0.0: '#f85149', 0.35: '#ffa657', 0.55: '#fafa00', 0.75: '#3fb950', 1.0: '#58a6ff' };
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 async function init() {
@@ -171,7 +167,7 @@ function computeRaceBounds() {
 
 function setTimeWindow(val) {
   timeWindowMode = val;
-  renderHeatmap();
+  renderGrid();
   renderCoveragePolygons();
   renderRawTable();
   renderStats();
@@ -452,59 +448,136 @@ function ccw(a, b, c) {
   return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
 }
 
-// ── Heatmap rendering ──────────────────────────────────────────────────────────
-function buildHeatPoints() {
-  const pts = [];
-  for (const p of filteredPositions()) {
-    let intensity;
-    if (metric === 'snr') {
-      if (p.snr == null) continue;
-      intensity = Math.max(0, Math.min(1, (p.snr + 20) / 30));
-    } else if (metric === 'rssi') {
-      if (p.rssi == null) continue;
-      intensity = Math.max(0, Math.min(1, (p.rssi + 140) / 80));
-    } else {
-      intensity = 1;
-    }
-    pts.push([p.lat, p.lon, intensity]);
-  }
-  return pts;
+// ── Grid square rendering ──────────────────────────────────────────────────────
+function densityOpacity(count) {
+  if (count >= 31) return 0.82;
+  if (count >= 12) return 0.65;
+  if (count >=  5) return 0.48;
+  if (count >=  2) return 0.28;
+  return 0.12;
 }
 
-function renderHeatmap() {
-  if (heatLayer) { leafletMap.removeLayer(heatLayer); heatLayer = null; }
-  const pts = buildHeatPoints();
+function gridCellBounds(lat, lon, dLat, dLon) {
+  return [[lat - dLat, lon - dLon], [lat + dLat, lon + dLon]];
+}
 
-  // Signal legend
-  const legend = document.getElementById('signal-legend');
-  if (metric !== 'density' && pts.length) {
-    legend.classList.add('visible');
-    document.getElementById('legend-title').textContent = metric.toUpperCase();
-    if (metric === 'snr') {
-      document.getElementById('legend-min').textContent = '≤ −20 dB (poor)';
-      document.getElementById('legend-max').textContent = '+10 dB (excellent)';
-    } else {
-      document.getElementById('legend-min').textContent = '≤ −140 dBm';
-      document.getElementById('legend-max').textContent = '−60 dBm';
-    }
-  } else {
-    legend.classList.remove('visible');
+function buildGridCells(source) {
+  const positions = filteredPositions().filter(p => (p.rf_source || 'meshtastic') === source);
+  if (!positions.length) return [];
+
+  const midLat     = positions.reduce((s, p) => s + p.lat, 0) / positions.length;
+  const dLat       = (gridSizeM / 111320) / 2;
+  const dLon       = (gridSizeM / (111320 * Math.cos(midLat * Math.PI / 180))) / 2;
+  const cellDeg    = dLat * 2;
+  const cellLonDeg = dLon * 2;
+
+  const cells = new Map();
+  for (const p of positions) {
+    const clat = Math.round(p.lat / cellDeg)    * cellDeg;
+    const clon = Math.round(p.lon / cellLonDeg) * cellLonDeg;
+    const key  = `${clat},${clon}`;
+    if (!cells.has(key)) cells.set(key, { lat: clat, lon: clon, count: 0, snrSum: 0, rssiSum: 0, snrN: 0, rssiN: 0 });
+    const c = cells.get(key);
+    c.count++;
+    if (p.snr  != null) { c.snrSum  += p.snr;  c.snrN++;  }
+    if (p.rssi != null) { c.rssiSum += p.rssi; c.rssiN++; }
   }
+  return [...cells.values()].map(c => ({
+    ...c,
+    avgSnr:  c.snrN  ? c.snrSum  / c.snrN  : null,
+    avgRssi: c.rssiN ? c.rssiSum / c.rssiN : null,
+    dLat, dLon,
+  }));
+}
 
-  if (!pts.length) return;
+function renderGrid() {
+  for (const lg of Object.values(cellLayers)) leafletMap.removeLayer(lg);
+  cellLayers = {};
 
-  heatLayer = L.heatLayer(pts, {
-    radius:     heatRadius,
-    blur:       heatBlur,
-    max:        metric === 'density' ? undefined : 1.0,
-    minOpacity: 0.04,
-    gradient:   metric !== 'density' ? SIGNAL_GRADIENT : undefined,
-  }).addTo(leafletMap);
+  let totalCells = 0;
+  for (const source of activeSources) {
+    const cells = buildGridCells(source);
+    if (!cells.length) continue;
+    totalCells += cells.length;
 
-  setTimeout(() => {
-    const canvas = document.querySelector('.leaflet-heatmap-layer');
-    if (canvas) canvas.style.opacity = heatOpacity;
-  }, 50);
+    const srcColor = srcMeta(source).color;
+    const rects = cells.map(c => {
+      let fillColor, fillOpacity;
+      if (metric === 'snr') {
+        fillColor   = snrQualityColor(c.avgSnr);
+        fillOpacity = c.avgSnr != null ? 0.65 : 0;
+      } else if (metric === 'rssi') {
+        fillColor   = rssiQualityColor(c.avgRssi);
+        fillOpacity = c.avgRssi != null ? 0.65 : 0;
+      } else {
+        fillColor   = srcColor;
+        fillOpacity = densityOpacity(c.count);
+      }
+      const tip = `${srcMeta(source).label}: ${c.count} packet${c.count !== 1 ? 's' : ''}`
+                + (c.avgSnr  != null ? ` · SNR ${c.avgSnr.toFixed(1)} dB`    : '')
+                + (c.avgRssi != null ? ` · RSSI ${c.avgRssi.toFixed(0)} dBm` : '');
+      return L.rectangle(
+        gridCellBounds(c.lat, c.lon, c.dLat, c.dLon),
+        {
+          color:       srcColor,
+          weight:      0.5,
+          opacity:     0.5,
+          fillColor,
+          fillOpacity: fillOpacity * heatOpacity,
+          renderer:    L.canvas(),
+        }
+      ).bindTooltip(tip);
+    });
+    cellLayers[source] = L.layerGroup(rects).addTo(leafletMap);
+  }
+  renderLegend(totalCells > 0);
+}
+
+function renderLegend(hasCells) {
+  const legend = document.getElementById('signal-legend');
+  if (!hasCells) { legend.classList.remove('visible'); return; }
+  legend.classList.add('visible');
+
+  if (metric === 'density') {
+    const firstSrc = [...activeSources][0];
+    const color    = firstSrc ? srcMeta(firstSrc).color : '#8b949e';
+    const levels   = [
+      { label: '1',     op: 0.12 },
+      { label: '2–4',   op: 0.28 },
+      { label: '5–11',  op: 0.48 },
+      { label: '12–30', op: 0.65 },
+      { label: '31+',   op: 0.82 },
+    ];
+    legend.innerHTML = `
+      <div style="font-size:11px;letter-spacing:1px;color:var(--text3);margin-bottom:5px">PACKETS / CELL</div>
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        ${levels.map(l => `
+          <div style="text-align:center">
+            <div style="width:22px;height:22px;background:${color};opacity:${l.op};border:1px solid ${color};border-radius:2px;margin:0 auto 2px"></div>
+            <div style="font-size:9px;color:var(--text3)">${l.label}</div>
+          </div>`).join('')}
+      </div>`;
+  } else if (metric === 'snr') {
+    legend.innerHTML = `
+      <div style="font-size:11px;letter-spacing:1px;color:var(--text3);margin-bottom:5px">SNR</div>
+      <div style="display:flex;gap:3px;align-items:flex-end">
+        ${[['#f85149','&lt;−15'],['#ffa657','−15→−10'],['#fafa00','−10→0'],['#3fb950','0→5'],['#58a6ff','&gt;5 dB']].map(([c, l]) => `
+          <div style="text-align:center">
+            <div style="width:28px;height:22px;background:${c};border-radius:2px;margin:0 auto 2px;opacity:0.85"></div>
+            <div style="font-size:9px;color:var(--text3);white-space:nowrap">${l}</div>
+          </div>`).join('')}
+      </div>`;
+  } else {
+    legend.innerHTML = `
+      <div style="font-size:11px;letter-spacing:1px;color:var(--text3);margin-bottom:5px">RSSI</div>
+      <div style="display:flex;gap:3px;align-items:flex-end">
+        ${[['#f85149','&lt;−125'],['#ffa657','−125→−115'],['#fafa00','−115→−100'],['#3fb950','−100→−80'],['#58a6ff','&gt;−80 dBm']].map(([c, l]) => `
+          <div style="text-align:center">
+            <div style="width:28px;height:22px;background:${c};border-radius:2px;margin:0 auto 2px;opacity:0.85"></div>
+            <div style="font-size:9px;color:var(--text3);white-space:nowrap">${l}</div>
+          </div>`).join('')}
+      </div>`;
+  }
 }
 
 // ── Right panel tabs ───────────────────────────────────────────────────────────
@@ -522,7 +595,7 @@ function switchTab(id) {
 function toggleSource(src, checked) {
   if (checked) activeSources.add(src);
   else         activeSources.delete(src);
-  renderHeatmap();
+  renderGrid();
   renderCoveragePolygons();
   updateTimeWindowInfo();
   if (rightTab === 'raw') renderRawTable();
@@ -534,26 +607,18 @@ function setMetric(m) {
   ['density', 'snr', 'rssi'].forEach(id => {
     document.getElementById('btn-' + id)?.classList.toggle('active', id === m);
   });
-  renderHeatmap();
+  renderGrid();
 }
 
 function setOpacity(val) {
   heatOpacity = val / 100;
   document.getElementById('lbl-opacity').textContent = val + '%';
-  const canvas = document.querySelector('.leaflet-heatmap-layer');
-  if (canvas) canvas.style.opacity = heatOpacity;
+  renderGrid();
 }
 
-function setRadius(val) {
-  heatRadius = parseInt(val);
-  document.getElementById('lbl-radius').textContent = val;
-  renderHeatmap();
-}
-
-function setBlur(val) {
-  heatBlur = parseInt(val);
-  document.getElementById('lbl-blur').textContent = val;
-  renderHeatmap();
+function setGridSize(val) {
+  gridSizeM = parseInt(val);
+  renderGrid();
 }
 
 async function clearData() {
@@ -572,6 +637,6 @@ function showLoading(on) {
 
 init();
 
-return { selectRace, toggleSource, setMetric, setOpacity, setRadius, setBlur,
+return { selectRace, toggleSource, setMetric, setOpacity, setGridSize,
          clearData, switchTab, setTimeWindow, toggleCoverage };
 })();
