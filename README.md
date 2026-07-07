@@ -2,7 +2,7 @@
 
 Live race event safety and tracking system. Receives GPS positions from [Meshtastic](https://meshtastic.org) mesh radio nodes via MQTT, displays real-time participant locations on a map, and tracks timing events (start, aid stations, finish). Designed for trail runs, cycling events, and similar endurance races.
 
-**Live at:** `https://apps.k7swi.org/CourseSentry/`
+**Live at:** `https://CourseSentry.k7swi.org`
 
 ## Features
 
@@ -158,3 +158,6 @@ data/
 ```
 
 Back up `data/racetracker.db` to preserve race history.
+
+##License 
+MIT
