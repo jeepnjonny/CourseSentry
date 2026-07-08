@@ -1375,10 +1375,11 @@ function renderPersonnelTab() {
   return `
   <div class="card">
     <h3>AID STATION PERSONNEL</h3>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="primary" onclick="openPersonnelModal()">+ ADD PERSON</button>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="primary" onclick="openPersonnelModal()">+ ADD</button>
       <button onclick="showPersonnelCsvPanel()">CSV IMPORT</button>
-      <button class="danger" onclick="clearAllPersonnel()">DELETE ALL</button>
+      <button onclick="exportPersonnelCsv()">CSV EXPORT</button>
+      <button class="danger" onclick="clearAllPersonnel()" style="margin-left:auto">CLEAR ALL</button>
     </div>
     <div id="pers-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px">
       <div class="text-dim" style="font-size:14px;margin-bottom:6px">Columns: name, station_name, tracker_id, phone</div>
@@ -1400,6 +1401,18 @@ function showPersonnelCsvPanel() {
   document.getElementById('pers-csv-label').textContent = '↑ Select CSV file';
   document.getElementById('pers-csv-btn').disabled = true;
   document.getElementById('pers-csv-panel').classList.remove('hidden');
+}
+
+function exportPersonnelCsv() {
+  const header = 'name,station_name,tracker_id,phone';
+  const rows = personnel.map(p =>
+    [p.name, p.is_rover ? 'ROVER' : (p.station_name || ''), p.tracker_id || '', p.phone || '']
+      .map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const csv = [header, ...rows].join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = `personnel_race${selectedRaceId}.csv`;
+  a.click();
 }
 
 function personnelCsvSelected(input) {
