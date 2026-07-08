@@ -15,6 +15,7 @@ const aprsClient = require('./src/aprs-client');
 const localTnc = require('./src/local-tnc');
 const beacon        = require('./src/beacon');
 const inreachPoller = require('./src/inreach-poller');
+const spotPoller    = require('./src/spot-poller');
 const PORT = process.env.PORT || 3000;
 
 // ── Global error safety net ───────────────────────────────────────────────────
@@ -274,6 +275,7 @@ else console.log('[server] APRS-IS not configured');
 
 beacon.start();
 inreachPoller.start();
+spotPoller.start();
 
 server.listen(PORT, () => {
   console.log(`[server] CourseSentry listening on port ${PORT}`);

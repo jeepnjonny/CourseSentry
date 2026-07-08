@@ -135,6 +135,7 @@
     <span class="ds-light ds-light-idle" id="aprs-light"    title="APRS: Offline"></span>
     <span class="ds-light ds-light-idle" id="tnc-light"     title="KISS TNC: No client connected"></span>
     <span class="ds-light ds-light-idle" id="inreach-light" title="InReach: Inactive"></span>
+    <span class="ds-light ds-light-idle" id="spot-light"    title="SPOT: Inactive"></span>
     <span class="ds-light ds-light-off"  id="mesh-light"    title="Client Mesh: Not configured"></span>
   </div>
 
@@ -262,6 +263,18 @@
       <div class="checkbox-row"><input type="checkbox" id="rm-mqtt-enabled"><label for="rm-mqtt-enabled">MQTT / Meshtastic</label></div>
       <div class="checkbox-row"><input type="checkbox" id="rm-aprs-enabled"><label for="rm-aprs-enabled">APRS-IS</label></div>
       <div class="checkbox-row"><input type="checkbox" id="rm-tnc-enabled"><label for="rm-tnc-enabled">APRS-TNC</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="rm-spot-enabled"><label for="rm-spot-enabled">SPOT Trace</label></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+      <label for="rm-spot-feed-id" style="font-size:13px;white-space:nowrap;min-width:130px">SPOT Feed ID</label>
+      <input id="rm-spot-feed-id" type="text" style="flex:1;font-size:13px" placeholder="glId from your SPOT Shared Page (leave blank if unused)">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+      <label for="rm-spot-feed-password" style="font-size:13px;white-space:nowrap;min-width:130px">SPOT Feed Password</label>
+      <input id="rm-spot-feed-password" type="text" style="flex:1;font-size:13px" placeholder="optional — only if the Shared Page is password-protected">
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-top:3px">
+      Enable SPOT Trace to poll a Globalstar Shared Page. Create a Shared Page in your SPOT account and paste its <code>glId</code> (or the full share URL). One page can carry many devices; each appears as a <code>spot-…</code> node you assign to a participant like any other tracker.
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
       <label for="rm-tactical-callsign" style="font-size:13px;white-space:nowrap;min-width:130px">Race Callsign <span id="rm-callsign-required" style="color:var(--danger);display:none">*</span></label>

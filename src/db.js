@@ -444,6 +444,10 @@ try { db.prepare('ALTER TABLE races ADD COLUMN tnc_enabled INTEGER NOT NULL DEFA
 try { db.prepare('ALTER TABLE users ADD COLUMN active_session_token TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE personnel ADD COLUMN is_rover INTEGER NOT NULL DEFAULT 0').run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('aprs_igate_enabled', '0')").run(); } catch {}
+// SPOT Trace satellite tracker feed (per-race shared page + global enable toggle)
+try { db.prepare('ALTER TABLE races ADD COLUMN spot_feed_id TEXT').run(); } catch {}
+try { db.prepare('ALTER TABLE races ADD COLUMN spot_feed_password TEXT').run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('spot_enabled', '0')").run(); } catch {}
 
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.
