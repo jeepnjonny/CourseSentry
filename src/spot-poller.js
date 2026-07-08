@@ -14,8 +14,11 @@
  * hits get the IP blocked) and >= 2 s between DIFFERENT feeds. A 5-minute poll
  * interval with a 2.5 s stagger between race feeds stays well within those.
  *
- * The public feed exposes lat/lon/time/messageType/messengerId only — no
- * battery, altitude, speed, or heading — so those map to null in the fix model.
+ * The public feed exposes lat/lon/time/messageType/messengerId and a binary
+ * batteryState (GOOD/LOW) — no speed or heading, and altitude is present but
+ * unreliable/undocumented on SPOT hardware (observed nonsense values like -103 m
+ * at 2500 m terrain), so it is deliberately dropped. battery maps to a coarse
+ * level; the rest map to null in the fix model.
  */
 
 const https = require('https');
@@ -123,6 +126,20 @@ function parseFeed(text) {
 }
 
 /**
+ * Map the SPOT binary battery indicator to a coarse percentage. SPOT hardware
+ * reports only GOOD/LOW (no true percentage), so GOOD → 100 and LOW → 10 (below
+ * the 20% low-battery threshold); any unexpected/absent value → null rather than
+ * a fabricated number.
+ */
+function batteryStateToPct(state) {
+  switch (String(state || '').toUpperCase()) {
+    case 'GOOD': return 100;
+    case 'LOW':  return 10;
+    default:     return null;
+  }
+}
+
+/**
  * Reduce a feed's messages to the newest fix per device (keyed by messengerId).
  */
 function newestPerDevice(messages) {
@@ -143,6 +160,7 @@ function newestPerDevice(messages) {
         lon,
         timestamp: ts,
         messageType: m.messageType || null,
+        battery: batteryStateToPct(m.batteryState),
       });
     }
   }
@@ -195,7 +213,8 @@ async function pollRaceFeed(race) {
         `Position — ${dev.name || nodeId} (${dev.messageType || 'TRACK'}) ` +
         `${dev.lat.toFixed(5)},${dev.lon.toFixed(5)} ts=${dev.timestamp}`);
 
-      // SPOT feed exposes no battery/altitude/speed/heading — leave them null
+      // SPOT feed exposes no speed/heading; altitude is unreliable (dropped).
+      // battery is a coarse level from the GOOD/LOW indicator.
       mqttClient.handlePosition({
         nodeId,
         lat: dev.lat,
@@ -203,7 +222,7 @@ async function pollRaceFeed(race) {
         altitude: null,
         speed: null,
         heading: null,
-        battery: null,
+        battery: dev.battery,
         timestamp: dev.timestamp,
         rfSource: 'spot',
       });
@@ -259,7 +278,8 @@ async function pollParticipantFeed(participant) {
       `Position — ${participant.name} (#${participant.bib}) ` +
       `${dev.lat.toFixed(5)},${dev.lon.toFixed(5)} ts=${dev.timestamp}`);
 
-    // SPOT feed exposes no battery/altitude/speed/heading — leave them null
+    // SPOT feed exposes no speed/heading; altitude is unreliable (dropped).
+    // battery is a coarse level from the GOOD/LOW indicator.
     mqttClient.handlePosition({
       nodeId,
       lat: dev.lat,
@@ -267,7 +287,7 @@ async function pollParticipantFeed(participant) {
       altitude: null,
       speed: null,
       heading: null,
-      battery: null,
+      battery: dev.battery,
       timestamp: dev.timestamp,
       rfSource: 'spot',
     });
@@ -351,4 +371,4 @@ function stop() {
 module.exports = { start, stop, pollAll, getStatus };
 
 // Exposed for unit testing (pure helpers, no side effects)
-module.exports._internal = { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice, spotNodeId };
+module.exports._internal = { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice, spotNodeId, batteryStateToPct };
