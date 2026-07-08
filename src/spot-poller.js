@@ -206,8 +206,6 @@ async function pollRaceFeed(race) {
  * Poll all active races that have a SPOT feed configured.
  */
 async function pollAll() {
-  if (!isEnabled()) return;
-
   const races = db.prepare(`
     SELECT id, name, spot_feed_id, spot_feed_password
     FROM races
@@ -230,18 +228,9 @@ async function pollAll() {
   }
 }
 
-/**
- * SPOT ingestion is gated behind a global settings toggle (default off),
- * matching the aprs_enabled / mqtt_enabled convention.
- */
-function isEnabled() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'spot_enabled'").get();
-  return row ? row.value === '1' : false;
-}
-
 function getStatus() {
   return {
-    active:   !!_timer && isEnabled(),
+    active:   !!_timer,
     count:    _lastFeedCount,
     lastPoll: _lastPollTime,
   };

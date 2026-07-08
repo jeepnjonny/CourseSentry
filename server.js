@@ -129,8 +129,20 @@ app.put('/api/settings', requireRole('admin'), (req, res) => {
   const upsert = db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
   const tx = db.transaction(entries => { for (const [k, v] of entries) upsert.run(k, v ?? null); });
   tx(Object.entries(req.body));
-  const keys = Object.keys(req.body).join(', ');
-  logger.log('system', 'info', `Settings saved by ${req.session.user.username}: ${keys}`);
+  const keys = Object.keys(req.body);
+  logger.log('system', 'info', `Settings saved by ${req.session.user.username}: ${keys.join(', ')}`);
+
+  // Apply datasource changes immediately so the global enable toggles (and any
+  // connection settings) take effect without waiting for a race (re)activation.
+  if (keys.some(k => k.startsWith('mqtt_'))) {
+    mqttClient.connectFromSettings(db);   // self-disconnects when mqtt_enabled=0
+  }
+  if (keys.some(k => k.startsWith('aprs_'))) {
+    const aprsOn = db.prepare("SELECT value FROM settings WHERE key='aprs_enabled'").get()?.value === '1';
+    if (aprsOn) aprsClient.connectFromSettings(db);
+    else aprsClient.disconnect();          // connectFromSettings won't disconnect on its own
+  }
+
   res.json({ ok: true });
 });
 
