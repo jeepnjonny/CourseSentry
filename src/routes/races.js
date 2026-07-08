@@ -104,13 +104,10 @@ function _checkDatasourceWarnings(raceId) {
     'SELECT tracker_id FROM participants WHERE race_id = ? AND tracker_id IS NOT NULL'
   ).all(raceId).map(r => r.tracker_id);
 
-  const race = db.prepare('SELECT spot_feed_id FROM races WHERE id = ?').get(raceId);
-
-  // Nothing to warn about unless there are assigned trackers or a SPOT feed
-  if (!trackerIds.length && !race?.spot_feed_id) return warnings;
+  if (!trackerIds.length) return warnings;
 
   const settingsRows = db.prepare(
-    "SELECT key, value FROM settings WHERE key IN ('mqtt_enabled', 'aprs_enabled', 'spot_enabled')"
+    "SELECT key, value FROM settings WHERE key IN ('mqtt_enabled', 'aprs_enabled')"
   ).all();
   const settings = Object.fromEntries(settingsRows.map(r => [r.key, r.value]));
 
@@ -120,10 +117,6 @@ function _checkDatasourceWarnings(raceId) {
 
   if (trackerIds.some(_looksLikeAprs) && settings.aprs_enabled !== '1') {
     warnings.push('This race has APRS tracker IDs but APRS-IS is not enabled. Go to Settings → Datasources to enable it.');
-  }
-
-  if (race?.spot_feed_id && settings.spot_enabled !== '1') {
-    warnings.push('This race has a SPOT feed configured but SPOT tracking is not enabled. Go to Settings → Datasources to enable it.');
   }
 
   return warnings;

@@ -381,13 +381,13 @@ async function openRaceModal(id) {
   document.getElementById('rm-race-format').value    = race?.race_format || 'point_to_point';
   document.getElementById('rm-start-time').value      = unixToTimeStr(race?.start_time);
   document.getElementById('rm-start-clearance').value  = _mToDisplay(race?.start_clearance ?? 400, modalUnits);
-  // Populate datasource enable checkboxes from global settings
+  // APRS-IS / MQTT enablement is a global datasource setting (Settings tab), not
+  // per-race. We read the global APRS flag only to decide whether the per-race
+  // callsign is required (it feeds APRS beaconing).
   const sRes = await RT.get('/api/settings');
   const settings = sRes.ok ? sRes.data : {};
-  document.getElementById('rm-mqtt-enabled').checked = settings.mqtt_enabled !== '0';
-  document.getElementById('rm-aprs-enabled').checked = settings.aprs_enabled === '1';
+  _aprsGloballyEnabled = settings.aprs_enabled === '1';
   document.getElementById('rm-tnc-enabled').checked  = !!(race?.tnc_enabled ?? 1);
-  document.getElementById('rm-spot-enabled').checked = settings.spot_enabled === '1';
   document.getElementById('rm-spot-feed-id').value       = race?.spot_feed_id || '';
   document.getElementById('rm-spot-feed-password').value = race?.spot_feed_password || '';
   document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || currentUser?.callsign || '';
@@ -396,10 +396,13 @@ async function openRaceModal(id) {
   document.getElementById('race-modal').classList.remove('hidden');
 }
 
+// Set by openRaceModal from the global aprs_enabled setting — the per-race race
+// callsign is required when APRS-IS (global) or APRS-TNC (per-race) is enabled.
+let _aprsGloballyEnabled = false;
+
 function _updateCallsignRequired() {
-  const aprsOn = document.getElementById('rm-aprs-enabled')?.checked;
   const tncOn  = document.getElementById('rm-tnc-enabled')?.checked;
-  const req    = aprsOn || tncOn;
+  const req    = _aprsGloballyEnabled || tncOn;
   const marker = document.getElementById('rm-callsign-required');
   if (marker) marker.style.display = req ? '' : 'none';
   const input = document.getElementById('rm-tactical-callsign');
@@ -407,13 +410,12 @@ function _updateCallsignRequired() {
 }
 
 async function saveRace() {
-  const aprsEnabled = document.getElementById('rm-aprs-enabled').checked;
   const tncEnabled  = document.getElementById('rm-tnc-enabled').checked;
   const callsign    = document.getElementById('rm-tactical-callsign').value.trim().toUpperCase();
   if (!document.getElementById('rm-name').value.trim() || !document.getElementById('rm-date').value) {
     RT.toast('Name and date required', 'warn'); return;
   }
-  if ((aprsEnabled || tncEnabled) && !callsign) {
+  if ((_aprsGloballyEnabled || tncEnabled) && !callsign) {
     RT.toast('Race callsign is required when APRS-IS or APRS-TNC is enabled.', 'warn'); return;
   }
   if (callsign && !/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(callsign)) {
@@ -455,12 +457,6 @@ async function saveRace() {
     ? await RT.put(`/api/races/${editingRaceId}`, body)
     : await RT.post('/api/races', body);
   if (res.ok) {
-    // Save datasource enable flags to global settings
-    await RT.put('/api/settings', {
-      mqtt_enabled: document.getElementById('rm-mqtt-enabled').checked ? '1' : '0',
-      aprs_enabled: document.getElementById('rm-aprs-enabled').checked ? '1' : '0',
-      spot_enabled: document.getElementById('rm-spot-enabled').checked ? '1' : '0',
-    });
     closeModal('race-modal');
     if (!editingRaceId && res.data?.id) {
       await loadRaces();
@@ -1952,6 +1948,9 @@ function renderSettingsTab() {
   </div>
   <div class="card">
     <h3>MESHTASTIC / MQTT</h3>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:16px;margin-bottom:10px">
+      <input type="checkbox" id="s-mqtt-enabled"> Enable MQTT / Meshtastic <span class="text-dim">(system-wide, all races)</span>
+    </label>
     <div class="form-row">
       <div class="form-group"><label>BROKER HOST</label><input id="s-mqtt-host" placeholder="apps.k7swi.org"></div>
       <div class="form-group">
@@ -1989,6 +1988,9 @@ function renderSettingsTab() {
 
   <div class="card">
     <h3>APRS-IS</h3>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:16px;margin-bottom:10px">
+      <input type="checkbox" id="s-aprs-enabled"> Enable APRS-IS <span class="text-dim">(system-wide, all races)</span>
+    </label>
     <div class="form-row">
       <div class="form-group"><label>CALLSIGN</label><input id="s-aprs-callsign" placeholder="K7SWI" oninput="this.value=this.value.toUpperCase()"></div>
     </div>
@@ -2058,6 +2060,7 @@ async function bindSettingsTab() {
   if (!sRes.ok) return;
   const s = sRes.data;
 
+  document.getElementById('s-mqtt-enabled').checked    = s.mqtt_enabled !== '0';
   document.getElementById('s-mqtt-host').value         = s.mqtt_host || '';
   document.getElementById('s-mqtt-protocol').value     = s.mqtt_protocol || 'tcp';
   document.getElementById('s-mqtt-port').value         = s.mqtt_port || s.mqtt_port_ws || (s.mqtt_protocol === 'ws' ? '9001' : '1883');
@@ -2066,6 +2069,7 @@ async function bindSettingsTab() {
   document.getElementById('s-mqtt-region').value       = s.mqtt_region || '';
   document.getElementById('s-mqtt-channel').value      = s.mqtt_channel || '';
   document.getElementById('s-mqtt-psk').value          = s.mqtt_psk || '';
+  document.getElementById('s-aprs-enabled').checked  = s.aprs_enabled === '1';
   document.getElementById('s-aprs-callsign').value   = s.aprs_callsign || '';
   document.getElementById('s-aprs-server').value     = s.aprs_server || 'rotate.aprs2.net';
   document.getElementById('s-aprs-port').value       = s.aprs_port || '14580';
@@ -2081,6 +2085,7 @@ async function bindSettingsTab() {
 
 async function saveMqttSettings() {
   const res = await RT.put('/api/settings', {
+    mqtt_enabled:    document.getElementById('s-mqtt-enabled').checked ? '1' : '0',
     mqtt_host:       document.getElementById('s-mqtt-host').value.trim() || null,
     mqtt_protocol:   document.getElementById('s-mqtt-protocol').value,
     mqtt_port:       document.getElementById('s-mqtt-port').value || '1883',
@@ -2097,6 +2102,7 @@ async function saveMqttSettings() {
 async function saveAprsSettings() {
   const filterType = document.querySelector('input[name="aprs-filter"]:checked')?.value || 'location';
   const res = await RT.put('/api/settings', {
+    aprs_enabled:     document.getElementById('s-aprs-enabled').checked ? '1' : '0',
     aprs_callsign:    document.getElementById('s-aprs-callsign').value.trim().toUpperCase() || null,
     aprs_passcode:    '-1',
     aprs_server:      document.getElementById('s-aprs-server').value.trim() || 'rotate.aprs2.net',
@@ -2226,7 +2232,7 @@ document.addEventListener('keydown', e => {
 // Bind heat preview updates
 document.addEventListener('change', e => {
   if (e.target.id === 'hm-color' || e.target.id === 'hm-shape') updateHeatPreview();
-  if (e.target.id === 'rm-aprs-enabled' || e.target.id === 'rm-tnc-enabled') _updateCallsignRequired();
+  if (e.target.id === 'rm-tnc-enabled') _updateCallsignRequired();
 });
 
 // ── Logs Tab ──────────────────────────────────────────────────────────────────
