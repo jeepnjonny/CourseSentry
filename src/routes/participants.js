@@ -86,14 +86,16 @@ router.get('/:id', requireAuth, (req, res) => {
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
-  const { bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, inreach_url } = req.body;
+  const { bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, inreach_url,
+          spot_feed_id, spot_feed_password } = req.body;
   if (!bib || !name) return res.status(400).json({ ok: false, error: 'bib and name required' });
   try {
     const result = db.prepare(`
-      INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, inreach_url)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, inreach_url, spot_feed_id, spot_feed_password)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(req.params.raceId, String(bib), name, tracker_id || null, heat_id || null,
-           class_id || null, age || null, phone || null, emergency_contact || null, inreach_url || null);
+           class_id || null, age || null, phone || null, emergency_contact || null, inreach_url || null,
+           spot_feed_id || null, spot_feed_password || null);
     applyHeatStartTime(result.lastInsertRowid);
     const p = enrichParticipant(db.prepare('SELECT * FROM participants WHERE id=?').get(result.lastInsertRowid));
     wsManager.broadcast({ type: 'participant_update', data: { action: 'add', participant: p } });
@@ -123,7 +125,7 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
   const p = db.prepare('SELECT * FROM participants WHERE id=? AND race_id=?').get(req.params.id, req.params.raceId);
   if (!p) return res.status(404).json({ ok: false, error: 'Participant not found' });
 
-  const fields = ['bib','name','tracker_id','heat_id','class_id','age','phone','emergency_contact','status','start_time','finish_time','inreach_url'];
+  const fields = ['bib','name','tracker_id','heat_id','class_id','age','phone','emergency_contact','status','start_time','finish_time','inreach_url','spot_feed_id','spot_feed_password'];
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f] === '' ? null : req.body[f];
@@ -204,13 +206,17 @@ router.delete('/', requireRole('admin'), (req, res) => {
 });
 
 // CSV import: bib, name, tracker_id, heat, class, age, phone, emergency_contact
+// SPOT feed columns are preserved via COALESCE so re-importing a roster CSV that
+// omits them doesn't wipe feed IDs set earlier (in the modal or a prior import).
 const stmtUpsertParticipant = db.prepare(`
-  INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact)
-  VALUES (?,?,?,?,?,?,?,?,?)
+  INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, spot_feed_id, spot_feed_password)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(race_id, bib) DO UPDATE SET
     name=excluded.name, tracker_id=excluded.tracker_id, heat_id=excluded.heat_id,
     class_id=excluded.class_id, age=excluded.age, phone=excluded.phone,
-    emergency_contact=excluded.emergency_contact
+    emergency_contact=excluded.emergency_contact,
+    spot_feed_id=COALESCE(excluded.spot_feed_id, participants.spot_feed_id),
+    spot_feed_password=COALESCE(excluded.spot_feed_password, participants.spot_feed_password)
 `);
 const stmtFindHeat  = db.prepare('SELECT id FROM heats WHERE race_id=? AND name=?');
 const stmtFindClass = db.prepare('SELECT id FROM classes WHERE race_id=? AND name=?');
@@ -235,7 +241,8 @@ router.post('/import', requireRole('admin', 'operator'), (req, res) => {
             raceId, String(row.bib), row.name,
             row.tracker_id || null, heatId, classId,
             row.age ? parseInt(row.age) : null,
-            row.phone || null, row.emergency_contact || null
+            row.phone || null, row.emergency_contact || null,
+            row.spot_feed_id || null, row.spot_feed_password || null
           );
         } catch (e) { errors.push(`Bib ${row.bib}: ${e.message}`); }
       }

@@ -449,6 +449,13 @@ try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('aprs_igat
 try { db.prepare('ALTER TABLE races ADD COLUMN spot_feed_id TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN spot_feed_password TEXT').run(); } catch {}
 
+// Per-participant findmespot feed — one feed ID per device (e.g. MAProgress hands
+// out individual feed IDs spread across multiple accounts, so a combined per-race
+// feed isn't possible). Mirrors participants.inreach_url; the SPOT poller polls
+// these alongside any per-race feed and auto-registers the tracker.
+try { db.prepare('ALTER TABLE participants ADD COLUMN spot_feed_id TEXT').run(); } catch {}
+try { db.prepare('ALTER TABLE participants ADD COLUMN spot_feed_password TEXT').run(); } catch {}
+
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.
 db.prepare('UPDATE users SET active_session_token = NULL').run();

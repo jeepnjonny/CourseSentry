@@ -4,7 +4,7 @@
 // tests/setup.js sets DB_PATH=':memory:' before Jest loads any module, so the
 // import is safe. We only exercise the pure helpers exposed on `_internal`.
 const { _internal } = require('../../src/spot-poller');
-const { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice } = _internal;
+const { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice, spotNodeId } = _internal;
 
 const API_BASE = 'https://api.findmespot.com/spot-main-web/consumer/rest-api/2.0/public/feed';
 
@@ -106,5 +106,19 @@ describe('newestPerDevice', () => {
       { messengerId: '0-333', latitude: 40.1, longitude: -105.2, unixTime: null },
     ]);
     expect(out).toEqual([]);
+  });
+});
+
+describe('spotNodeId', () => {
+  test('prefers the SPOT ESN (messengerId)', () => {
+    expect(spotNodeId('0-1234567', 42)).toBe('spot-0-1234567');
+  });
+
+  test('falls back to participant ID when ESN is null', () => {
+    expect(spotNodeId(null, 42)).toBe('spot-p42');
+  });
+
+  test('falls back to participant ID when ESN is empty string', () => {
+    expect(spotNodeId('', 7)).toBe('spot-p7');
   });
 });
