@@ -229,6 +229,7 @@ function renderStationMarkers() {
   Object.values(stationMarkers).forEach(m => leafletMap.removeLayer(m));
   stationMarkers = {};
   for (const s of stations) {
+    if (s.type === 'netcontrol' || s.type === 'repeater') continue;
     const color = s.type === 'start' ? '#3fb950' : s.type === 'finish' ? '#f78166' :
                   s.type === 'start_finish' ? '#a371f7' : s.type === 'turnaround' ? '#58a6ff' :
                   s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' : '#d2a679';
