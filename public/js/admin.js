@@ -81,6 +81,7 @@ function handleWS(msg) {
   if (msg.type === 'aprs_status')    updateAprsPill(msg.data);
   if (msg.type === 'tnc_status')     updateTncLight(msg.data);
   if (msg.type === 'inreach_status') updateInreachLight(msg.data);
+  if (msg.type === 'spot_status')    updateSpotLight(msg.data);
   if ((msg.type === 'tracker_info' || msg.type === 'position') && currentTab === 'infra') {
     // Throttle: at most one refresh per 5 s so bursts of MQTT/APRS packets don't flood GET /api/trackers
     if (!_infraRefreshTimer) _infraRefreshTimer = setTimeout(() => { _infraRefreshTimer = null; refreshInfra(); }, 5000);
@@ -90,6 +91,7 @@ function handleWS(msg) {
     if (msg.data.aprs)    updateAprsPill(msg.data.aprs);
     if (msg.data.tnc)     updateTncLight(msg.data.tnc);
     if (msg.data.inreach) updateInreachLight(msg.data.inreach);
+    if (msg.data.spot)    updateSpotLight(msg.data.spot);
   }
   if (msg.type === 'race_update') {
     // Update the race in memory and refresh the offline-maps status badge
@@ -141,6 +143,21 @@ function updateInreachLight(status) {
   } else {
     light.className = 'ds-light ds-light-idle';
     light.title = 'InReach: Inactive';
+  }
+}
+
+function updateSpotLight(status) {
+  const light = document.getElementById('spot-light');
+  if (!light) return;
+  if (status?.active && status.count > 0) {
+    light.className = 'ds-light ds-light-ok';
+    light.title = `SPOT: Polling ${status.count} feed${status.count !== 1 ? 's' : ''}`;
+  } else if (status?.active) {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'SPOT: Enabled — no feeds configured';
+  } else {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'SPOT: Inactive';
   }
 }
 
@@ -370,6 +387,9 @@ async function openRaceModal(id) {
   document.getElementById('rm-mqtt-enabled').checked = settings.mqtt_enabled !== '0';
   document.getElementById('rm-aprs-enabled').checked = settings.aprs_enabled === '1';
   document.getElementById('rm-tnc-enabled').checked  = !!(race?.tnc_enabled ?? 1);
+  document.getElementById('rm-spot-enabled').checked = settings.spot_enabled === '1';
+  document.getElementById('rm-spot-feed-id').value       = race?.spot_feed_id || '';
+  document.getElementById('rm-spot-feed-password').value = race?.spot_feed_password || '';
   document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || currentUser?.callsign || '';
   document.getElementById('rm-rf-path').value           = race?.rf_path || 'WIDE1-1';
   _updateCallsignRequired();
@@ -428,6 +448,8 @@ async function saveRace() {
     rf_path:             document.getElementById('rm-rf-path').value.trim() || 'WIDE1-1',
     start_time:          parseTimeToUnix(document.getElementById('rm-start-time').value, document.getElementById('rm-date').value) ?? null,
     start_clearance:     _displayToM(parseInt(document.getElementById('rm-start-clearance').value) || 0, _raceModalDistUnit) || 400,
+    spot_feed_id:        document.getElementById('rm-spot-feed-id').value.trim() || null,
+    spot_feed_password:  document.getElementById('rm-spot-feed-password').value.trim() || null,
   };
   const res = editingRaceId
     ? await RT.put(`/api/races/${editingRaceId}`, body)
@@ -437,6 +459,7 @@ async function saveRace() {
     await RT.put('/api/settings', {
       mqtt_enabled: document.getElementById('rm-mqtt-enabled').checked ? '1' : '0',
       aprs_enabled: document.getElementById('rm-aprs-enabled').checked ? '1' : '0',
+      spot_enabled: document.getElementById('rm-spot-enabled').checked ? '1' : '0',
     });
     closeModal('race-modal');
     if (!editingRaceId && res.data?.id) {

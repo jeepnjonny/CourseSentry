@@ -268,6 +268,7 @@ function sendInit(ws, user, reqUrl) {
       mqtt:        mqttMod.getStatus(),
       aprs:        aprsMod.getStatus(),
       inreach:     require('./inreach-poller').getStatus(),
+      spot:        require('./spot-poller').getStatus(),
       tnc:         (user.role !== 'viewer' && raceId) ? _tnc().getStatus(raceId) : null,
       weatherKey:  (user.role !== 'viewer' || race.weather_enabled) ? (wxRow?.value || null) : null,
       onlineUsers: (user.role !== 'viewer' && raceId) ? getOnlineUsers(raceId) : [],
