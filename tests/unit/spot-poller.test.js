@@ -4,7 +4,7 @@
 // tests/setup.js sets DB_PATH=':memory:' before Jest loads any module, so the
 // import is safe. We only exercise the pure helpers exposed on `_internal`.
 const { _internal } = require('../../src/spot-poller');
-const { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice } = _internal;
+const { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice, spotNodeId, batteryStateToPct } = _internal;
 
 const API_BASE = 'https://api.findmespot.com/spot-main-web/consumer/rest-api/2.0/public/feed';
 
@@ -106,5 +106,44 @@ describe('newestPerDevice', () => {
       { messengerId: '0-333', latitude: 40.1, longitude: -105.2, unixTime: null },
     ]);
     expect(out).toEqual([]);
+  });
+});
+
+describe('batteryStateToPct', () => {
+  test('GOOD → 100', () => expect(batteryStateToPct('GOOD')).toBe(100));
+  test('LOW → 10',   () => expect(batteryStateToPct('LOW')).toBe(10));
+  test('case-insensitive', () => expect(batteryStateToPct('good')).toBe(100));
+  test('unknown / absent → null', () => {
+    expect(batteryStateToPct('FULL')).toBeNull();
+    expect(batteryStateToPct('')).toBeNull();
+    expect(batteryStateToPct(null)).toBeNull();
+    expect(batteryStateToPct(undefined)).toBeNull();
+  });
+});
+
+describe('newestPerDevice battery mapping', () => {
+  test('maps batteryState on the newest fix', () => {
+    const out = newestPerDevice([
+      { messengerId: '0-1', latitude: 40, longitude: -105, unixTime: 1700000000, batteryState: 'GOOD' },
+      { messengerId: '0-2', latitude: 41, longitude: -106, unixTime: 1700000000, batteryState: 'LOW' },
+      { messengerId: '0-3', latitude: 42, longitude: -107, unixTime: 1700000000 },
+    ]);
+    expect(out.find(d => d.messengerId === '0-1').battery).toBe(100);
+    expect(out.find(d => d.messengerId === '0-2').battery).toBe(10);
+    expect(out.find(d => d.messengerId === '0-3').battery).toBeNull();
+  });
+});
+
+describe('spotNodeId', () => {
+  test('prefers the SPOT ESN (messengerId)', () => {
+    expect(spotNodeId('0-1234567', 42)).toBe('spot-0-1234567');
+  });
+
+  test('falls back to participant ID when ESN is null', () => {
+    expect(spotNodeId(null, 42)).toBe('spot-p42');
+  });
+
+  test('falls back to participant ID when ESN is empty string', () => {
+    expect(spotNodeId('', 7)).toBe('spot-p7');
   });
 });

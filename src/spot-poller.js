@@ -14,8 +14,11 @@
  * hits get the IP blocked) and >= 2 s between DIFFERENT feeds. A 5-minute poll
  * interval with a 2.5 s stagger between race feeds stays well within those.
  *
- * The public feed exposes lat/lon/time/messageType/messengerId only — no
- * battery, altitude, speed, or heading — so those map to null in the fix model.
+ * The public feed exposes lat/lon/time/messageType/messengerId and a binary
+ * batteryState (GOOD/LOW) — no speed or heading, and altitude is present but
+ * unreliable/undocumented on SPOT hardware (observed nonsense values like -103 m
+ * at 2500 m terrain), so it is deliberately dropped. battery maps to a coarse
+ * level; the rest map to null in the fix model.
  */
 
 const https = require('https');
@@ -123,6 +126,20 @@ function parseFeed(text) {
 }
 
 /**
+ * Map the SPOT binary battery indicator to a coarse percentage. SPOT hardware
+ * reports only GOOD/LOW (no true percentage), so GOOD → 100 and LOW → 10 (below
+ * the 20% low-battery threshold); any unexpected/absent value → null rather than
+ * a fabricated number.
+ */
+function batteryStateToPct(state) {
+  switch (String(state || '').toUpperCase()) {
+    case 'GOOD': return 100;
+    case 'LOW':  return 10;
+    default:     return null;
+  }
+}
+
+/**
  * Reduce a feed's messages to the newest fix per device (keyed by messengerId).
  */
 function newestPerDevice(messages) {
@@ -143,10 +160,22 @@ function newestPerDevice(messages) {
         lon,
         timestamp: ts,
         messageType: m.messageType || null,
+        battery: batteryStateToPct(m.batteryState),
       });
     }
   }
   return [...byDevice.values()];
+}
+
+/**
+ * Derive the tracker node ID for a device fix. Prefer the SPOT ESN (messengerId)
+ * so the same physical device shares one node across per-race and per-participant
+ * feeds; fall back to the participant ID when the feed carries no ESN (mirrors the
+ * inReach poller's `inreach-p<id>` fallback).
+ */
+function spotNodeId(messengerId, participantId) {
+  if (messengerId != null && String(messengerId) !== '') return `spot-${messengerId}`;
+  return `spot-p${participantId}`;
 }
 
 /**
@@ -184,7 +213,8 @@ async function pollRaceFeed(race) {
         `Position — ${dev.name || nodeId} (${dev.messageType || 'TRACK'}) ` +
         `${dev.lat.toFixed(5)},${dev.lon.toFixed(5)} ts=${dev.timestamp}`);
 
-      // SPOT feed exposes no battery/altitude/speed/heading — leave them null
+      // SPOT feed exposes no speed/heading; altitude is unreliable (dropped).
+      // battery is a coarse level from the GOOD/LOW indicator.
       mqttClient.handlePosition({
         nodeId,
         lat: dev.lat,
@@ -192,7 +222,7 @@ async function pollRaceFeed(race) {
         altitude: null,
         speed: null,
         heading: null,
-        battery: null,
+        battery: dev.battery,
         timestamp: dev.timestamp,
         rfSource: 'spot',
       });
@@ -203,7 +233,72 @@ async function pollRaceFeed(race) {
 }
 
 /**
- * Poll all active races that have a SPOT feed configured.
+ * Poll a single participant's own findmespot feed and publish position if updated.
+ * Unlike the per-race path, the feed maps to a known participant, so we take the
+ * single newest fix and auto-register the tracker (mirroring the inReach poller).
+ */
+async function pollParticipantFeed(participant) {
+  const feedId = normalizeFeedId(participant.spot_feed_id);
+  if (!feedId) return;
+
+  const url = buildFeedUrl(feedId, participant.spot_feed_password);
+
+  try {
+    const devices = newestPerDevice(parseFeed(await fetchUrl(url)));
+    if (!devices.length) {
+      logger.log('spot', 'debug',
+        `No messages in feed for ${participant.name} (#${participant.bib})`);
+      return;
+    }
+
+    // A per-participant feed normally carries one device — take the newest fix.
+    const dev = devices.reduce((a, b) => (b.timestamp > a.timestamp ? b : a));
+    const nodeId = spotNodeId(dev.messengerId, participant.id);
+
+    // Skip if we've already processed this exact position (dedup by nodeId so a
+    // device seen via both a per-race and a per-participant feed isn't doubled).
+    const prevTs = lastSeenTs.get(nodeId) || 0;
+    if (dev.timestamp <= prevTs) return;
+    lastSeenTs.set(nodeId, dev.timestamp);
+
+    // Register a display name so lookups by long/short name still resolve
+    if (dev.name) {
+      mqttClient.handleNodeInfo({ nodeId, longName: dev.name, timestamp: dev.timestamp });
+    }
+
+    // Auto-register tracker_id on first successful poll
+    if (participant.tracker_id !== nodeId) {
+      db.prepare('UPDATE participants SET tracker_id = ? WHERE id = ?').run(nodeId, participant.id);
+      wsManager.broadcast({ type: 'participant_update', data: { action: 'bulk_update' } });
+      logger.log('spot', 'info',
+        `Auto-registered tracker=${nodeId} for ${participant.name} (#${participant.bib})`);
+    }
+
+    logger.log('spot', 'info',
+      `Position — ${participant.name} (#${participant.bib}) ` +
+      `${dev.lat.toFixed(5)},${dev.lon.toFixed(5)} ts=${dev.timestamp}`);
+
+    // SPOT feed exposes no speed/heading; altitude is unreliable (dropped).
+    // battery is a coarse level from the GOOD/LOW indicator.
+    mqttClient.handlePosition({
+      nodeId,
+      lat: dev.lat,
+      lon: dev.lon,
+      altitude: null,
+      speed: null,
+      heading: null,
+      battery: dev.battery,
+      timestamp: dev.timestamp,
+      rfSource: 'spot',
+    });
+  } catch (e) {
+    logger.log('spot', 'warn',
+      `Poll failed for ${participant.name} (#${participant.bib}): ${e.message}`);
+  }
+}
+
+/**
+ * Poll all active-race SPOT feeds: per-race shared pages and per-participant feeds.
  */
 async function pollAll() {
   const races = db.prepare(`
@@ -213,17 +308,38 @@ async function pollAll() {
       AND spot_feed_id IS NOT NULL AND spot_feed_id != ''
   `).all();
 
+  const activeRaceIds = db.prepare("SELECT id FROM races WHERE status = 'active'")
+    .all()
+    .map(r => r.id);
+
+  let participants = [];
+  if (activeRaceIds.length) {
+    const placeholders = activeRaceIds.map(() => '?').join(',');
+    participants = db.prepare(`
+      SELECT * FROM participants
+      WHERE race_id IN (${placeholders})
+        AND spot_feed_id IS NOT NULL AND spot_feed_id != ''
+        AND status NOT IN ('dnf', 'finished')
+    `).all(...activeRaceIds);
+  }
+
   _lastPollTime  = Math.floor(Date.now() / 1000);
-  _lastFeedCount = races.length;
+  _lastFeedCount = races.length + participants.length;
   wsManager.broadcast({ type: 'spot_status', data: getStatus() });
 
-  if (!races.length) return;
+  if (!races.length && !participants.length) return;
 
-  logger.log('spot', 'info', `Polling ${races.length} SPOT feed(s)…`);
+  logger.log('spot', 'info',
+    `Polling ${races.length} race feed(s) + ${participants.length} participant feed(s)…`);
 
   for (const race of races) {
     await pollRaceFeed(race);
     // Stagger requests — SPOT requires >= 2s between different feeds
+    await new Promise(r => setTimeout(r, FEED_STAGGER_MS));
+  }
+
+  for (const p of participants) {
+    await pollParticipantFeed(p);
     await new Promise(r => setTimeout(r, FEED_STAGGER_MS));
   }
 }
@@ -255,4 +371,4 @@ function stop() {
 module.exports = { start, stop, pollAll, getStatus };
 
 // Exposed for unit testing (pure helpers, no side effects)
-module.exports._internal = { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice };
+module.exports._internal = { normalizeFeedId, buildFeedUrl, parseFeed, newestPerDevice, spotNodeId, batteryStateToPct };

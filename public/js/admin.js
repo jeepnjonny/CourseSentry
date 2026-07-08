@@ -1247,6 +1247,7 @@ function openParticipantModal(id) {
   document.getElementById('pm2-tracker').value           = p?.tracker_id || '';
   document.getElementById('pm2-age').value               = p?.age || '';
   document.getElementById('pm2-inreach-url').value       = p?.inreach_url || '';
+  document.getElementById('pm2-spot-feed-id').value      = p?.spot_feed_id || '';
   document.getElementById('pm2-phone').value             = p?.phone || '';
   document.getElementById('pm2-emergency').value         = p?.emergency_contact || '';
   document.getElementById('pm2-status').value            = p?.status || 'dns';
@@ -1270,6 +1271,7 @@ async function saveParticipant() {
     name,
     tracker_id:        document.getElementById('pm2-tracker').value.trim() || null,
     inreach_url:       document.getElementById('pm2-inreach-url').value.trim() || null,
+    spot_feed_id:      document.getElementById('pm2-spot-feed-id').value.trim() || null,
     age:               parseInt(document.getElementById('pm2-age').value) || null,
     phone:             document.getElementById('pm2-phone').value.trim() || null,
     emergency_contact: document.getElementById('pm2-emergency').value.trim() || null,
