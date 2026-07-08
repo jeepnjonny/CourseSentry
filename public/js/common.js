@@ -4,7 +4,12 @@
 const RT = (() => {
   // Detect sub-path prefix (e.g. /CourseSentry/ when proxied via nginx)
   const BASE = (() => {
-    const seg = location.pathname.split('/')[1];
+    const p = location.pathname;
+    // The viewer lives at <root>/view/:token — the app root is everything
+    // before "/view/", so we don't mistake "view" for a proxy prefix.
+    const vi = p.indexOf('/view/');
+    if (vi !== -1) return p.slice(0, vi + 1);
+    const seg = p.split('/')[1];
     return seg && !seg.includes('.') ? '/' + seg + '/' : '/';
   })();
 

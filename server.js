@@ -58,12 +58,20 @@ app.use((req, res, next) => {
 });
 
 // ── Static files ─────────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'public')));
+// App HTML/JS/CSS change on every deploy. Serve them with `no-cache` so browsers
+// (and any reverse proxy) always revalidate against the ETag — they still get a
+// cheap 304 when nothing changed, but never a stale bundle after an update.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    if (/\.(html|js|css)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 // ── Viewer page (token-gated, no login) ──────────────────────────────────────
 app.get('/view/:token', (req, res) => {
   const race = db.prepare('SELECT id FROM races WHERE viewer_token=?').get(req.params.token);
   if (!race) return res.status(404).send('Race not found or viewer link has been revoked.');
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'viewer.html'));
 });
 
@@ -259,6 +267,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/') ||
       req.path.startsWith('/view/') ||
       req.path.startsWith('/downloads/')) return next();
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
