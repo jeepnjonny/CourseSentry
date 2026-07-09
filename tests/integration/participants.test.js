@@ -289,5 +289,75 @@ describe('Participants API', () => {
       const p = list.body.data.find(x => x.bib === '007');
       expect(p).toBeTruthy();
     });
+
+    // ── Partial-merge (phased) import ──────────────────────────────────────
+    describe('partial-merge (patch only present columns)', () => {
+      let mergeRaceId;
+
+      beforeAll(async () => {
+        const r = await admin.post('/api/races').send({ name: 'Merge Race', date: '2026-09-01' });
+        mergeRaceId = r.body.data.id;
+        await admin.post(`/api/races/${mergeRaceId}/heats`).send({ name: 'Wave X' });
+      });
+
+      test('phased pairing: bib,tracker_id file sets trackers without wiping other fields', async () => {
+        // Phase 1: full-ish roster with demographics + heat, no trackers
+        const roster = 'bib,name,heat,age\n701,Runner A,Wave X,30\n702,Runner B,Wave X,40';
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`).send({ csv: roster });
+
+        // Phase 2: pair trackers by bib only
+        const pairing = 'bib,tracker_id\n701,aaaa1111\n702,bbbb2222';
+        const res = await admin.post(`/api/races/${mergeRaceId}/participants/import`).send({ csv: pairing });
+        expect(res.status).toBe(200);
+        expect(res.body.errors).toHaveLength(0);
+
+        const list = await admin.get(`/api/races/${mergeRaceId}/participants`);
+        const a = list.body.data.find(p => p.bib === '701');
+        expect(a.tracker_id).toBe('aaaa1111');   // paired
+        expect(a.name).toBe('Runner A');          // preserved
+        expect(a.age).toBe(30);                   // preserved
+        expect(a.heat_id).toBeTruthy();           // preserved
+      });
+
+      test('full import still overwrites columns that are present', async () => {
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,name,age\n710,Before,20' });
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,name,age\n710,After,25' });
+        const list = await admin.get(`/api/races/${mergeRaceId}/participants`);
+        const p = list.body.data.find(x => x.bib === '710');
+        expect(p.name).toBe('After');
+        expect(p.age).toBe(25);
+      });
+
+      test('new bib in a partial file (no name column) is reported as an error', async () => {
+        // 701 exists (update ok), 799 is new and has no name → error, but 701 still applied
+        const res = await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,tracker_id\n701,cccc3333\n799,dddd4444' });
+        expect(res.body.errors.length).toBe(1);
+        expect(res.body.errors[0]).toMatch(/799/);
+
+        const list = await admin.get(`/api/races/${mergeRaceId}/participants`);
+        expect(list.body.data.find(p => p.bib === '701').tracker_id).toBe('cccc3333');
+        expect(list.body.data.find(p => p.bib === '799')).toBeFalsy();
+      });
+
+      test('present-but-blank cell clears the field', async () => {
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,name,phone\n720,Phoned,555-0000' });
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,phone\n720,' });
+        const list = await admin.get(`/api/races/${mergeRaceId}/participants`);
+        const p = list.body.data.find(x => x.bib === '720');
+        expect(p.phone).toBeNull();
+        expect(p.name).toBe('Phoned'); // untouched — name column absent
+      });
+
+      test('CSV with only bib (no updatable columns) → 400', async () => {
+        const res = await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib\n730' });
+        expect(res.status).toBe(400);
+      });
+    });
   });
 });

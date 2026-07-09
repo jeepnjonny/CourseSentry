@@ -23,12 +23,13 @@ function csvParse(text) {
     return cols;
   };
   const headers = parseRow(lines[0]).map(h => h.trim());
-  return lines.slice(1).map(line => {
+  const rows = lines.slice(1).map(line => {
     const vals = parseRow(line);
     const row = {};
     headers.forEach((h, i) => { row[h] = (vals[i] ?? '').trim(); });
     return row;
   });
+  return { headers, rows };
 }
 const { requireAuth, requireRole } = require('../auth');
 const wsManager = require('../websocket');
@@ -205,19 +206,30 @@ router.delete('/', requireRole('admin'), (req, res) => {
   }
 });
 
-// CSV import: bib, name, tracker_id, heat, class, age, phone, emergency_contact
-// SPOT feed columns are preserved via COALESCE so re-importing a roster CSV that
-// omits them doesn't wipe feed IDs set earlier (in the modal or a prior import).
-const stmtUpsertParticipant = db.prepare(`
-  INSERT INTO participants (race_id, bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, spot_feed_id, spot_feed_password)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?)
-  ON CONFLICT(race_id, bib) DO UPDATE SET
-    name=excluded.name, tracker_id=excluded.tracker_id, heat_id=excluded.heat_id,
-    class_id=excluded.class_id, age=excluded.age, phone=excluded.phone,
-    emergency_contact=excluded.emergency_contact,
-    spot_feed_id=COALESCE(excluded.spot_feed_id, participants.spot_feed_id),
-    spot_feed_password=COALESCE(excluded.spot_feed_password, participants.spot_feed_password)
-`);
+// CSV import: partial-merge keyed on (race_id, bib).
+// Only the columns present in the uploaded CSV header are written, so a later
+// `bib,tracker_id` file can pair trackers without wiping name/heat/class/etc.
+// Each entry maps a CSV column → its DB column, how to read the row value, and
+// the SET clause for each of the two write paths:
+//   • `update` — the ON CONFLICT DO UPDATE clause used when the CSV has `name`
+//     (so brand-new bibs can also be inserted).
+//   • `set`    — a plain UPDATE clause used when the CSV omits `name`. We can't
+//     INSERT without a name (NOT NULL), and SQLite evaluates that NOT NULL on the
+//     phantom insert row even for rows destined for DO UPDATE — so a name-less
+//     file must UPDATE existing bibs only, never upsert.
+// SPOT feed columns use COALESCE so a blank cell never wipes a feed ID set
+// earlier (in the modal or a prior import).
+const IMPORT_COLS = [
+  { csv: 'name',              col: 'name',              read: r => r.name || null,                                update: 'name=excluded.name',                                                            set: 'name=?' },
+  { csv: 'tracker_id',        col: 'tracker_id',        read: r => r.tracker_id || null,                          update: 'tracker_id=excluded.tracker_id',                                                set: 'tracker_id=?' },
+  { csv: 'heat',              col: 'heat_id',           read: (r, raceId) => r.heat  ? (stmtFindHeat.get(raceId, r.heat.trim())?.id   ?? null) : null, update: 'heat_id=excluded.heat_id',   set: 'heat_id=?' },
+  { csv: 'class',             col: 'class_id',          read: (r, raceId) => r.class ? (stmtFindClass.get(raceId, r.class.trim())?.id ?? null) : null, update: 'class_id=excluded.class_id', set: 'class_id=?' },
+  { csv: 'age',               col: 'age',               read: r => r.age ? parseInt(r.age) : null,                update: 'age=excluded.age',                                                              set: 'age=?' },
+  { csv: 'phone',             col: 'phone',             read: r => r.phone || null,                               update: 'phone=excluded.phone',                                                          set: 'phone=?' },
+  { csv: 'emergency_contact', col: 'emergency_contact', read: r => r.emergency_contact || null,                   update: 'emergency_contact=excluded.emergency_contact',                                   set: 'emergency_contact=?' },
+  { csv: 'spot_feed_id',      col: 'spot_feed_id',      read: r => r.spot_feed_id || null,                        update: 'spot_feed_id=COALESCE(excluded.spot_feed_id, participants.spot_feed_id)',        set: 'spot_feed_id=COALESCE(?, spot_feed_id)' },
+  { csv: 'spot_feed_password',col: 'spot_feed_password',read: r => r.spot_feed_password || null,                  update: 'spot_feed_password=COALESCE(excluded.spot_feed_password, participants.spot_feed_password)', set: 'spot_feed_password=COALESCE(?, spot_feed_password)' },
+];
 const stmtFindHeat  = db.prepare('SELECT id FROM heats WHERE race_id=? AND name=?');
 const stmtFindClass = db.prepare('SELECT id FROM classes WHERE race_id=? AND name=?');
 const stmtAllParticipants = db.prepare('SELECT * FROM participants WHERE race_id=? ORDER BY CAST(bib AS INTEGER), bib');
@@ -227,23 +239,42 @@ router.post('/import', requireRole('admin', 'operator'), (req, res) => {
   if (!csv) return res.status(400).json({ ok: false, error: 'csv body required' });
   try {
     const t0 = Date.now();
-    const rows = csvParse(csv);
+    const { headers, rows } = csvParse(csv);
     const raceId = req.params.raceId;
     const errors = [];
 
+    // Only patch columns actually present in the CSV header (partial merge).
+    const present = IMPORT_COLS.filter(c => headers.includes(c.csv));
+    if (!present.length) return res.status(400).json({ ok: false, error: 'CSV has no updatable columns beyond bib' });
+
+    // With a `name` column we can insert brand-new bibs, so use an upsert.
+    // Without one we can only patch existing bibs (see IMPORT_COLS note) — a
+    // plain UPDATE, and rows whose bib doesn't exist are reported as errors.
+    const hasName = present.some(c => c.col === 'name');
+    let runRow;
+    if (hasName) {
+      const insertCols = ['race_id', 'bib', ...present.map(c => c.col)];
+      const stmtUpsert = db.prepare(`
+        INSERT INTO participants (${insertCols.join(', ')})
+        VALUES (${insertCols.map(() => '?').join(',')})
+        ON CONFLICT(race_id, bib) DO UPDATE SET ${present.map(c => c.update).join(', ')}
+      `);
+      runRow = row => stmtUpsert.run(raceId, String(row.bib), ...present.map(c => c.read(row, raceId)));
+    } else {
+      const stmtUpdate = db.prepare(
+        `UPDATE participants SET ${present.map(c => c.set).join(', ')} WHERE race_id=? AND bib=?`
+      );
+      runRow = row => {
+        const info = stmtUpdate.run(...present.map(c => c.read(row, raceId)), raceId, String(row.bib));
+        if (info.changes === 0) throw new Error('new participant requires name');
+      };
+    }
+
     const tx = db.transaction(() => {
       for (const row of rows) {
-        if (!row.bib || !row.name) { errors.push(`Row skipped: bib and name required`); continue; }
-        const heatId  = row.heat  ? (stmtFindHeat.get(raceId, row.heat.trim())?.id  ?? null) : null;
-        const classId = row.class ? (stmtFindClass.get(raceId, row.class.trim())?.id ?? null) : null;
+        if (!row.bib) { errors.push(`Row skipped: bib required`); continue; }
         try {
-          stmtUpsertParticipant.run(
-            raceId, String(row.bib), row.name,
-            row.tracker_id || null, heatId, classId,
-            row.age ? parseInt(row.age) : null,
-            row.phone || null, row.emergency_contact || null,
-            row.spot_feed_id || null, row.spot_feed_password || null
-          );
+          runRow(row);
         } catch (e) { errors.push(`Bib ${row.bib}: ${e.message}`); }
       }
     });
