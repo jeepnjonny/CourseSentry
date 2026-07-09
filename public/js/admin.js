@@ -1124,6 +1124,17 @@ function renderParticipantSummary() {
   </div>`;
 }
 
+// TRACKER column: show the registered tracker_id if present; otherwise, if an
+// InReach or SPOT feed is configured, show a dim badge so the roster reflects
+// that a satellite tracker is assigned even before its first position fix
+// (both pollers back-write tracker_id on the first successful poll).
+function trackerCell(p) {
+  if (p.tracker_id) return p.tracker_id;
+  if (p.inreach_url)  return '<span class="text-dim" title="InReach feed configured — awaiting first fix">INREACH</span>';
+  if (p.spot_feed_id) return '<span class="text-dim" title="SPOT feed configured — awaiting first fix">SPOT</span>';
+  return '<span class="text-dim">—</span>';
+}
+
 function renderParticipantsList() {
   const el = document.getElementById('participants-list');
   if (!el) return;
@@ -1150,7 +1161,7 @@ function renderParticipantsList() {
         <td>${p.name}</td>
         <td style="white-space:nowrap">${dot} ${heat?.name || '<span class="text-dim">—</span>'}</td>
         <td>${cls?.name || '<span class="text-dim">—</span>'}</td>
-        <td style="font-size:13px;color:var(--accent4)">${p.tracker_id || '<span class="text-dim">—</span>'}</td>
+        <td style="font-size:13px;color:var(--accent4)">${trackerCell(p)}</td>
         <td><span style="color:${STATUS_C[p.status]||'var(--text3)'};font-size:13px;letter-spacing:1px">${(p.status||'dns').toUpperCase()}</span></td>
         <td class="text-dim">${p.age || '—'}</td>
         <td style="text-align:right;white-space:nowrap">
