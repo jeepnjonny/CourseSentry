@@ -245,7 +245,75 @@ const RT = (() => {
     setTimeout(() => el.remove(), duration);
   }
 
+  /**
+   * Make `panel` horizontally resizable by dragging a grip inserted as a sibling
+   * flex-item next to it (the panel's parent must be a horizontal flex container).
+   * Width is persisted to localStorage and restored on load.
+   *
+   * @param {HTMLElement} panel      Panel whose width changes.
+   * @param {Object}   opts
+   * @param {'e'|'w'}   opts.side    Grip edge: 'e' = grip on panel's right (panel is
+   *                                 left of it), 'w' = grip on panel's left. Default 'e'.
+   * @param {number}    opts.min     Min width px (default 220).
+   * @param {number}    opts.max     Max width px (default 640).
+   * @param {string}    opts.key     localStorage key for persisting width (optional).
+   * @param {string}    opts.cssVar  If set, width is written to this CSS custom
+   *                                 property (e.g. '--lb-w') instead of style.width —
+   *                                 lets media queries override it on mobile.
+   * @param {Function}  opts.onResize Called live during drag and on release
+   *                                 (e.g. () => leafletMap.invalidateSize()).
+   * @returns {HTMLElement|null} the grip element, or null if panel missing.
+   */
+  function initPanelResizer(panel, opts = {}) {
+    if (!panel || !panel.parentNode) return null;
+    const side = opts.side === 'w' ? 'w' : 'e';
+    const min = opts.min ?? 220, max = opts.max ?? 640;
+    const clamp = v => Math.max(min, Math.min(max, v));
+    const setW = opts.cssVar
+      ? px => panel.style.setProperty(opts.cssVar, px + 'px')
+      : px => { panel.style.width = px + 'px'; };
+
+    if (opts.key) {
+      const saved = parseInt(localStorage.getItem(opts.key), 10);
+      if (saved) setW(clamp(saved));
+    }
+
+    const grip = document.createElement('div');
+    grip.className = 'panel-resizer';
+    grip.setAttribute('role', 'separator');
+    grip.setAttribute('aria-orientation', 'vertical');
+    if (side === 'e') panel.after(grip); else panel.before(grip);
+
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      grip.classList.add('dragging');
+      grip.setPointerCapture(e.pointerId);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      const rect = panel.getBoundingClientRect();
+      let w = rect.width;
+      const move = ev => {
+        w = clamp(side === 'e' ? ev.clientX - rect.left : rect.right - ev.clientX);
+        setW(w);
+        opts.onResize && opts.onResize();
+      };
+      const up = () => {
+        grip.removeEventListener('pointermove', move);
+        grip.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        if (opts.key) localStorage.setItem(opts.key, Math.round(w));
+        opts.onResize && opts.onResize();
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up, { once: true });
+      grip.addEventListener('lostpointercapture', up, { once: true });
+    });
+    return grip;
+  }
+
   return { BASE, getMe, logout, requireLogin, api, get, post, put, del, connectWS,
            fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo, fmtLabel,
-           trackerIcon, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES };
+           trackerIcon, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES,
+           initPanelResizer };
 })();

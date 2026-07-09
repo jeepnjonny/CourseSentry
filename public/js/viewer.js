@@ -352,13 +352,15 @@ function renderLeaderboard() {
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const finished = p.status === 'finished';
     const lastAid = p._lastStation || '--';
+    const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const dispName = fmtParticipantName(p.name);
     return `<div class="v-lb-row v-lb-cols ${finished ? 'text-ok' : ''}">
       <span style="color:var(--text2)">${i+1}</span>
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${fmtParticipantName(p.name)}</span>
+      <span title="${escAttr(dispName)}">${dot} ${dispName}</span>
       <span style="color:var(--accent)">${pct}</span>
       <span style="color:var(--text);font-size:13px">${p._pct && p.start_time ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--'}</span>
-      <span style="color:var(--text2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>
+      <span style="color:var(--text2);font-size:13px" title="${escAttr(lastAid)}">${lastAid}</span>
     </div>`;
   }).join('');
 }
