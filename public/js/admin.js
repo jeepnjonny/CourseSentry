@@ -1101,7 +1101,7 @@ function renderParticipantsTab() {
     <div id="pt-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:10px">
       <div style="font-size:14px;color:var(--text3);margin-bottom:6px">
         <span style="color:var(--accent3)">Required columns:</span> <code>bib, name</code><br>
-        <span style="color:var(--text3)">Optional columns:</span> <code>tracker_id, heat, class, age, phone, emergency_contact</code><br>
+        <span style="color:var(--text3)">Optional columns:</span> <code>tracker_id, heat, class, age, phone, emergency_contact, inreach_url, spot_feed_id, spot_feed_password</code><br>
         First row must be a header. Heat/class matched by name. Duplicate bibs are updated.
       </div>
       <div class="upload-zone" onclick="document.getElementById('pt-csv-input').click()" id="pt-csv-zone">
@@ -1273,6 +1273,7 @@ function openParticipantModal(id) {
   document.getElementById('pm2-age').value               = p?.age || '';
   document.getElementById('pm2-inreach-url').value       = p?.inreach_url || '';
   document.getElementById('pm2-spot-feed-id').value      = p?.spot_feed_id || '';
+  document.getElementById('pm2-spot-feed-password').value = p?.spot_feed_password || '';
   document.getElementById('pm2-phone').value             = p?.phone || '';
   document.getElementById('pm2-emergency').value         = p?.emergency_contact || '';
   document.getElementById('pm2-status').value            = p?.status || 'dns';
@@ -1297,6 +1298,7 @@ async function saveParticipant() {
     tracker_id:        document.getElementById('pm2-tracker').value.trim() || null,
     inreach_url:       document.getElementById('pm2-inreach-url').value.trim() || null,
     spot_feed_id:      document.getElementById('pm2-spot-feed-id').value.trim() || null,
+    spot_feed_password: document.getElementById('pm2-spot-feed-password').value.trim() || null,
     age:               parseInt(document.getElementById('pm2-age').value) || null,
     phone:             document.getElementById('pm2-phone').value.trim() || null,
     emergency_contact: document.getElementById('pm2-emergency').value.trim() || null,
