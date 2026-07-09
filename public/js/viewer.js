@@ -1,6 +1,6 @@
 'use strict';
 const VW = (() => {
-let race = null, participants = {}, stations = [], heats = {}, trackPoints = null;
+let race = null, participants = {}, stations = [], heats = {}, classes = {}, trackPoints = null;
 let leafletMap, markerLayer, routeLayer, stationMarkers = {};
 let sortBy = 'position', clockInterval;
 let fmt24 = false;
@@ -195,6 +195,7 @@ function handleInit(data) {
   document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
 
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
+  classes = {}; (data.classes || []).forEach(c => classes[c.id] = c);
   stations = data.stations || [];
   participants = {};
   (data.participants || []).forEach(p => {
@@ -262,8 +263,8 @@ function renderAllMarkers() {
 
 function createMarker(p) {
   const label = RT.fmtLabel(p.name);
-  const heat = p.heat_id ? heats[p.heat_id] : null;
-  const { svg } = RT.trackerIcon(heat, false, false);
+  const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
+  const { svg } = RT.trackerIcon(src, false, false);
   const nametags = !!(race?.viewer_nametags);
   const showNames = !!(race?.viewer_show_names ?? 1);
   const tooltipText = showNames ? `#${p.bib} ${label}` : `#${p.bib}`;
@@ -347,8 +348,9 @@ function renderLeaderboard() {
 
   el.innerHTML = list.map((p, i) => {
     const sc = STATUS_COLORS[p.status] || '#8b949e';
-    const heat = p.heat_id ? heats[p.heat_id] : null;
-    const dot = heat ? `<span class="dot" style="background:${heat.color}"></span>` : '';
+    const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
+    // Mirror the map marker: class-preferred shape + color
+    const dot = src ? `<span class="lb-shape">${RT.SHAPES[src.shape]?.(src.color, 13) || RT.SHAPES.circle(src.color, 13)}</span>` : '';
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const finished = p.status === 'finished';
     const lastAid = p._lastStation || '--';

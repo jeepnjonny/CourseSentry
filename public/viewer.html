@@ -92,7 +92,7 @@
   .v-sort-btn.active { border-color: var(--accent); color: var(--accent); }
 
   /* Leaderboard grid — named areas so responsive override is clean */
-  .v-lb-cols { grid-template-columns: 22px 50px 1fr 44px 68px 72px; }
+  .v-lb-cols { grid-template-columns: 22px 50px 2fr 44px 68px minmax(72px, 1fr); }
   .v-lb-head {
     font-size: 13px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase;
     display: grid; gap: 4px; padding: 4px 8px;
@@ -131,16 +131,16 @@
     #viewer-lb-wrap { display: none; width: 100%; border-left: none; flex-shrink: unset; }
     body.lb-mode #viewer-map-wrap { display: none; }
     body.lb-mode #viewer-lb-wrap { display: flex; width: 100%; }
-    .v-lb-cols { grid-template-columns: 18px 44px 1fr 38px 58px 60px; }
+    .v-lb-cols { grid-template-columns: 18px 44px 2fr 38px 58px minmax(60px, 1fr); }
     .v-lb-row, .v-lb-head { padding: 4px 6px; font-size: 14px; gap: 3px; }
   }
 
   /* Privacy: hide name column when viewer_show_names is off */
-  #viewer-lb-wrap.names-hidden .v-lb-cols { grid-template-columns: 22px 50px 44px 68px 72px; }
+  #viewer-lb-wrap.names-hidden .v-lb-cols { grid-template-columns: 22px 50px 44px 68px minmax(72px, 1fr); }
   #viewer-lb-wrap.names-hidden .v-lb-cols > span:nth-child(3) { display: none; }
   #viewer-lb-wrap.names-hidden [data-sort="name"] { display: none; }
   @media (max-width: 700px) {
-    #viewer-lb-wrap.names-hidden .v-lb-cols { grid-template-columns: 18px 44px 38px 58px 60px; }
+    #viewer-lb-wrap.names-hidden .v-lb-cols { grid-template-columns: 18px 44px 38px 58px minmax(60px, 1fr); }
   }
 
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
