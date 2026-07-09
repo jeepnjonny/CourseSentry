@@ -683,7 +683,7 @@ function updateOrCreateMarker(p) {
   const label = RT.fmtLabel(p.name);
   const tooltipText = `#${p.bib} ${label}${isManual ? ' (last station)' : ''}`;
   const icon = L.divIcon({
-    html: `<div class="${cls}" style="${wrapStyle}" title="Bib ${p.bib}: ${label}">${svg}</div>`,
+    html: `<div class="${cls}" style="${wrapStyle}">${svg}</div>`,
     className: 'leaflet-div-icon', iconAnchor: [10, 10],
   });
 

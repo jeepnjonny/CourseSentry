@@ -267,7 +267,7 @@ function createMarker(p) {
   const nametags = !!(race?.viewer_nametags);
   const showNames = !!(race?.viewer_show_names ?? 1);
   const tooltipText = showNames ? `#${p.bib} ${label}` : `#${p.bib}`;
-  const icon = L.divIcon({ html: `<div title="${tooltipText}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
+  const icon = L.divIcon({ html: `<div>${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
   const m = L.marker([p.last_lat, p.last_lon], { icon });
   m._pid = p.id;
   m.bindTooltip(tooltipText, {
