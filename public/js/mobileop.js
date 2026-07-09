@@ -312,7 +312,12 @@ function renderStationMarkers() {
       html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};border:2px solid #fff4;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:#000">${letter}</div>`,
       className: '', iconAnchor: [10, 10],
     });
-    stationMarkers[s.id] = L.marker([s.lat, s.lon], { icon }).bindTooltip(s.name).addTo(map);
+    const marker = L.marker([s.lat, s.lon], { icon }).bindTooltip(s.name);
+    marker._stnType = s.type;
+    // Repeater / net-control stations follow the Infrastructure toggle; all
+    // other station types are always shown.
+    if (!isInfraStationType(s.type) || showInfraMarkers) marker.addTo(map);
+    stationMarkers[s.id] = marker;
   }
   if (stations.length && !trackPoints) {
     const bounds = L.latLngBounds(stations.map(s => [s.lat, s.lon]));
@@ -415,6 +420,12 @@ function togglePersonnelNametags(on) {
 const INFRA_COLORS  = { digipeater: '#a371f7', igate: '#58a6ff', repeater: '#6e7681', beacon: '#3fb950', other: '#d2a679' };
 const INFRA_LETTERS = { digipeater: 'D', igate: 'I', repeater: 'R', beacon: 'B', other: '?' };
 
+// Course station types that count as "infrastructure" for the Infrastructure
+// toggle, alongside the registered network nodes (see toggleInfra).
+function isInfraStationType(type) {
+  return type === 'repeater' || type === 'netcontrol';
+}
+
 function updateInfraMarkers() {
   if (!infraLayer) return;
   for (const n of infraNodes) {
@@ -456,6 +467,13 @@ function toggleInfra(on) {
   if (!map) return;
   if (showInfraMarkers) { if (!map.hasLayer(infraLayer)) infraLayer.addTo(map); }
   else { if (map.hasLayer(infraLayer)) map.removeLayer(infraLayer); }
+  // Course stations of type repeater / net control are infrastructure too, but
+  // are plotted directly on the map — show/hide them alongside the network nodes.
+  for (const m of Object.values(stationMarkers)) {
+    if (!isInfraStationType(m._stnType)) continue;
+    if (showInfraMarkers) { if (!map.hasLayer(m)) m.addTo(map); }
+    else { if (map.hasLayer(m)) map.removeLayer(m); }
+  }
 }
 
 // ── Infrastructure list (LOG tab) ─────────────────────────────────────────────

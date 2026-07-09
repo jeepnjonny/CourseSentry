@@ -636,9 +636,12 @@ function renderStationMarkers() {
       className: '', iconAnchor: [11, 11],
     });
     const marker = L.marker([s.lat, s.lon], { icon })
-      .addTo(leafletMap)
       .bindTooltip(s.name, { permanent: false, direction: 'top' });
+    marker._stnType = s.type;
     marker.on('click', () => selectStation(s.id));
+    // Repeater / net-control stations follow the Infrastructure toggle; all
+    // other station types are always shown.
+    if (!isInfraStationType(s.type) || showInfraMarkers) marker.addTo(leafletMap);
     stationMarkers[s.id] = marker;
   }
 }
@@ -756,6 +759,12 @@ function updatePersonnelMarkers() {
 const INFRA_COLORS  = { digipeater: '#a371f7', igate: '#58a6ff', repeater: '#6e7681', beacon: '#3fb950', other: '#d2a679' };
 const INFRA_LETTERS = { digipeater: 'D', igate: 'I', repeater: 'R', beacon: 'B', other: '?' };
 
+// Course station types that count as "infrastructure" for the map's Infrastructure
+// toggle, alongside the registered network nodes (see toggleInfra).
+function isInfraStationType(type) {
+  return type === 'repeater' || type === 'netcontrol';
+}
+
 function updateInfraMarkers() {
   if (!infraLayer) return;
   for (const n of infraNodes) {
@@ -796,10 +805,21 @@ function updateInfraMarkers() {
 
 function toggleInfra(on) {
   showInfraMarkers = !!on;
+  // Registered network nodes (digipeaters, iGates, etc.) live on infraLayer.
   if (showInfraMarkers) {
     if (!leafletMap.hasLayer(infraLayer)) infraLayer.addTo(leafletMap);
   } else {
     if (leafletMap.hasLayer(infraLayer)) leafletMap.removeLayer(infraLayer);
+  }
+  // Course stations of type repeater / net control are infrastructure too, but
+  // are plotted directly on the map — show/hide them alongside the network nodes.
+  for (const m of Object.values(stationMarkers)) {
+    if (!isInfraStationType(m._stnType)) continue;
+    if (showInfraMarkers) {
+      if (!leafletMap.hasLayer(m)) m.addTo(leafletMap);
+    } else {
+      if (leafletMap.hasLayer(m)) leafletMap.removeLayer(m);
+    }
   }
 }
 
