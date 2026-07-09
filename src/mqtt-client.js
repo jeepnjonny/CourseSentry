@@ -95,7 +95,6 @@ const _stmt = {
       )
     LIMIT 1
   `),
-  getStationsForRace: db.prepare('SELECT * FROM stations WHERE race_id=? ORDER BY course_order'),
   getStationsGeoFence: db.prepare(
     `SELECT * FROM stations WHERE race_id=? AND lat IS NOT NULL AND lon IS NOT NULL
      AND type NOT IN ('netcontrol','repeater')`
@@ -345,6 +344,13 @@ function broadcast(type, data) {
   if (wsRef) wsRef.broadcast({ type, data });
 }
 
+// Race-scoped broadcast: only clients bound to `raceId` receive it. Used for
+// race-specific state (events) so a viewer/operator on one race never sees
+// another race's data.
+function broadcastToRace(raceId, type, data) {
+  if (wsRef && raceId != null) wsRef.broadcastToRace(raceId, { type, data });
+}
+
 // Persist position, update registry, check geofences & alerts
 function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi, battery, timestamp, rfSource }) {
   if (!nodeId || isNaN(lat) || isNaN(lon)) return;
@@ -505,7 +511,7 @@ function emitGeofenceEvent(raceId, participant, eventType, station, timestamp) {
     WHERE e.id=?`).get(lastInsertRowid);
 
   logger.log('race', 'info', `${eventType.toUpperCase()} — ${participant.name} (#${participant.bib}) at ${station.name}`);
-  broadcast('event', { ...event, has_turnaround });
+  broadcastToRace(event.race_id, 'event', { ...event, has_turnaround });
 
   // Trigger audit sweep when participant finishes so any missed stations get backfilled
   if (eventType === 'finish') {
@@ -519,7 +525,9 @@ function checkGeofences(participant, race, lat, lon, timestamp) {
   const autoLog   = race.feat_auto_log   ?? 1;
   if (!autoLog && !autoStart) return;
 
-  const stations = _stmt.getStationsForRace.all(race.id);
+  // netcontrol/repeater are radio infrastructure, not racer waypoints — exclude
+  // them so a participant passing near one never triggers an auto arrive/depart.
+  const stations = _stmt.getStationsGeoFence.all(race.id);
   if (!stations.length) return;
 
   // Pre-find start station so the finish guard can check whether the participant
@@ -645,7 +653,7 @@ function emitBackfill(raceId, participant, eventType, station, timestamp, note, 
     LEFT JOIN participants p ON e.participant_id = p.id
     LEFT JOIN stations s ON e.station_id = s.id
     WHERE e.id=?`).get(lastInsertRowid);
-  broadcast('event', { ...event, has_turnaround: hasTurnaround });
+  broadcastToRace(event.race_id, 'event', { ...event, has_turnaround: hasTurnaround });
   return event;
 }
 

@@ -98,7 +98,7 @@ router.post('/', requireRole('admin', 'operator'), (req, res) => {
            spot_feed_id || null, spot_feed_password || null);
     applyHeatStartTime(result.lastInsertRowid);
     const p = enrichParticipant(db.prepare('SELECT * FROM participants WHERE id=?').get(result.lastInsertRowid));
-    wsManager.broadcast({ type: 'participant_update', data: { action: 'add', participant: p } });
+    wsManager.broadcastToRace(p.race_id, { type: 'participant_update', data: { action: 'add', participant: p } });
     aprsClient.notifyRosterChange();
     logger.log('race', 'info', `Participant added — #${bib} ${name}`);
     res.json({ ok: true, data: p });
@@ -165,7 +165,7 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
 
   if ('tracker_id' in updates || 'heat_id' in updates) applyHeatStartTime(p.id);
   const updated = enrichParticipant(db.prepare('SELECT * FROM participants WHERE id=?').get(p.id));
-  wsManager.broadcast({ type: 'participant_update', data: { action: 'update', participant: updated } });
+  wsManager.broadcastToRace(updated.race_id, { type: 'participant_update', data: { action: 'update', participant: updated } });
   aprsClient.notifyRosterChange();
   if (updates.status && updates.status !== p.status) {
     logger.log('race', 'info', `Status change — #${updated.bib} ${updated.name}: ${p.status} → ${updates.status}`);
@@ -179,7 +179,7 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
 router.delete('/:id', requireRole('admin'), (req, res) => {
   const result = db.prepare('DELETE FROM participants WHERE id=? AND race_id=?').run(req.params.id, req.params.raceId);
   if (!result.changes) return res.status(404).json({ ok: false, error: 'Participant not found' });
-  wsManager.broadcast({ type: 'participant_update', data: { action: 'delete', id: parseInt(req.params.id) } });
+  wsManager.broadcastToRace(parseInt(req.params.raceId), { type: 'participant_update', data: { action: 'delete', id: parseInt(req.params.id) } });
   res.json({ ok: true });
 });
 
@@ -197,7 +197,7 @@ router.delete('/', requireRole('admin'), (req, res) => {
     const result = db.prepare('DELETE FROM participants WHERE race_id=?').run(req.params.raceId);
     const ms = Date.now() - t0;
     logger.log('race', 'warn', `All participants deleted — race ${req.params.raceId} (${result.changes} removed, ${eventCount} events cascaded, ${ms}ms)`);
-    wsManager.broadcast({ type: 'participant_update', data: { action: 'clear', raceId: req.params.raceId } });
+    wsManager.broadcastToRace(parseInt(req.params.raceId), { type: 'participant_update', data: { action: 'clear', raceId: req.params.raceId } });
     res.json({ ok: true, deleted: result.changes });
   } catch (e) {
     logger.log('race', 'error', `Bulk delete failed: ${e.message}\n${e.stack}`);

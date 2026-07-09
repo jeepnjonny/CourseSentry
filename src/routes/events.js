@@ -105,7 +105,7 @@ router.post('/', requireRole('admin', 'operator', 'station'), (req, res) => {
   `);
 
   const event = readEvent.get(insertResult.lastInsertRowid);
-  wsManager.broadcast({ type: 'event', data: event });
+  wsManager.broadcastToRace(event.race_id, { type: 'event', data: event });
 
   // Auto-synthesize a matching aid_arrive if none exists for this participant/station
   let arriveEvent = null;
@@ -119,7 +119,7 @@ router.post('/', requireRole('admin', 'operator', 'station'), (req, res) => {
         'INSERT INTO events (race_id, participant_id, event_type, station_id, timestamp, notes, manual) VALUES (?, ?, ?, ?, ?, ?, 1)'
       ).run(req.params.raceId, participant_id, 'aid_arrive', station_id, ts, notes || null);
       arriveEvent = readEvent.get(arriveResult.lastInsertRowid);
-      wsManager.broadcast({ type: 'event', data: arriveEvent });
+      wsManager.broadcastToRace(arriveEvent.race_id, { type: 'event', data: arriveEvent });
     }
   }
 
@@ -148,7 +148,7 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
     );
 
   const updated = db.prepare('SELECT * FROM events WHERE id = ?').get(event.id);
-  wsManager.broadcast({ type: 'event', data: updated });
+  wsManager.broadcastToRace(updated.race_id, { type: 'event', data: updated });
   res.json({ ok: true, data: updated });
 });
 

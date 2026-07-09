@@ -401,7 +401,8 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
       WHERE e.id = ?
     `);
     for (const id of createdEventIds) {
-      wsManager.broadcast({ type: 'event', data: readEvent.get(id) });
+      const ev = readEvent.get(id);
+      wsManager.broadcastToRace(ev.race_id, { type: 'event', data: ev });
     }
   }
 
