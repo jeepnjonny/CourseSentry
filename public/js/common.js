@@ -159,9 +159,13 @@ const RT = (() => {
     pentagon: (c, sz=20) => `<svg width="${sz}" height="${sz}" viewBox="0 0 20 20"><polygon points="10,2 18.1,7.9 14.9,17.6 5.1,17.6 1.9,7.9" fill="${c}" stroke="#fff" stroke-width="1.5"/></svg>`,
   };
 
-  function trackerIcon(heat, alerting, missing) {
-    const color = missing ? '#484f58' : (heat?.color || '#58a6ff');
-    const shape = heat?.shape || 'circle';
+  // Preferred marker source: a participant's class icon wins over their heat
+  // icon; either supplies { color, shape }. Returns null when neither is set.
+  function iconSource(cls, heat) { return cls || heat || null; }
+
+  function trackerIcon(src, alerting, missing) {
+    const color = missing ? '#484f58' : (src?.color || '#58a6ff');
+    const shape = src?.shape || 'circle';
     const svg = (SHAPES[shape] || SHAPES.circle)(color);
     const cls = alerting ? 'tracker-icon-alert' : '';
     return { svg, cls };
@@ -314,6 +318,6 @@ const RT = (() => {
 
   return { BASE, getMe, logout, requireLogin, api, get, post, put, del, connectWS,
            fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo, fmtLabel,
-           trackerIcon, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES,
+           trackerIcon, iconSource, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES,
            initPanelResizer };
 })();

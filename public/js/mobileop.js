@@ -1,7 +1,7 @@
 'use strict';
 
 let race, raceId, currentStation = null;
-let participants = [], heats = [], stations = [], messages = [], personnel = [], onlineUsers = [];
+let participants = [], heats = [], classes = [], stations = [], messages = [], personnel = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let roverStationId = null; // selected station for rover event logging
 let _wsConn = null; // WS connection handle for phone_gps sends
@@ -344,8 +344,8 @@ function updateMarker(nodeId, pos) {
     }
     return;
   }
-  const heat = heats.find(h => h.id === p.heat_id);
-  const { svg, cls } = RT.trackerIcon(heat, false, false);
+  const src = RT.iconSource(classes.find(c => c.id === p.class_id), heats.find(h => h.id === p.heat_id));
+  const { svg, cls } = RT.trackerIcon(src, false, false);
   const label = RT.fmtLabel(p.name);
   const icon = L.divIcon({ html: svg, className: cls, iconSize: [20, 20], iconAnchor: [10, 10] });
   if (trackerMarkers[nodeId]) {
@@ -490,6 +490,7 @@ function handleWS(msg) {
   if (msg.type === 'init') {
     participants = msg.data.participants || [];
     heats        = msg.data.heats || [];
+    classes      = msg.data.classes || [];
     onlineUsers  = msg.data.onlineUsers || [];
     if (msg.data.race) { race = msg.data.race; fmt24 = race.time_format === '24h'; }
     // Seed _lastStation from server-supplied field

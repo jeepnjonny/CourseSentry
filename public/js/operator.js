@@ -675,8 +675,8 @@ function updateOrCreateMarker(p) {
   const lastSeen = isManual ? (p.last_station_ts || 0) : (p.registry?.last_seen || p.last_seen || 0);
   const missing = !isManual && lastSeen && (now - lastSeen) > missingTimer;
   const alerting = alerts.some(a => a.participantId === p.id);
-  const heat = p.heat_id ? heats[p.heat_id] : null;
-  const { svg, cls } = RT.trackerIcon(heat, alerting, missing);
+  const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
+  const { svg, cls } = RT.trackerIcon(src, alerting, missing);
 
   // Manual markers rendered with reduced opacity and a dashed ring to signal "last known"
   const wrapStyle = isManual ? 'opacity:0.65;filter:grayscale(30%)' : '';
@@ -829,8 +829,11 @@ function renderLeaderboard() {
     const lastSeen = p.registry?.last_seen || p.last_seen || 0;
     const missing = lastSeen && (now - lastSeen) > missingTimer;
     const alerting = alerts.some(a => a.participantId === p.id);
-    const heat = p.heat_id ? heats[p.heat_id] : null;
-    const dot = heat ? `<span class="dot" style="background:${heat.color}"></span>` : '<span class="dot" style="background:var(--text3)"></span>';
+    const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
+    // Mirror the map marker: class-preferred shape + color (grey circle if none)
+    const dot = src
+      ? `<span class="lb-shape">${RT.SHAPES[src.shape]?.(src.color, 13) || RT.SHAPES.circle(src.color, 13)}</span>`
+      : '<span class="dot" style="background:var(--text3)"></span>';
     const sc = STATUS_COLORS[p.status] || 'var(--text3)';
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const pace = p._pace ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--';
@@ -1417,7 +1420,7 @@ async function showParticipantInfo(id) {
   const el = document.getElementById('info-panel');
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      ${heat ? RT.SHAPES[heat.shape]?.(heat.color, 20) || '' : ''}
+      ${(() => { const s = RT.iconSource(cls, heat); return s ? RT.SHAPES[s.shape]?.(s.color, 20) || '' : ''; })()}
       <span style="font-size:20px;font-weight:bold">#${p.bib} ${p.name}</span>
       <span class="badge" style="background:${sc}22;color:${sc}">${p.status?.toUpperCase()}</span>
       <button style="margin-left:auto;font-size:13px;padding:2px 8px" onclick="OP.openEditModal(${id})">EDIT</button>

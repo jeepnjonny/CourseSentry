@@ -345,6 +345,9 @@ textarea { resize: vertical; min-height: 60px; }
   display: inline-block;
   flex-shrink: 0;
 }
+/* Inline heat/class marker shape rendered beside a name (matches the map icon) */
+.lb-shape { display: inline-flex; flex-shrink: 0; vertical-align: middle; }
+.lb-shape svg { display: block; }
 .badge {
   font-size: 14px;
   padding: 1px 6px;
