@@ -332,7 +332,7 @@ function renderLeaderboard() {
   const el = document.getElementById('viewer-lb-body');
   if (!el) return;
   const list = Object.values(participants).filter(p => race?.leaderboard_enabled !== 0);
-  list.forEach(p => { p._pct = computePct(p); });
+  list.forEach(p => { p._pct = computePct(p); p._pace = computePace(p); });
 
   list.sort((a, b) => {
     if (sortBy === 'position') return (b._pct || 0) - (a._pct || 0);
@@ -417,25 +417,31 @@ function computePct(p) {
   return Math.min(100, bestAlong / totalDist * 100);
 }
 
-function fmtPace(p) {
-  if (!p.start_time || !p._pct) return '--';
+// Returns pace/speed in m/s, or null. Rendered via RT.fmtSpeed with race units.
+function computePace(p) {
+  if (!p.start_time || !p._pct) return null;
   const total = computeTotal();
-  if (!total) return '--';
+  if (!total) return null;
   if (!p.last_lat && p.last_station_id && p.last_station_ts) {
     const along = getStationAlongMap().get(p.last_station_id);
-    if (along == null || along <= 0) return '--';
+    if (along == null || along <= 0) return null;
     const stationElapsed = p.last_station_ts - p.start_time;
-    if (stationElapsed <= 0) return '--';
+    if (stationElapsed <= 0) return null;
     const distCovered = (race?.race_format === 'out_and_back' && p.has_turnaround)
       ? 2 * total - along : along;
-    return RT.fmtPace(distCovered / stationElapsed);
+    return distCovered / stationElapsed;
   }
   const dist = race?.race_format === 'out_and_back' ? total * 2 : total;
-  const elapsed = (p.status === 'finished' && p.finish_time)
-    ? p.finish_time - p.start_time
-    : Math.floor(Date.now()/1000) - p.start_time;
-  if (elapsed <= 0) return '--';
-  return RT.fmtPace(dist / elapsed);
+  // Finished: full course distance over actual elapsed time.
+  if (p.status === 'finished' && p.finish_time) {
+    const elapsed = p.finish_time - p.start_time;
+    if (elapsed <= 0) return null;
+    return dist / elapsed;
+  }
+  // In progress (GPS): distance covered so far (from _pct) over elapsed time.
+  const elapsed = Math.floor(Date.now()/1000) - p.start_time;
+  if (elapsed <= 0) return null;
+  return (p._pct / 100 * dist) / elapsed;
 }
 
 let _total = null, _cachedDists = null, _stationAlongCache = null;
