@@ -358,6 +358,26 @@ describe('Participants API', () => {
           .send({ csv: 'bib\n730' });
         expect(res.status).toBe(400);
       });
+
+      test('tracking-feed columns import and are blank-safe', async () => {
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,name\n740,Feeds' });
+        // Pair feeds by bib in a later import
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,inreach_url,spot_feed_id,spot_feed_password\n740,https://share.garmin.com/x,SPOT123,pw' });
+        let list = await admin.get(`/api/races/${mergeRaceId}/participants`);
+        let p = list.body.data.find(x => x.bib === '740');
+        expect(p.inreach_url).toBe('https://share.garmin.com/x');
+        expect(p.spot_feed_id).toBe('SPOT123');
+        expect(p.spot_feed_password).toBe('pw');
+
+        // A blank feed cell keeps the existing value (COALESCE), unlike other fields
+        await admin.post(`/api/races/${mergeRaceId}/participants/import`)
+          .send({ csv: 'bib,inreach_url\n740,' });
+        list = await admin.get(`/api/races/${mergeRaceId}/participants`);
+        p = list.body.data.find(x => x.bib === '740');
+        expect(p.inreach_url).toBe('https://share.garmin.com/x');
+      });
     });
   });
 });

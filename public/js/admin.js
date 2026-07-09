@@ -1102,6 +1102,7 @@ function renderParticipantsTab() {
       <div style="font-size:14px;color:var(--text3);margin-bottom:6px">
         <span style="color:var(--accent3)">Required column:</span> <code>bib</code><br>
         <span style="color:var(--text3)">Plus any of:</span> <code>name, tracker_id, heat, class, age, phone, emergency_contact</code><br>
+        <span style="color:var(--text3)">Tracking feeds:</span> <code>inreach_url, spot_feed_id, spot_feed_password</code><br>
         First row must be a header. Heat/class matched by name. Only the columns you include
         are updated — existing bibs are patched by bib # (so you can pair trackers later).
         New bibs require <code>name</code>.
@@ -1370,7 +1371,8 @@ function ptCsvSelected(input) {
     // Partial merge: only `bib` is required. At least one updatable column must
     // also be present, else there's nothing to import. New bibs still need a
     // `name` column, but that's enforced server-side per row.
-    const UPDATABLE = ['name', 'trackerid', 'tracker', 'heat', 'class', 'age', 'phone', 'emergencycontact'];
+    const UPDATABLE = ['name', 'trackerid', 'tracker', 'heat', 'class', 'age', 'phone', 'emergencycontact',
+                       'inreachurl', 'spotfeedid', 'spotfeedpassword'];
     if (!headers.includes('bib')) {
       const found = firstLine.split(',').map(h => h.trim()).join(', ') || '(empty)';
       showError(`Missing required column: bib. Found: ${found}`);
