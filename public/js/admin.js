@@ -1100,9 +1100,11 @@ function renderParticipantsTab() {
     </div>
     <div id="pt-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:10px">
       <div style="font-size:14px;color:var(--text3);margin-bottom:6px">
-        <span style="color:var(--accent3)">Required columns:</span> <code>bib, name</code><br>
-        <span style="color:var(--text3)">Optional columns:</span> <code>tracker_id, heat, class, age, phone, emergency_contact, inreach_url, spot_feed_id, spot_feed_password</code><br>
-        First row must be a header. Heat/class matched by name. Duplicate bibs are updated.
+        <span style="color:var(--accent3)">Required column:</span> <code>bib</code><br>
+        <span style="color:var(--text3)">Plus any of:</span> <code>name, tracker_id, heat, class, age, phone, emergency_contact</code><br>
+        First row must be a header. Heat/class matched by name. Only the columns you include
+        are updated — existing bibs are patched by bib # (so you can pair trackers later).
+        New bibs require <code>name</code>.
       </div>
       <div class="upload-zone" onclick="document.getElementById('pt-csv-input').click()" id="pt-csv-zone">
         <span id="pt-csv-label" style="font-size:14px">&#8593; Select CSV file</span>
@@ -1365,16 +1367,17 @@ function ptCsvSelected(input) {
     const normalize = s => s.toLowerCase().replace(/[\s_\-"']+/g, '');
     const headers = firstLine.split(',').map(h => normalize(h.trim()));
 
-    const REQUIRED = [
-      { label: 'bib',        match: h => h === 'bib' },
-      { label: 'name',       match: h => h === 'name' },
-    ];
-
-    const missing = REQUIRED.filter(r => !headers.some(r.match)).map(r => r.label);
-
-    if (missing.length) {
+    // Partial merge: only `bib` is required. At least one updatable column must
+    // also be present, else there's nothing to import. New bibs still need a
+    // `name` column, but that's enforced server-side per row.
+    const UPDATABLE = ['name', 'trackerid', 'tracker', 'heat', 'class', 'age', 'phone', 'emergencycontact'];
+    if (!headers.includes('bib')) {
       const found = firstLine.split(',').map(h => h.trim()).join(', ') || '(empty)';
-      showError(`Missing required column${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}. Found: ${found}`);
+      showError(`Missing required column: bib. Found: ${found}`);
+      return;
+    }
+    if (!headers.some(h => UPDATABLE.includes(h))) {
+      showError('CSV needs bib plus at least one column to update (e.g. tracker_id, name).');
       return;
     }
 

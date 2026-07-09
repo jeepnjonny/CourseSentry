@@ -306,7 +306,7 @@
       <h3 id="new-race-participants">Step 5 — Add Participants</h3>
       <ol class="steps">
         <li><span>Go to <b>Races → PARTICIPANTS</b>. Add participants individually or bulk-import via <b>IMPORT CSV</b>.</span></li>
-        <li><span>CSV columns: <kbd>bib</kbd>, <kbd>name</kbd>, <kbd>tracker_id</kbd>, <kbd>heat</kbd>, <kbd>class</kbd>, <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>, <kbd>inreach_url</kbd>, <kbd>spot_feed_id</kbd>, <kbd>spot_feed_password</kbd>.</span></li>
+        <li><span>CSV columns: <kbd>bib</kbd> (required), plus any of <kbd>name</kbd>, <kbd>tracker_id</kbd>, <kbd>heat</kbd>, <kbd>class</kbd>, <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>. Only the columns you include are updated, so you can pair trackers by bib in a later import.</span></li>
         <li><span>Assign a <b>tracker ID</b> to each participant who will carry a GPS-enabled device. For Meshtastic: use the node's long name or 8-character hex ID (e.g., <kbd>!a4b92e3f</kbd>). For APRS: use the operator's callsign (e.g., <kbd>W1AW-5</kbd>).</span></li>
         <li><span>Participants without a tracker ID can still be tracked manually via aid station check-ins.</span></li>
       </ol>
@@ -427,7 +427,8 @@
       <p>If a heat has its own <b>start time</b>, all participants in that heat begin timing from that moment rather than the race start. This is important for staggered starts — without per-heat start times, everyone's pace and ETA calculations use the same reference clock.</p>
 
       <h3 id="participants-csv">CSV Import</h3>
-      <p>Prepare a CSV with column headers. Required: <kbd>bib</kbd>, <kbd>name</kbd>. Optional: <kbd>tracker_id</kbd>, <kbd>heat</kbd> (heat name), <kbd>class</kbd> (class name), <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>, <kbd>inreach_url</kbd>, <kbd>spot_feed_id</kbd>, <kbd>spot_feed_password</kbd>. Heat and class values are matched by name — create them in the HEATS and CLASSES tabs first. Unknown heat or class names are silently skipped.</p>
+      <p>Prepare a CSV with column headers. The only required column is <kbd>bib</kbd>, plus at least one column to fill in: <kbd>name</kbd>, <kbd>tracker_id</kbd>, <kbd>heat</kbd> (heat name), <kbd>class</kbd> (class name), <kbd>phone</kbd>, <kbd>emergency_contact</kbd>, <kbd>age</kbd>. Heat and class values are matched by name — create them in the HEATS and CLASSES tabs first. Unknown heat or class names are silently skipped.</p>
+      <p><b>Partial (phased) import:</b> only the columns you include are written, and rows are matched by <kbd>bib</kbd>. So you can import your roster first (e.g. <kbd>bib,name,heat,age</kbd>), then later upload just <kbd>bib,tracker_id</kbd> to pair trackers — the names, heats, and ages you already loaded are left untouched. A column that is present but left blank <em>clears</em> that field. Creating a brand-new bib requires a <kbd>name</kbd> column; a name-less file only updates bibs that already exist (others are reported as skipped rows).</p>
     </div>
 
     <!-- ══ TRACKER INFRASTRUCTURE ═════════════════════════════════════════════ -->
