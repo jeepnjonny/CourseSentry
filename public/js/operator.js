@@ -695,7 +695,7 @@ function updateOrCreateMarker(p) {
     const m = L.marker([lat, lon], { icon });
     m._pid = p.id;
     m.bindTooltip(tooltipText, {
-      permanent: showNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag',
+      permanent: showNametags, direction: 'top', offset: [0, -6], className: 'map-nametag',
     });
     m.on('click', () => showParticipantInfo(p.id));
     m.addTo(markerLayer);
