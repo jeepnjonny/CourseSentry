@@ -217,8 +217,9 @@ router.delete('/', requireRole('admin'), (req, res) => {
 //     INSERT without a name (NOT NULL), and SQLite evaluates that NOT NULL on the
 //     phantom insert row even for rows destined for DO UPDATE — so a name-less
 //     file must UPDATE existing bibs only, never upsert.
-// SPOT feed columns use COALESCE so a blank cell never wipes a feed ID set
-// earlier (in the modal or a prior import).
+// The feed-credential columns (inreach_url, spot_feed_id, spot_feed_password)
+// use COALESCE so a blank cell never wipes a value set earlier (in the modal or
+// a prior import); clear those from the per-participant modal instead.
 const IMPORT_COLS = [
   { csv: 'name',              col: 'name',              read: r => r.name || null,                                update: 'name=excluded.name',                                                            set: 'name=?' },
   { csv: 'tracker_id',        col: 'tracker_id',        read: r => r.tracker_id || null,                          update: 'tracker_id=excluded.tracker_id',                                                set: 'tracker_id=?' },
@@ -227,6 +228,7 @@ const IMPORT_COLS = [
   { csv: 'age',               col: 'age',               read: r => r.age ? parseInt(r.age) : null,                update: 'age=excluded.age',                                                              set: 'age=?' },
   { csv: 'phone',             col: 'phone',             read: r => r.phone || null,                               update: 'phone=excluded.phone',                                                          set: 'phone=?' },
   { csv: 'emergency_contact', col: 'emergency_contact', read: r => r.emergency_contact || null,                   update: 'emergency_contact=excluded.emergency_contact',                                   set: 'emergency_contact=?' },
+  { csv: 'inreach_url',       col: 'inreach_url',       read: r => r.inreach_url || null,                         update: 'inreach_url=COALESCE(excluded.inreach_url, participants.inreach_url)',           set: 'inreach_url=COALESCE(?, inreach_url)' },
   { csv: 'spot_feed_id',      col: 'spot_feed_id',      read: r => r.spot_feed_id || null,                        update: 'spot_feed_id=COALESCE(excluded.spot_feed_id, participants.spot_feed_id)',        set: 'spot_feed_id=COALESCE(?, spot_feed_id)' },
   { csv: 'spot_feed_password',col: 'spot_feed_password',read: r => r.spot_feed_password || null,                  update: 'spot_feed_password=COALESCE(excluded.spot_feed_password, participants.spot_feed_password)', set: 'spot_feed_password=COALESCE(?, spot_feed_password)' },
 ];
