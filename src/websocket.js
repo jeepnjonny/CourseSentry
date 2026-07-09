@@ -221,7 +221,7 @@ function sendInit(ws, user, reqUrl) {
 
     const participants = db.prepare(`
       SELECT p.*, h.name as heat_name, h.color as heat_color, h.shape as heat_shape,
-             c.name as class_name,
+             c.name as class_name, c.color as class_color, c.shape as class_shape,
              tr.last_lat, tr.last_lon, tr.battery_level, tr.last_seen,
              EXISTS (
                SELECT 1 FROM events e

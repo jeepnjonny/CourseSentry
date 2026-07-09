@@ -401,7 +401,8 @@ router.post('/:id/start', requireRole('admin', 'operator'), (req, res) => {
       WHERE e.id = ?
     `);
     for (const id of createdEventIds) {
-      wsManager.broadcast({ type: 'event', data: readEvent.get(id) });
+      const ev = readEvent.get(id);
+      wsManager.broadcastToRace(ev.race_id, { type: 'event', data: ev });
     }
   }
 
@@ -458,7 +459,9 @@ function cloneClasses(sourceRaceId, targetRaceId) {
   const classes = db.prepare('SELECT * FROM classes WHERE race_id = ?').all(sourceRaceId);
 
   for (const cls of classes) {
-    const result = db.prepare('INSERT INTO classes (race_id, name) VALUES (?, ?)').run(targetRaceId, cls.name);
+    const result = db.prepare('INSERT INTO classes (race_id, name, color, shape) VALUES (?, ?, ?, ?)').run(
+      targetRaceId, cls.name, cls.color, cls.shape
+    );
     classMap[cls.id] = result.lastInsertRowid;
   }
 

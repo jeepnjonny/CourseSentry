@@ -91,7 +91,10 @@ CREATE TABLE IF NOT EXISTS heats (
 CREATE TABLE IF NOT EXISTS classes (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   race_id INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
-  name    TEXT    NOT NULL
+  name    TEXT    NOT NULL,
+  color   TEXT    NOT NULL DEFAULT '#58a6ff',
+  shape   TEXT    NOT NULL DEFAULT 'circle'
+          CHECK(shape IN ('circle','triangle','square','diamond','star','pentagon'))
 );
 
 -- Stations: aid stations and course waypoints
@@ -455,6 +458,10 @@ try { db.prepare('ALTER TABLE races ADD COLUMN spot_feed_password TEXT').run(); 
 // these alongside any per-race feed and auto-registers the tracker.
 try { db.prepare('ALTER TABLE participants ADD COLUMN spot_feed_id TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE participants ADD COLUMN spot_feed_password TEXT').run(); } catch {}
+
+// Add class display fields (color/shape for map visualization), mirroring heats
+try { db.prepare("ALTER TABLE classes ADD COLUMN color TEXT NOT NULL DEFAULT '#58a6ff'").run(); } catch {}
+try { db.prepare("ALTER TABLE classes ADD COLUMN shape TEXT NOT NULL DEFAULT 'circle'").run(); } catch {}
 
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.
