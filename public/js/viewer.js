@@ -1,6 +1,6 @@
 'use strict';
 const VW = (() => {
-let race = null, participants = {}, stations = [], heats = {}, trackPoints = null;
+let race = null, participants = {}, stations = [], heats = {}, classes = {}, trackPoints = null;
 let leafletMap, markerLayer, routeLayer, stationMarkers = {};
 let sortBy = 'position', clockInterval;
 let fmt24 = false;
@@ -195,6 +195,7 @@ function handleInit(data) {
   document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
 
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
+  classes = {}; (data.classes || []).forEach(c => classes[c.id] = c);
   stations = data.stations || [];
   participants = {};
   (data.participants || []).forEach(p => {
@@ -331,6 +332,7 @@ function fmtParticipantName(name) {
 function renderLeaderboard() {
   const el = document.getElementById('viewer-lb-body');
   if (!el) return;
+  updateSortPillVisibility();
   const list = Object.values(participants).filter(p => race?.leaderboard_enabled !== 0);
   list.forEach(p => { p._pct = computePct(p); p._pace = computePace(p); });
 
@@ -340,6 +342,7 @@ function renderLeaderboard() {
     if (sortBy === 'pace') return (a._pace || Infinity) - (b._pace || Infinity);
     if (sortBy === 'name') return a.name.localeCompare(b.name);
     if (sortBy === 'heat') return (a.heat?.name || '').localeCompare(b.heat?.name || '');
+    if (sortBy === 'class') return (a.class_name || '').localeCompare(b.class_name || '');
     return 0;
   });
 
@@ -493,6 +496,19 @@ function setSort(key) {
   sortBy = key;
   document.querySelectorAll('.v-sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === key));
   renderLeaderboard();
+}
+
+// Hide the HEAT / CLASS sort pills when the race has none defined. If the active
+// sort becomes hidden, fall back to POSITION so the leaderboard stays coherent.
+function updateSortPillVisibility() {
+  const hasHeats   = Object.keys(heats).length > 0;
+  const hasClasses = Object.keys(classes).length > 0;
+  document.querySelector('#viewer-sort-bar .v-sort-btn[data-sort="heat"]')?.classList.toggle('hidden', !hasHeats);
+  document.querySelector('#viewer-sort-bar .v-sort-btn[data-sort="class"]')?.classList.toggle('hidden', !hasClasses);
+  if ((sortBy === 'heat' && !hasHeats) || (sortBy === 'class' && !hasClasses)) {
+    sortBy = 'position';
+    document.querySelectorAll('.v-sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === 'position'));
+  }
 }
 
 function switchTab(name) {
