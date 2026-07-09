@@ -102,15 +102,22 @@
   .sort-btn { font-size: 13px; padding: 2px 8px; }
   .sort-btn.active { border-color: var(--accent); color: var(--accent); }
   #leaderboard-body { flex: 1; overflow-y: auto; }
-  .lb-row { display: grid; grid-template-columns: 28px 52px 1fr 50px 70px; align-items: center;
+  /* Shared column tracks so the header and rows can never drift out of alignment.
+     minmax(0,…) lets the fixed columns shrink when the panel is dragged narrow. */
+  .lb-row, .lb-head { grid-template-columns: 28px minmax(0,52px) 1fr minmax(0,50px) minmax(0,70px); }
+  .lb-row { display: grid; align-items: center;
     gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); font-size: 14px; cursor: pointer; }
   .lb-row:hover { background: var(--surface2); }
   .lb-row.selected { background: rgba(88,166,255,.08); }
   .lb-row.alert-row { animation: blink 1.2s infinite; }
   .lb-row.missing-row { opacity: 0.45; }
   .lb-head { font-size: 13px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase;
-    display: grid; grid-template-columns: 28px 52px 1fr 50px 70px;
-    gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--surface2); flex-shrink: 0; }
+    display: grid; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--surface2); flex-shrink: 0; }
+  /* Cells clip instead of overrunning their track; min-width:0 lets the name (1fr) shrink */
+  .lb-row > *, .lb-head > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Right-align the numeric PROG / PACE columns */
+  .lb-row > :nth-child(4), .lb-head > :nth-child(4),
+  .lb-row > :nth-child(5), .lb-head > :nth-child(5) { text-align: right; }
   #station-info { padding: 10px; }
   .alert-badge { background: rgba(247,129,102,.15); border: 1px solid var(--accent3); color: var(--accent3);
     border-radius: 4px; padding: 3px 8px; font-size: 14px; margin: 2px 0; display: flex; gap: 6px; align-items: center; }
@@ -132,6 +139,8 @@
   .bc-bib-name { font-size:12px;min-height:16px;margin-top:2px; }
   .bc-row-header { display:grid;grid-template-columns:90px 1fr 110px 28px;gap:6px;padding:4px 0 2px;border-bottom:1px solid var(--border);margin-bottom:2px; }
   .bc-row-header span { font-size:11px;letter-spacing:1px;color:var(--text3);text-transform:uppercase; }
+  /* Let cells (esp. width:100% inputs) shrink instead of forcing the grid wider */
+  .bc-row > *, .bc-row-header > * { min-width:0; }
 </style>
 </head>
 <body>
@@ -502,5 +511,15 @@
 <script src="js/common.js"></script>
 <script src="js/kiss-tnc.js"></script>
 <script src="js/operator.js"></script>
+<script>
+  // Draggable splitters: left leaderboard panel and right info panel vs. the map.
+  (function () {
+    const repaint = () => { if (typeof leafletMap !== 'undefined' && leafletMap) leafletMap.invalidateSize(); };
+    const left = document.querySelector('#main > .panel-320');
+    const right = document.getElementById('right-panel');
+    if (left)  RT.initPanelResizer(left,  { side: 'e', min: 240, max: 560, key: 'cs_op_left_w',  onResize: repaint });
+    if (right) RT.initPanelResizer(right, { side: 'w', min: 260, max: 560, key: 'cs_op_right_w', onResize: repaint });
+  })();
+</script>
 </body>
 </html>

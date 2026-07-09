@@ -683,7 +683,7 @@ function updateOrCreateMarker(p) {
   const label = RT.fmtLabel(p.name);
   const tooltipText = `#${p.bib} ${label}${isManual ? ' (last station)' : ''}`;
   const icon = L.divIcon({
-    html: `<div class="${cls}" style="${wrapStyle}" title="Bib ${p.bib}: ${label}">${svg}</div>`,
+    html: `<div class="${cls}" style="${wrapStyle}">${svg}</div>`,
     className: 'leaflet-div-icon', iconAnchor: [10, 10],
   });
 
@@ -835,10 +835,11 @@ function renderLeaderboard() {
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const pace = p._pace ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--';
     const rowCls = (alerting ? 'alert-row' : '') + (missing ? ' missing-row' : '') + (p.id === selectedPId ? ' selected' : '');
+    const nameEsc = String(p.name ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     return `<div class="lb-row ${rowCls}" onclick="OP.selectParticipant(${p.id})">
       <span style="color:var(--text2)">${i + 1}</span>
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${p.name}</span>
+      <span title="${nameEsc}">${dot} ${p.name}</span>
       <span style="color:var(--accent)">${pct}</span>
       <span style="color:var(--text)">${pace}</span>
     </div>`;

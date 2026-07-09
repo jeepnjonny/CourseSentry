@@ -267,7 +267,7 @@ function createMarker(p) {
   const nametags = !!(race?.viewer_nametags);
   const showNames = !!(race?.viewer_show_names ?? 1);
   const tooltipText = showNames ? `#${p.bib} ${label}` : `#${p.bib}`;
-  const icon = L.divIcon({ html: `<div title="${tooltipText}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
+  const icon = L.divIcon({ html: `<div>${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
   const m = L.marker([p.last_lat, p.last_lon], { icon });
   m._pid = p.id;
   m.bindTooltip(tooltipText, {
@@ -352,13 +352,15 @@ function renderLeaderboard() {
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const finished = p.status === 'finished';
     const lastAid = p._lastStation || '--';
+    const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const dispName = fmtParticipantName(p.name);
     return `<div class="v-lb-row v-lb-cols ${finished ? 'text-ok' : ''}">
       <span style="color:var(--text2)">${i+1}</span>
       <span style="color:${sc};font-weight:bold">${p.bib}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot} ${fmtParticipantName(p.name)}</span>
+      <span title="${escAttr(dispName)}">${dot} ${dispName}</span>
       <span style="color:var(--accent)">${pct}</span>
       <span style="color:var(--text);font-size:13px">${p._pct && p.start_time ? RT.fmtSpeed(p._pace, race?.speed_units || 'min_mile') : '--'}</span>
-      <span style="color:var(--text2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lastAid}</span>
+      <span style="color:var(--text2);font-size:13px" title="${escAttr(lastAid)}">${lastAid}</span>
     </div>`;
   }).join('');
 }

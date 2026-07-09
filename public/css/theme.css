@@ -182,6 +182,32 @@ textarea { resize: vertical; min-height: 60px; }
 #map-container { flex: 1; position: relative; overflow: hidden; }
 #map { width: 100%; height: 100%; }
 
+/* ── Draggable panel resizer ───────────────────────────────────────────────── */
+/* Inserted by RT.initPanelResizer as a flex sibling between a panel and the map. */
+.panel-resizer {
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  position: relative;
+  z-index: 500;
+  touch-action: none;
+  background: transparent;
+}
+.panel-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  transition: width .1s, background .1s;
+}
+.panel-resizer:hover::before, .panel-resizer.dragging::before {
+  width: 3px;
+  background: var(--accent);
+}
+@media (max-width: 700px) { .panel-resizer { display: none; } }
+
 /* ── LISTS ───────────────────────────────────────────────────────────────── */
 .list-row {
   display: flex;

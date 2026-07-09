@@ -81,7 +81,9 @@
 
   /* ── Leaderboard sidebar ── */
   #viewer-lb-wrap {
-    width: clamp(260px, 30vw, 360px);
+    /* --lb-w set by the drag splitter (RT.initPanelResizer); the mobile rules below
+       override with width:100% and ignore the var. */
+    width: var(--lb-w, clamp(260px, 30vw, 360px));
     background: var(--surface); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
   }
@@ -102,6 +104,11 @@
     border-bottom: 1px solid var(--border); font-size: 16px;
   }
   .v-lb-row.alert-row { animation: blink 1.2s infinite; }
+  /* Cells clip instead of overrunning their track; min-width:0 lets the name (1fr) shrink */
+  .v-lb-row > *, .v-lb-head > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Right-align the numeric PROG / PACE columns */
+  .v-lb-row > :nth-child(4), .v-lb-head > :nth-child(4),
+  .v-lb-row > :nth-child(5), .v-lb-head > :nth-child(5) { text-align: right; }
 
   /* ── Bottom tab bar (mobile only) ── */
   #viewer-tabbar { display: none; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
@@ -217,5 +224,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="js/common.js"></script>
 <script src="js/viewer.js"></script>
+<script>
+  // Draggable splitter between the map and the leaderboard. Grip is hidden under
+  // 700px (see .panel-resizer media query), where the leaderboard is a full tab.
+  (function () {
+    const wrap = document.getElementById('viewer-lb-wrap');
+    if (!wrap) return;
+    RT.initPanelResizer(wrap, {
+      side: 'w', min: 220, max: 640, cssVar: '--lb-w', key: 'cs_viewer_lb_w',
+      onResize: () => { if (typeof leafletMap !== 'undefined' && leafletMap) leafletMap.invalidateSize(); }
+    });
+  })();
+</script>
 </body>
 </html>
