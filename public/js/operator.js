@@ -807,6 +807,7 @@ function toggleInfra(on) {
 function renderLeaderboard() {
   const el = document.getElementById('leaderboard-body');
   if (!el) return;
+  updateSortPillVisibility();
   const list = Object.values(participants);
   list.forEach(p => {
     p._pct = computePercent(p);
@@ -820,6 +821,7 @@ function renderLeaderboard() {
     if (sortBy === 'eta') return (a._eta || Infinity) - (b._eta || Infinity);
     if (sortBy === 'name') return a.name.localeCompare(b.name);
     if (sortBy === 'heat') return (a.heat?.name || '').localeCompare(b.heat?.name || '');
+    if (sortBy === 'class') return (a.class?.name || '').localeCompare(b.class?.name || '');
     return 0;
   });
 
@@ -1040,6 +1042,19 @@ function setSort(key) {
   sortBy = key;
   document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === key));
   renderLeaderboard();
+}
+
+// Hide the HEAT / CLASS sort pills when the race has none defined. If the active
+// sort becomes hidden, fall back to POSITION so the leaderboard stays coherent.
+function updateSortPillVisibility() {
+  const hasHeats   = Object.keys(heats).length > 0;
+  const hasClasses = Object.keys(classes).length > 0;
+  document.querySelector('#sort-bar .sort-btn[data-sort="heat"]')?.classList.toggle('hidden', !hasHeats);
+  document.querySelector('#sort-bar .sort-btn[data-sort="class"]')?.classList.toggle('hidden', !hasClasses);
+  if ((sortBy === 'heat' && !hasHeats) || (sortBy === 'class' && !hasClasses)) {
+    sortBy = 'position';
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === 'position'));
+  }
 }
 
 // ── Left panel tabs ───────────────────────────────────────────────────────────
