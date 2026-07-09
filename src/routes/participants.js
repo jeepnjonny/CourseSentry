@@ -51,7 +51,7 @@ function applyHeatStartTime(participantId) {
 
 
 const stmtHeat    = db.prepare('SELECT name, color, shape FROM heats WHERE id=?');
-const stmtClass   = db.prepare('SELECT name FROM classes WHERE id=?');
+const stmtClass   = db.prepare('SELECT name, color, shape FROM classes WHERE id=?');
 const stmtReg     = db.prepare('SELECT last_lat, last_lon, battery_level, last_seen, snr, rssi FROM tracker_registry WHERE node_id=? OR long_name=? OR short_name=?');
 const stmtTurnEvt = db.prepare(`
   SELECT 1 FROM events

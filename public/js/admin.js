@@ -17,7 +17,7 @@ function unixToTimeStr(ts) {
 
 let currentUser = null;
 let races = [], activeRaceId = null;
-let editingRaceId = null, editingUserId = null, editingHeatId = null;
+let editingRaceId = null, editingUserId = null, editingHeatId = null, editingClassId = null;
 let selectedRaceId = null; // race being configured in sub-tabs
 
 const GLOBAL_TABS = [
@@ -482,10 +482,9 @@ function renderHeatsTab() {
     <div id="heats-list"></div>
   </div>
   <div class="card">
-    <h3>CLASSES <span class="text-dim">(e.g. age groups, gender)</span></h3>
+    <h3>CLASSES <span class="text-dim">(e.g. age groups, gender — with icon/color)</span></h3>
     <div style="display:flex;gap:8px;margin-bottom:10px">
-      <input id="new-class-name" placeholder="Class name (e.g. M30-39)" style="width:200px">
-      <button class="primary" onclick="addClass()">+ ADD</button>
+      <button class="primary" onclick="openClassModal()">+ ADD CLASS</button>
     </div>
     <div id="classes-list"></div>
   </div>`;
@@ -510,14 +509,12 @@ function renderHeatsList() {
   if (!el) return;
   if (!heats.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No heats defined.</div>'; return; }
   const race = races.find(r => r.id === selectedRaceId);
-  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>COLOR</th><th>SHAPE</th><th>START TIME</th><th>ICON</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th style="color:var(--text4);width:32px">#</th><th>NAME</th><th>ICON</th><th>START TIME</th><th></th></tr></thead><tbody>
     ${heats.map(h => `<tr>
       <td style="color:var(--text4);font-size:13px">${h.id}</td>
       <td>${h.name}</td>
-      <td><span style="color:${h.color}">${h.color}</span></td>
-      <td>${h.shape}</td>
-      <td style="font-size:14px;color:var(--text3)">${h.start_time ? RT.fmtTime(h.start_time, race?.time_format === '24h') : '<span style="color:var(--text4)">—</span>'}</td>
       <td>${RT.SHAPES[h.shape]?.(h.color, 18) || ''}</td>
+      <td style="font-size:14px;color:var(--text3)">${h.start_time ? RT.fmtTime(h.start_time, race?.time_format === '24h') : '<span style="color:var(--text4)">—</span>'}</td>
       <td style="text-align:right">
         <button style="font-size:13px;padding:2px 8px" onclick="openHeatModal(${h.id})">EDIT</button>
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteHeat(${h.id})">DEL</button>
@@ -530,10 +527,15 @@ function renderClassesList() {
   const el = document.getElementById('classes-list');
   if (!el) return;
   if (!classes.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No classes defined.</div>'; return; }
-  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th></th></tr></thead><tbody>
-    ${classes.map(c => `<tr><td>${c.name}</td><td style="text-align:right">
-      <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteClass(${c.id})">DEL</button>
-    </td></tr>`).join('')}
+  el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th>ICON</th><th></th></tr></thead><tbody>
+    ${classes.map(c => `<tr>
+      <td>${c.name}</td>
+      <td>${RT.SHAPES[c.shape]?.(c.color, 18) || ''}</td>
+      <td style="text-align:right">
+        <button style="font-size:13px;padding:2px 8px" onclick="openClassModal(${c.id})">EDIT</button>
+        <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteClass(${c.id})">DEL</button>
+      </td>
+    </tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -578,11 +580,34 @@ async function deleteHeat(id) {
   await loadHeatsClasses();
 }
 
-async function addClass() {
-  const name = document.getElementById('new-class-name').value.trim();
-  if (!name) return;
-  const res = await RT.post(`/api/races/${selectedRaceId}/classes`, { name });
-  if (res.ok) { document.getElementById('new-class-name').value = ''; await loadHeatsClasses(); }
+function openClassModal(id) {
+  editingClassId = id || null;
+  const cls = id ? classes.find(c => c.id === id) : null;
+  document.getElementById('class-modal-title').textContent = id ? 'EDIT CLASS' : 'NEW CLASS';
+  document.getElementById('cm-name').value  = cls?.name || '';
+  document.getElementById('cm-color').value = cls?.color || '#58a6ff';
+  document.getElementById('cm-shape').value = cls?.shape || 'circle';
+  updateClassPreview();
+  document.getElementById('class-modal').classList.remove('hidden');
+}
+
+function updateClassPreview() {
+  const color = document.getElementById('cm-color').value;
+  const shape = document.getElementById('cm-shape').value;
+  const el = document.getElementById('cm-preview');
+  if (el) el.innerHTML = (RT.SHAPES[shape]?.(color, 24) || '') + `<span style="color:${color};font-size:16px">${shape}</span>`;
+}
+
+async function saveClass() {
+  const name  = document.getElementById('cm-name').value.trim();
+  const color = document.getElementById('cm-color').value;
+  const shape = document.getElementById('cm-shape').value;
+  if (!name) { RT.toast('Name required', 'warn'); return; }
+  const res = editingClassId
+    ? await RT.put(`/api/races/${selectedRaceId}/classes/${editingClassId}`, { name, color, shape })
+    : await RT.post(`/api/races/${selectedRaceId}/classes`, { name, color, shape });
+  if (res.ok) { closeModal('class-modal'); await loadHeatsClasses(); RT.toast('Class saved', 'ok'); }
+  else RT.toast(res.error, 'warn');
 }
 
 async function deleteClass(id) {
@@ -1075,8 +1100,8 @@ function renderParticipantsTab() {
     </div>
     <div id="pt-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:10px">
       <div style="font-size:14px;color:var(--text3);margin-bottom:6px">
-        <span style="color:var(--accent3)">Required columns:</span> <code>bib, name, tracker_id</code><br>
-        <span style="color:var(--text3)">Optional columns:</span> <code>heat, class, age, phone, emergency_contact</code><br>
+        <span style="color:var(--accent3)">Required columns:</span> <code>bib, name</code><br>
+        <span style="color:var(--text3)">Optional columns:</span> <code>tracker_id, heat, class, age, phone, emergency_contact</code><br>
         First row must be a header. Heat/class matched by name. Duplicate bibs are updated.
       </div>
       <div class="upload-zone" onclick="document.getElementById('pt-csv-input').click()" id="pt-csv-zone">
@@ -1341,7 +1366,6 @@ function ptCsvSelected(input) {
     const REQUIRED = [
       { label: 'bib',        match: h => h === 'bib' },
       { label: 'name',       match: h => h === 'name' },
-      { label: 'tracker_id', match: h => h === 'trackerid' || h === 'tracker' },
     ];
 
     const missing = REQUIRED.filter(r => !headers.some(r.match)).map(r => r.label);
@@ -2234,6 +2258,7 @@ document.addEventListener('keydown', e => {
 // Bind heat preview updates
 document.addEventListener('change', e => {
   if (e.target.id === 'hm-color' || e.target.id === 'hm-shape') updateHeatPreview();
+  if (e.target.id === 'cm-color' || e.target.id === 'cm-shape') updateClassPreview();
   if (e.target.id === 'rm-tnc-enabled') _updateCallsignRequired();
 });
 

@@ -19,13 +19,18 @@ router.get('/', requireAuth, (req, res) => {
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
-  const { name } = req.body;
+  const { name, color, shape } = req.body;
   if (!name) {
     return res.status(400).json({ ok: false, error: 'class name is required' });
   }
 
-  const result = db.prepare('INSERT INTO classes (race_id, name) VALUES (?, ?)').run(req.params.raceId, name);
-  const createdClass = { id: result.lastInsertRowid, race_id: req.params.raceId, name };
+  const result = db.prepare('INSERT INTO classes (race_id, name, color, shape) VALUES (?, ?, ?, ?)').run(
+    req.params.raceId,
+    name,
+    color || '#58a6ff',
+    shape || 'circle'
+  );
+  const createdClass = db.prepare('SELECT * FROM classes WHERE id = ?').get(result.lastInsertRowid);
   res.json({ ok: true, data: createdClass });
 });
 
@@ -36,8 +41,10 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
   }
 
   const name = req.body.name ?? existingClass.name;
-  db.prepare('UPDATE classes SET name = ? WHERE id = ?').run(name, existingClass.id);
-  res.json({ ok: true, data: { ...existingClass, name } });
+  const color = req.body.color ?? existingClass.color;
+  const shape = req.body.shape ?? existingClass.shape;
+  db.prepare('UPDATE classes SET name = ?, color = ?, shape = ? WHERE id = ?').run(name, color, shape, existingClass.id);
+  res.json({ ok: true, data: { ...existingClass, name, color, shape } });
 });
 
 router.delete('/:id', requireRole('admin'), (req, res) => {
