@@ -200,7 +200,13 @@ const KissTnc = (() => {
     _connected = true;
     _emit({ portInfo: _port.getInfo() });
 
-    // Async read loop — runs until port is closed or cancelled
+    // Async read loop — runs until the port is closed or physically disconnected.
+    // Per the Web Serial spec, break/framing/parity/overrun errors are non-fatal:
+    // they end the *current* stream, but the browser replaces port.readable with a
+    // fresh one so reading can continue. These are routine on noisy RF links, so we
+    // loop and grab a new reader rather than tearing the whole connection down —
+    // only a missing port.readable (real disconnect) or an unexpected error type
+    // triggers full cleanup.
     (async () => {
       try {
         _reader = _port.readable.getReader();
@@ -211,15 +217,35 @@ const KissTnc = (() => {
             console.debug('[kiss-tnc] rx bytes:', Array.from(value).map(b => b.toString(16).padStart(2, '0')).join(' '));
             _processBytes(value);
           }
+      let lastErr = null;
+      while (_port?.readable) {
+        lastErr = null;
+        try {
+          _reader = _port.readable.getReader();
+          while (true) {
+            const { value, done } = await _reader.read();
+            if (done) return await _cleanup(null); // explicit disconnect() cancelled us
+            if (value) _processBytes(value);
+          }
+        } catch (e) {
+          lastErr = e;
+          if (_isRecoverableSerialError(e)) {
+            console.warn('[kiss-tnc] recoverable serial error, continuing:', e.name);
+          } else {
+            break;
+          }
+        } finally {
+          try { _reader?.releaseLock(); } catch {}
+          _reader = null;
         }
-        await _cleanup(null);
-      } catch (e) {
-        // Framing/parity/overrun errors from the hardware, a disconnected
-        // device, or a locked stream all land here — always close the port
-        // so the next connect() attempt doesn't find it still held open.
-        await _cleanup(e);
       }
+      // port.readable is gone (device unplugged) or a non-recoverable error hit
+      await _cleanup(lastErr);
     })();
+  }
+
+  function _isRecoverableSerialError(e) {
+    return ['BufferOverrunError', 'FramingError', 'ParityError', 'BreakError'].includes(e?.name);
   }
 
   /** Close the serial port and clean up. */
