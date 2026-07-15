@@ -280,7 +280,7 @@ function _initTncButton() {
   btn.style.display = ''; // reveal for supported browsers
 
   let _tncWasConnected = false;
-  KissTnc.onStatus(({ connected, rxCount, txCount }) => {
+  KissTnc.onStatus(({ connected, rxCount, txCount, error }) => {
     tncConnected = connected;
     btn.textContent   = connected ? 'DISCONNECT TNC' : 'CONNECT TNC';
     btn.style.background  = connected ? 'rgba(63,185,80,.18)' : '';
@@ -295,6 +295,10 @@ function _initTncButton() {
     } else {
       pill.style.display = 'none';
       if (_tncWasConnected) RT.wsSend({ type: 'tnc_disconnect' });
+      // Read loop died on its own (hardware error, cable unplugged, etc.) —
+      // the button reverting with no explanation is what makes this look
+      // like a silent failure to the operator.
+      if (error) RT.toast(`TNC disconnected unexpectedly: ${error}`, 'warn');
     }
     _tncWasConnected = connected;
   });
