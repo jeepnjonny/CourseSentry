@@ -23,6 +23,11 @@ function httpGet(url) {
           const json = JSON.parse(data);
           if (res.statusCode < 200 || res.statusCode >= 300) {
             reject(new Error(json.message || json.title || `HTTP ${res.statusCode}`));
+          } else if (json.error) {
+            // ArcGIS returns HTTP 200 with an {error: {...}} body for bad requests
+            // (e.g. an unknown field name), so a missing `features` array must be
+            // treated as a real failure rather than "zero results".
+            reject(new Error(json.error.message || (json.error.details || []).join('; ') || `ArcGIS error ${json.error.code}`));
           } else {
             resolve(json);
           }
@@ -103,7 +108,7 @@ router.get('/perimeters', requireAuth, async (req, res) => {
     geometry: env,
     geometryType: 'esriGeometryEnvelope',
     spatialRel: 'esriSpatialRelIntersects',
-    outFields: 'IncidentName,GISAcres,PercentContained,CreateDate',
+    outFields: 'poly_IncidentName,poly_GISAcres,attr_PercentContained,poly_CreateDate',
     f: 'geojson',
     outSR: '4326',
   });
@@ -146,11 +151,11 @@ router.get('/hotspots', requireAuth, async (req, res) => {
     geometry: env,
     geometryType: 'esriGeometryEnvelope',
     spatialRel: 'esriSpatialRelIntersects',
-    outFields: 'LATITUDE,LONGITUDE,BRIGHTNESS,FRP,CONFIDENCE,ACQ_DATE',
+    outFields: 'latitude,longitude,bright_ti4,frp,confidence,acq_date',
     f: 'geojson',
     outSR: '4326',
   });
-  const url = `https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/FIRMS_VIIRS_NOAA_20_NRT/FeatureServer/0/query?${params}`;
+  const url = `https://services9.arcgis.com/RHVPKKiFTONKtxq3/arcgis/rest/services/Satellite_VIIRS_Thermal_Hotspots_and_Fire_Activity/FeatureServer/0/query?${params}`;
 
   try {
     const data = await httpGet(url);
