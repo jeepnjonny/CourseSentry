@@ -437,11 +437,11 @@ async function loadWildfireData() {
       style: () => ({ color:'#cc3300', weight:2, opacity:0.9, fillColor:'#ff4500', fillOpacity:0.25 }),
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
-        const name = p.IncidentName || 'Unknown Fire';
+        const name = p.poly_IncidentName || 'Unknown Fire';
         const parts = [
-          p.GISAcres         != null ? Math.round(p.GISAcres).toLocaleString() + ' acres' : '',
-          p.PercentContained != null ? p.PercentContained + '% contained'                 : '',
-          p.CreateDate               ? new Date(p.CreateDate).toLocaleDateString()         : '',
+          p.poly_GISAcres         != null ? Math.round(p.poly_GISAcres).toLocaleString() + ' acres' : '',
+          p.attr_PercentContained != null ? p.attr_PercentContained + '% contained'                 : '',
+          p.poly_CreateDate               ? new Date(p.poly_CreateDate).toLocaleDateString()         : '',
         ].filter(Boolean).join(' · ');
         layer.bindTooltip(
           `<strong>${name}</strong>${parts ? '<br>' + parts : ''}`,
@@ -454,17 +454,17 @@ async function loadWildfireData() {
   if (hotRes.ok && hotRes.data?.features?.length) {
     wildfireHotspotLayer = L.geoJSON(hotRes.data, {
       pointToLayer: (feature, latlng) => {
-        const frp = feature.properties?.FRP || 0;
+        const frp = feature.properties?.frp || 0;
         const r   = Math.min(10, Math.max(4, 4 + frp / 20));
         return L.circleMarker(latlng, { radius:r, color:'#ff4400', weight:1, fillColor:'#ffaa00', fillOpacity:0.85 });
       },
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
         const parts = [
-          p.FRP        != null ? `FRP: ${p.FRP} MW`                    : '',
-          p.BRIGHTNESS != null ? `Brightness: ${Math.round(p.BRIGHTNESS)} K` : '',
-          p.CONFIDENCE != null ? `Conf: ${p.CONFIDENCE}%`              : '',
-          p.ACQ_DATE   || '',
+          p.frp        != null ? `FRP: ${p.frp} MW`                    : '',
+          p.bright_ti4 != null ? `Brightness: ${Math.round(p.bright_ti4)} K` : '',
+          p.confidence         ? `Conf: ${p.confidence}`              : '',
+          p.acq_date           ? new Date(p.acq_date).toLocaleDateString() : '',
         ].filter(Boolean).join(' · ');
         layer.bindTooltip(
           `<strong>Hotspot</strong>${parts ? '<br>' + parts : ''}`,
@@ -482,6 +482,7 @@ function _addWildfireLayersToControl() {
   if (wildfirePerimeterLayer) weatherLayersControl.addOverlay(wildfirePerimeterLayer, '&#128293; Fire Perimeters');
   if (wildfireHotspotLayer)   weatherLayersControl.addOverlay(wildfireHotspotLayer,   '&#128293; Hotspots');
   wildfireLayersAdded = !!(wildfirePerimeterLayer || wildfireHotspotLayer);
+  _syncLayersControlVisibility();
 }
 
 // ── Map ───────────────────────────────────────────────────────────────────────
@@ -559,11 +560,22 @@ async function setupWeatherLayers(key) {
   }
   weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
   _makeLayersControlClickToggle(weatherLayersControl);
+  _syncLayersControlVisibility();
   weatherLegendControl = createWeatherLegendControl();
   weatherLegendControl.addTo(leafletMap);
   wildfireLayersAdded = false;
   _addWildfireLayersToControl();
   wxSetupInProgress = false;
+}
+
+// Hides the layer-selector icon entirely when it has nothing to show (no weather API
+// key configured and no wildfire data for this race), instead of leaving a clickable
+// but empty box in the map's corner.
+function _syncLayersControlVisibility() {
+  if (!weatherLayersControl) return;
+  const container = weatherLayersControl.getContainer();
+  if (!container) return;
+  container.style.display = weatherLayersControl._layers.length > 0 ? '' : 'none';
 }
 
 // Leaflet's default layers control expands/collapses on mouseenter/mouseleave, which
