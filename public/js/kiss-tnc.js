@@ -190,10 +190,12 @@ const KissTnc = (() => {
 
     _port = await navigator.serial.requestPort();
     await _port.open({ baudRate: baud });
-    // Explicitly hold DTR low — some USB-UART drivers assert DTR by default
-    // on open, which on boards like the Heltec V3 toggles the boot-mode pin
-    // and drops the device into WiFi AP/config mode instead of KISS mode.
-    try { await _port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch {}
+    // Hold DTR high / RTS low right after open. On CP210x/CH9102-style
+    // USB-UART bridges (used on the Heltec V3) this keeps EN in its
+    // run/active state; leaving DTR to toggle (or forcing it low) pulses
+    // the auto-reset circuit and either reboots the board or drops it into
+    // WiFi AP/config mode instead of KISS mode.
+    try { await _port.setSignals({ dataTerminalReady: true, requestToSend: false }); } catch {}
     _writer = _port.writable.getWriter();
     _connected = true;
     _emit({ portInfo: _port.getInfo() });
