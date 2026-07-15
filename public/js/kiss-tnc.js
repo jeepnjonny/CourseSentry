@@ -192,12 +192,19 @@ const KissTnc = (() => {
 
     _port = await navigator.serial.requestPort();
     await _port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
-    // Hold DTR high / RTS low right after open. On CP210x/CH9102-style
-    // USB-UART bridges (used on the Heltec V3) this keeps EN in its
-    // run/active state; leaving DTR to toggle (or forcing it low) pulses
-    // the auto-reset circuit and either reboots the board or drops it into
-    // WiFi AP/config mode instead of KISS mode.
-    try { await _port.setSignals({ dataTerminalReady: true, requestToSend: false }); } catch {}
+    // Deassert DTR only — and deliberately leave RTS untouched. On the
+    // standard ESP32 auto-program circuit (Heltec V3 included), RTS maps
+    // to EN (reset) and DTR maps to GPIO0 (boot-select) through a
+    // capacitor-coupled auto-reset circuit: ANY change to RTS fires a
+    // reset pulse, and if DTR is asserted at that instant the chip latches
+    // into the ROM download bootloader instead of booting the app (seen
+    // as the device going silent/blank with an esptool banner on the
+    // wire). Since open() never triggers that reset on its own, setting
+    // requestToSend here at all — to any value — is what causes it.
+    // DTR still needs to go low: left high, it holds GPIO0 low the whole
+    // session, which Heltec's firmware misreads as the PRG button being
+    // held and drops it into WiFi AP/config mode.
+    try { await _port.setSignals({ dataTerminalReady: false }); } catch {}
     _writer = _port.writable.getWriter();
     _connected = true;
     _emit({ portInfo: _port.getInfo() });
