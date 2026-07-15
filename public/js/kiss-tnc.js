@@ -192,23 +192,13 @@ const KissTnc = (() => {
 
     _port = await navigator.serial.requestPort();
     await _port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
-    // On the standard ESP32 auto-program circuit (Heltec V3 included),
-    // RTS maps to EN (reset) and DTR maps to GPIO0 (boot-select). Leaving
-    // RTS completely untouched turned out worse than expected: Windows'
-    // VCP driver apparently defaults RTS to asserted on open regardless of
-    // what our JS does, which holds EN low and the chip in permanent
-    // reset (silent connection, no data, no bootloader banner either).
-    // So both signals need to be explicitly cleared — but DTR *must* be
-    // deasserted first, as a separate awaited call, before RTS is
-    // touched. If DTR is still high at the instant RTS releases EN,
-    // GPIO0 gets latched low and the chip boots into the ROM download
-    // bootloader instead of the app (that's what the esptool-banner
-    // failure mode was). With DTR already low, releasing RTS afterward
-    // is a normal boot into application firmware.
-    try {
-      await _port.setSignals({ dataTerminalReady: false });
-      await _port.setSignals({ requestToSend: false });
-    } catch {}
+    // Matches the signal state used by the companion LoRa_FieldOps_APRS_Tracker
+    // project's serial_config.html, confirmed working against this same
+    // Heltec V3.2 hardware. Connecting normally reboots the device — that's
+    // expected, not a failure — so the boot-time console banner (including
+    // ESP-ROM output) showing up on the wire right after connect is routine;
+    // give it several seconds to finish booting before assuming it's stuck.
+    try { await _port.setSignals({ dataTerminalReady: true, requestToSend: false }); } catch {}
     _writer = _port.writable.getWriter();
     _connected = true;
     _emit({ portInfo: _port.getInfo() });
