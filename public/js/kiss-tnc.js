@@ -208,6 +208,15 @@ const KissTnc = (() => {
     // only a missing port.readable (real disconnect) or an unexpected error type
     // triggers full cleanup.
     (async () => {
+      try {
+        _reader = _port.readable.getReader();
+        while (true) {
+          const { value, done } = await _reader.read();
+          if (done) break;
+          if (value) {
+            console.debug('[kiss-tnc] rx bytes:', Array.from(value).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            _processBytes(value);
+          }
       let lastErr = null;
       while (_port?.readable) {
         lastErr = null;
