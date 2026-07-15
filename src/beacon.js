@@ -35,7 +35,7 @@ function sendBeacons() {
   mqttClient.setGatewayNodeId(nodeId);
 
   for (const race of races) {
-    const name = (race.tactical_callsign || 'Net Control').trim();
+    const name = (race.tactical_callsign || 'NETCTL').trim();
     const station = getNetControlStation(race.id);
 
     // Send beacon via APRS-IS if connected
