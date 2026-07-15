@@ -323,7 +323,7 @@ async function toggleTnc() {
     await KissTnc.disconnect();
   } else {
     try {
-      await KissTnc.connect(9600);
+      await KissTnc.connect(115200);
     } catch (e) {
       if (e.name !== 'NotFoundError') RT.toast(`TNC connect failed: ${e.message}`, 'warn');
     }
