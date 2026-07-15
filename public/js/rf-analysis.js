@@ -3,6 +3,7 @@ const RF = (() => {
 
 // ── State ──────────────────────────────────────────────────────────────────────
 let leafletMap = null;
+let currentBaseLayer = null;
 let cellLayers      = {};   // src → L.layerGroup (grid squares)
 let routeLayer      = null;
 let stationLayer    = null;
@@ -24,7 +25,7 @@ let stationMatrixData = null;  // fetched lazily on STNS tab, reset on race chan
 let activeSources   = new Set();
 let metric          = 'density';   // 'density' | 'snr' | 'rssi'
 let heatOpacity     = 0.70;
-let gridSizeM       = 250;  // grid cell edge in meters
+let gridSizeM       = 50;   // grid cell edge in meters
 let rightTab        = 'stats';
 let timeWindowMode  = 'race';      // 'race' | 'all'
 let raceWindowStart = null;        // computed unix ts
@@ -33,15 +34,34 @@ let showCoverage    = false;
 let showGaps        = false;
 let gapMinutes      = 5;
 
+// Replay: scrubs/animates through the current time window by capping
+// filteredPositions() at a cursor timestamp. Bounds track raceWindowStart/End
+// (or all-data min/max) and reset whenever the race or time-window mode changes.
+let replayStart   = null;  // unix ts — slider min
+let replayEnd     = null;  // unix ts — slider max
+let replayCursor  = null;  // unix ts — current scrub position (null = no data loaded)
+let replaySpeed   = 60;    // simulated seconds per real second
+let replayTimer   = null;
+const REPLAY_TICK_MS = 300;
+
 // Source metadata
 const SOURCE_META = {
-  meshtastic: { color: '#58a6ff', label: 'Meshtastic', freq: '915 MHz LoRa' },
-  aprs:       { color: '#3fb950', label: 'APRS',        freq: '144.390 MHz'  },
-  lora_aprs:  { color: '#d2a679', label: 'LoRa APRS',   freq: '915 MHz LoRa' },
+  meshtastic: { color: '#58a6ff', label: 'MQTT/Meshtastic' },
+  aprs:       { color: '#3fb950', label: 'APRS' },
+  inreach:    { color: '#d2a679', label: 'InReach' },
+  spot:       { color: '#f78166', label: 'Spot' },
 };
 function srcMeta(src) {
-  return SOURCE_META[src] || { color: '#8b949e', label: src, freq: '' };
+  return SOURCE_META[src] || { color: '#8b949e', label: src };
 }
+
+// Basemap tile sources — mirrors operator/viewer's BASE_LAYERS
+const BASE_LAYERS = {
+  topo:      { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
+  satellite: { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
+  osm:       { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', opts: { maxZoom: 19, attribution: '© OSM' } },
+  dark:      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', opts: { subdomains: 'abcd', maxZoom: 19, attribution: '© CartoDB' } },
+};
 
 // Signal quality gradient: weak (red) → strong (blue) — industry standard
 const SIGNAL_GRADIENT = { 0.0: '#f85149', 0.35: '#ffa657', 0.55: '#fafa00', 0.75: '#3fb950', 1.0: '#58a6ff' };
@@ -369,11 +389,24 @@ async function init() {
 
 // ── Map ────────────────────────────────────────────────────────────────────────
 function initMap() {
-  leafletMap = L.map('map', { zoomControl: true, maxZoom: 18 });
-  L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS',
-  }).addTo(leafletMap);
+  leafletMap = L.map('map', { zoomControl: true, maxZoom: BASE_LAYERS.topo.opts.maxZoom });
+  setBaseLayer('topo');
   leafletMap.setView([39.5, -98.5], 5);
+}
+
+// Swap the active tile layer and cap map zoom at that layer's own native max,
+// so users can't zoom past the resolution the tile source actually provides.
+function setBaseLayer(name) {
+  const cfg = BASE_LAYERS[name] || BASE_LAYERS.topo;
+  if (currentBaseLayer) leafletMap.removeLayer(currentBaseLayer);
+  currentBaseLayer = L.tileLayer(cfg.url, cfg.opts).addTo(leafletMap);
+  leafletMap.setMaxZoom(cfg.opts.maxZoom);
+  // setMaxZoom() alone doesn't reliably pull an already-over-zoomed view back
+  // down, so re-clamp explicitly. animate:false — an animated multi-level
+  // zoom jump can silently fail to complete with many vector layers on screen.
+  if (leafletMap.getZoom() > cfg.opts.maxZoom) leafletMap.setZoom(cfg.opts.maxZoom, { animate: false });
+  const sel = document.getElementById('base-layer-sel');
+  if (sel) sel.value = name;
 }
 
 // ── Race selection ─────────────────────────────────────────────────────────────
@@ -409,6 +442,7 @@ async function selectRace(raceId) {
 
   // Compute race time bounds before any rendering
   computeRaceBounds();
+  resetReplay();
 
   // Build active sources from data
   const foundSources = new Set(allPositions.map(p => p.rf_source || 'meshtastic'));
@@ -481,6 +515,7 @@ function computeRaceBounds() {
 function setTimeWindow(val) {
   timeWindowMode = val;
   segmentData = null; // recompute segments with new time window
+  resetReplay();
   renderGrid();
   renderCoveragePolygons();
   renderRawTable();
@@ -513,14 +548,128 @@ function updateTimeWindowInfo() {
   countEl.textContent = `${visible.length.toLocaleString()} of ${allPositions.length.toLocaleString()} packets`;
 }
 
-// Returns positions filtered by active sources AND time window
+// Returns positions filtered by active sources, time window, AND replay cursor
 function filteredPositions() {
   let pts = allPositions.filter(p => activeSources.has(p.rf_source || 'meshtastic'));
   if (timeWindowMode === 'race' && raceWindowStart != null) {
     const endTs = raceWindowEnd ?? Math.floor(Date.now() / 1000);
     pts = pts.filter(p => p.timestamp >= raceWindowStart && p.timestamp <= endTs);
   }
+  if (replayCursor != null) {
+    pts = pts.filter(p => p.timestamp <= replayCursor);
+  }
   return pts;
+}
+
+// ── Replay (time slider + play/pause) ──────────────────────────────────────────
+function computeReplayBounds() {
+  if (!allPositions.length) return { start: null, end: null };
+  if (timeWindowMode === 'race' && raceWindowStart != null) {
+    return { start: raceWindowStart, end: raceWindowEnd ?? Math.floor(Date.now() / 1000) };
+  }
+  const posMin = Math.min(...allPositions.map(p => p.timestamp));
+  const posMax = Math.max(...allPositions.map(p => p.timestamp));
+  return { start: posMin, end: posMax };
+}
+
+// Re-derives replay bounds and snaps the cursor to the end (= show all data),
+// matching the pre-replay default view. Call whenever the race or time-window
+// mode changes.
+function resetReplay() {
+  pauseReplay();
+  const { start, end } = computeReplayBounds();
+  replayStart  = start;
+  replayEnd    = end;
+  replayCursor = end;
+  renderReplayControls();
+}
+
+function renderReplayControls() {
+  const slider = document.getElementById('replay-slider');
+  const btn    = document.getElementById('replay-play-btn');
+  if (!slider) return;
+
+  const hasRange = replayStart != null && replayEnd != null && replayEnd > replayStart;
+  slider.disabled = !hasRange;
+  if (btn) btn.disabled = !hasRange;
+
+  if (!hasRange) {
+    slider.min = 0; slider.max = 1; slider.value = 1;
+    document.getElementById('replay-label').textContent = '';
+    return;
+  }
+
+  slider.min   = replayStart;
+  slider.max   = replayEnd;
+  slider.step  = 10;
+  slider.value = replayCursor;
+  updateReplayLabel();
+}
+
+function updateReplayLabel() {
+  const label = document.getElementById('replay-label');
+  if (!label) return;
+  if (replayStart == null) { label.textContent = ''; return; }
+
+  const fmt    = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const fmtDur = s => {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h}h ${m}m` : `${m}m`;
+  };
+  const elapsed = Math.max(0, replayCursor - replayStart);
+  const total   = Math.max(0, replayEnd - replayStart);
+  label.textContent = `${fmt(replayCursor)} — ${fmtDur(elapsed)} of ${fmtDur(total)}`;
+}
+
+function updatePlayButton() {
+  const btn = document.getElementById('replay-play-btn');
+  if (btn) btn.textContent = replayTimer ? '⏸' : '▶';
+}
+
+// Re-renders everything that depends on the replay-filtered position set.
+// Mirrors toggleSource()'s conditional-by-tab pattern to keep animated
+// playback cheap (raw table / segment grid only recompute when visible).
+function onReplayChange() {
+  renderGrid();
+  renderCoveragePolygons();
+  updateTimeWindowInfo();
+  updateReplayLabel();
+  if (showGaps) renderGapLines();
+  if (rightTab === 'raw')   renderRawTable();
+  if (rightTab === 'stats') renderStats();
+  if (rightTab === 'segs')  { segmentData = null; renderSegmentGrid(); }
+}
+
+function playReplay() {
+  if (replayTimer || replayStart == null) return;
+  if (replayCursor >= replayEnd) replayCursor = replayStart; // restart from beginning if at end
+  replayTimer = setInterval(() => {
+    replayCursor = Math.min(replayEnd, replayCursor + replaySpeed * (REPLAY_TICK_MS / 1000));
+    const slider = document.getElementById('replay-slider');
+    if (slider) slider.value = replayCursor;
+    onReplayChange();
+    if (replayCursor >= replayEnd) pauseReplay();
+  }, REPLAY_TICK_MS);
+  updatePlayButton();
+}
+
+function pauseReplay() {
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  updatePlayButton();
+}
+
+function toggleReplayPlay() {
+  if (replayTimer) pauseReplay(); else playReplay();
+}
+
+function scrubReplay(val) {
+  pauseReplay();
+  replayCursor = parseInt(val);
+  onReplayChange();
+}
+
+function setReplaySpeed(val) {
+  replaySpeed = parseInt(val);
 }
 
 // ── Source toggle list ─────────────────────────────────────────────────────────
@@ -537,10 +686,7 @@ function renderSourceList(foundSources) {
       <div class="src-row">
         <input type="checkbox" id="chk-${src}" checked onchange="RF.toggleSource('${src}', this.checked)">
         <span class="src-dot" style="background:${m.color}"></span>
-        <label class="src-label" for="chk-${src}">
-          <div style="font-size:14px">${m.label}</div>
-          <div style="font-size:12px;color:var(--text3)">${m.freq}</div>
-        </label>
+        <label class="src-label" for="chk-${src}" style="font-size:14px">${m.label}</label>
         <span class="src-count">${(s.count || 0).toLocaleString()}</span>
       </div>`;
   }).join('');
@@ -814,9 +960,15 @@ function buildGridCells(source) {
   }));
 }
 
+// Shared canvas renderer for all grid cells — reusing one avoids Leaflet
+// registering a separate canvas layer per rectangle, which gets expensive
+// fast at small cell sizes (thousands of cells for a busy race).
+let gridRenderer = null;
+
 function renderGrid() {
   for (const lg of Object.values(cellLayers)) leafletMap.removeLayer(lg);
   cellLayers = {};
+  if (!gridRenderer) gridRenderer = L.canvas();
 
   let totalCells = 0;
   for (const source of activeSources) {
@@ -848,7 +1000,7 @@ function renderGrid() {
           opacity:     0.5,
           fillColor,
           fillOpacity: fillOpacity * heatOpacity,
-          renderer:    L.canvas(),
+          renderer:    gridRenderer,
         }
       ).bindTooltip(tip);
     });
@@ -968,5 +1120,6 @@ init();
 
 return { selectRace, toggleSource, setMetric, setOpacity, setGridSize,
          clearData, switchTab, setTimeWindow, toggleCoverage,
-         toggleGaps, setGapMin };
+         toggleGaps, setGapMin, setBaseLayer,
+         toggleReplayPlay, scrubReplay, setReplaySpeed };
 })();
