@@ -207,7 +207,10 @@ const KissTnc = (() => {
         while (true) {
           const { value, done } = await _reader.read();
           if (done) break;
-          if (value) _processBytes(value);
+          if (value) {
+            console.debug('[kiss-tnc] rx bytes:', Array.from(value).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            _processBytes(value);
+          }
         }
         await _cleanup(null);
       } catch (e) {
