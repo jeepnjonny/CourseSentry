@@ -12,7 +12,7 @@
  * Usage:
  *   KissTnc.onFrame(({ from, to, via, text }) => { ... });
  *   KissTnc.onStatus(({ connected, rxCount, txCount, portInfo }) => { ... });
- *   await KissTnc.connect(9600);
+ *   await KissTnc.connect(115200);
  *   await KissTnc.transmit({ from, to, via, text });
  *   await KissTnc.disconnect();
  */
@@ -182,14 +182,16 @@ const KissTnc = (() => {
 
   /**
    * Open WebSerial port picker and connect.
-   * @param {number} [baud=9600] - Serial baud rate (1200 for RF, 9600 for most TNCs)
+   * @param {number} [baud=115200] - Serial baud rate. 115200 matches the USB-CDC
+   *   default most ESP32-based KISS TNCs (e.g. Heltec V3) use for their host link;
+   *   this is independent of the 1200 baud AFSK rate used over RF.
    */
-  async function connect(baud = 9600) {
+  async function connect(baud = 115200) {
     if (!isSupported()) throw new Error('WebSerial is not supported in this browser');
     if (_connected) await disconnect();
 
     _port = await navigator.serial.requestPort();
-    await _port.open({ baudRate: baud });
+    await _port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
     // Hold DTR high / RTS low right after open. On CP210x/CH9102-style
     // USB-UART bridges (used on the Heltec V3) this keeps EN in its
     // run/active state; leaving DTR to toggle (or forcing it low) pulses
