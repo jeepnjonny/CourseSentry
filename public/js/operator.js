@@ -558,11 +558,27 @@ async function setupWeatherLayers(key) {
     );
   }
   weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
+  _makeLayersControlClickToggle(weatherLayersControl);
   weatherLegendControl = createWeatherLegendControl();
   weatherLegendControl.addTo(leafletMap);
   wildfireLayersAdded = false;
   _addWildfireLayersToControl();
   wxSetupInProgress = false;
+}
+
+// Leaflet's default layers control expands/collapses on mouseenter/mouseleave, which
+// flickers rapidly when the cursor hovers right at the edge of the icon (it sits in the
+// map's bottom-left corner). Swap it for click-to-toggle instead.
+function _makeLayersControlClickToggle(control) {
+  const container = control.getContainer();
+  const link = container.querySelector('.leaflet-control-layers-toggle');
+  L.DomEvent.off(container, 'mouseenter mouseleave');
+  L.DomEvent.off(link, 'click');
+  L.DomEvent.on(link, 'click', (e) => {
+    L.DomEvent.preventDefault(e);
+    if (container.classList.contains('leaflet-control-layers-expanded')) control.collapse();
+    else control.expand();
+  });
 }
 
 function createWeatherLegendControl() {
