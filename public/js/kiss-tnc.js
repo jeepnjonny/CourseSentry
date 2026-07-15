@@ -36,10 +36,29 @@ const KissTnc = (() => {
   let _rxCount   = 0;
   let _txCount   = 0;
   let _connected = false;
+  let _closing   = false; // re-entrancy guard: read-loop failure and explicit disconnect() can race
 
   // ── Status emission ─────────────────────────────────────────────────────────
   function _emit(extra = {}) {
     _onStatus?.({ connected: _connected, rxCount: _rxCount, txCount: _txCount, ...extra });
+  }
+
+  // ── Teardown ─────────────────────────────────────────────────────────────────
+  // Always releases the OS-level port handle, whether triggered by the user
+  // (disconnect) or by the read loop dying unexpectedly (hardware error,
+  // device unplugged). Leaving _port set without closing it is what causes
+  // "port already in use" on the next connect attempt.
+  async function _cleanup(err) {
+    if (_closing) return;
+    _closing = true;
+    try { await _reader?.cancel(); } catch {}
+    try { _writer?.releaseLock(); }  catch {}
+    try { await _port?.close(); }    catch {}
+    _port = null; _reader = null; _writer = null;
+    _connected = false;
+    _rxCount = 0; _txCount = 0;
+    _closing = false;
+    _emit(err ? { error: err.message || String(err) } : {});
   }
 
   // ── KISS RX state machine ───────────────────────────────────────────────────
@@ -177,30 +196,26 @@ const KissTnc = (() => {
 
     // Async read loop — runs until port is closed or cancelled
     (async () => {
-      _reader = _port.readable.getReader();
       try {
+        _reader = _port.readable.getReader();
         while (true) {
           const { value, done } = await _reader.read();
           if (done) break;
           if (value) _processBytes(value);
         }
-      } catch { /* port closed or cancelled */ } finally {
-        _reader = null;
-        _connected = false;
-        _emit();
+        await _cleanup(null);
+      } catch (e) {
+        // Framing/parity/overrun errors from the hardware, a disconnected
+        // device, or a locked stream all land here — always close the port
+        // so the next connect() attempt doesn't find it still held open.
+        await _cleanup(e);
       }
     })();
   }
 
   /** Close the serial port and clean up. */
   async function disconnect() {
-    try { await _reader?.cancel(); }  catch {}
-    try { _writer?.releaseLock(); }   catch {}
-    try { await _port?.close(); }     catch {}
-    _port = null; _reader = null; _writer = null;
-    _connected = false;
-    _rxCount = 0; _txCount = 0;
-    _emit();
+    await _cleanup(null);
   }
 
   /**
