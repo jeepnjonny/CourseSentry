@@ -9,7 +9,10 @@ let showNametags = false, showPersonnelMarkers = true;
 let infraNodes = [], infraLayer = null, showInfraMarkers = true;
 let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
 let wildfirePerimeterLayer = null, wildfireHotspotLayer = null;
-let wildfireLayersAdded = false;
+// Tracks which layer objects are currently represented as overlay entries in
+// weatherLayersControl, so stale entries can be removed before re-adding
+// (Leaflet's addOverlay() doesn't dedupe by name).
+let wildfirePerimeterInControl = null, wildfireHotspotInControl = null;
 let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
@@ -430,7 +433,6 @@ async function loadWildfireData() {
 
   if (wildfirePerimeterLayer) { leafletMap.removeLayer(wildfirePerimeterLayer); wildfirePerimeterLayer = null; }
   if (wildfireHotspotLayer)   { leafletMap.removeLayer(wildfireHotspotLayer);   wildfireHotspotLayer   = null; }
-  wildfireLayersAdded = false;
 
   if (permRes.ok && permRes.data?.features?.length) {
     wildfirePerimeterLayer = L.geoJSON(permRes.data, {
@@ -478,10 +480,23 @@ async function loadWildfireData() {
 }
 
 function _addWildfireLayersToControl() {
-  if (!weatherLayersControl || wildfireLayersAdded) return;
-  if (wildfirePerimeterLayer) weatherLayersControl.addOverlay(wildfirePerimeterLayer, '&#128293; Fire Perimeters');
-  if (wildfireHotspotLayer)   weatherLayersControl.addOverlay(wildfireHotspotLayer,   '&#128293; Hotspots');
-  wildfireLayersAdded = !!(wildfirePerimeterLayer || wildfireHotspotLayer);
+  if (!weatherLayersControl) return;
+  if (wildfirePerimeterInControl && wildfirePerimeterInControl !== wildfirePerimeterLayer) {
+    weatherLayersControl.removeLayer(wildfirePerimeterInControl);
+    wildfirePerimeterInControl = null;
+  }
+  if (wildfireHotspotInControl && wildfireHotspotInControl !== wildfireHotspotLayer) {
+    weatherLayersControl.removeLayer(wildfireHotspotInControl);
+    wildfireHotspotInControl = null;
+  }
+  if (wildfirePerimeterLayer && wildfirePerimeterInControl !== wildfirePerimeterLayer) {
+    weatherLayersControl.addOverlay(wildfirePerimeterLayer, '&#128293; Fire Perimeters');
+    wildfirePerimeterInControl = wildfirePerimeterLayer;
+  }
+  if (wildfireHotspotLayer && wildfireHotspotInControl !== wildfireHotspotLayer) {
+    weatherLayersControl.addOverlay(wildfireHotspotLayer, '&#128293; Hotspots');
+    wildfireHotspotInControl = wildfireHotspotLayer;
+  }
   _syncLayersControlVisibility();
 }
 
@@ -537,6 +552,10 @@ async function setupWeatherLayers(key) {
   owmKey = key;
   if (weatherLayersControl) { leafletMap.removeControl(weatherLayersControl); weatherLayersControl = null; }
   if (weatherLegendControl) { leafletMap.removeControl(weatherLegendControl); weatherLegendControl = null; }
+  // The old control (and its overlay entries) is gone; wildfire layers need to be
+  // re-added to whatever control we create below.
+  wildfirePerimeterInControl = null;
+  wildfireHotspotInControl = null;
   activeWeatherOverlays.clear();
 
   const overlays = {};
@@ -563,7 +582,6 @@ async function setupWeatherLayers(key) {
   _syncLayersControlVisibility();
   weatherLegendControl = createWeatherLegendControl();
   weatherLegendControl.addTo(leafletMap);
-  wildfireLayersAdded = false;
   _addWildfireLayersToControl();
   wxSetupInProgress = false;
 }
