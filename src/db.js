@@ -434,7 +434,10 @@ try { db.prepare("ALTER TABLE users ADD COLUMN shape TEXT DEFAULT 'triangle'").r
 try { db.prepare('ALTER TABLE personnel ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL').run(); } catch {}
 try { db.prepare('CREATE INDEX IF NOT EXISTS idx_personnel_user ON personnel(user_id)').run(); } catch {}
 try { db.prepare("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'enroute'").run(); } catch {}
-try { db.prepare("ALTER TABLE races ADD COLUMN tactical_callsign TEXT NOT NULL DEFAULT 'Net Control'").run(); } catch {}
+try { db.prepare("ALTER TABLE races ADD COLUMN tactical_callsign TEXT NOT NULL DEFAULT 'NETCTL'").run(); } catch {}
+// ALTER TABLE can't change an existing column's default, so migrate rows still
+// on the old 'Net Control' default explicitly.
+try { db.prepare("UPDATE races SET tactical_callsign='NETCTL' WHERE tactical_callsign='Net Control'").run(); } catch {}
 try { db.prepare('ALTER TABLE races ADD COLUMN viewer_show_names INTEGER NOT NULL DEFAULT 1').run(); } catch {}
 try { db.prepare("ALTER TABLE personnel ADD COLUMN color TEXT NOT NULL DEFAULT '#f5a623'").run(); } catch {}
 try { db.prepare("ALTER TABLE personnel ADD COLUMN shape TEXT NOT NULL DEFAULT 'triangle'").run(); } catch {}

@@ -204,7 +204,27 @@ router.post('/', requireRole('admin'), (req, res) => {
     return res.status(400).json({ ok: false, error: 'name and date required' });
   }
 
-  const result = db.prepare('INSERT INTO races (name, date) VALUES (?, ?)').run(name, date);
+  const updates = { name, date };
+  for (const field of RACE_FIELDS) {
+    if (field === 'name' || field === 'date') continue;
+    if (req.body[field] !== undefined) {
+      updates[field] = req.body[field];
+    }
+  }
+
+  if (updates.tactical_callsign !== undefined) {
+    const call = String(updates.tactical_callsign || '').toUpperCase().trim();
+    if (call && !/^[A-Z0-9]{1,6}(-[0-9]{1,2})?$/.test(call)) {
+      return res.status(400).json({ ok: false, error: 'Race callsign must be 1–6 alphanumeric characters with optional -SSID (e.g. NETCTL or W1AW-5). No spaces.' });
+    }
+    updates.tactical_callsign = call || null;
+  }
+
+  const columns = Object.keys(updates);
+  const placeholders = columns.map(() => '?').join(', ');
+  const result = db.prepare(
+    `INSERT INTO races (${columns.join(', ')}) VALUES (${placeholders})`
+  ).run(...Object.values(updates));
   applyDerivedFields(result.lastInsertRowid);
 
   const race = db.prepare('SELECT * FROM races WHERE id = ?').get(result.lastInsertRowid);
