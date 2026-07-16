@@ -2001,7 +2001,9 @@ function renderSettingsTab() {
         <label>PROTOCOL</label>
         <select id="s-mqtt-protocol" onchange="updateMqttPortDefault()">
           <option value="tcp">TCP (mqtt://)</option>
+          <option value="mqtts">TCP + SSL/TLS (mqtts://)</option>
           <option value="ws">WebSocket (ws://)</option>
+          <option value="wss">WebSocket + SSL/TLS (wss://)</option>
         </select>
       </div>
       <div class="form-group"><label>PORT</label><input id="s-mqtt-port" type="number" value="1883"></div>
@@ -2009,6 +2011,13 @@ function renderSettingsTab() {
     <div class="form-row">
       <div class="form-group"><label>USERNAME</label><input id="s-mqtt-user" placeholder="racetracker"></div>
       <div class="form-group"><label>PASSWORD</label><input id="s-mqtt-pass" type="password" autocomplete="new-password"></div>
+    </div>
+    <div class="form-row" id="s-mqtt-tls-row" style="display:none">
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal">
+          <input type="checkbox" id="s-mqtt-tls-insecure"> Allow self-signed / untrusted broker certificate
+        </label>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>REGION</label><input id="s-mqtt-region" placeholder="US"></div>
@@ -2090,13 +2099,20 @@ function renderSettingsTab() {
   `;
 }
 
+const MQTT_DEFAULT_PORTS = { tcp: 1883, mqtts: 8883, ws: 9001, wss: 8084 };
+
 function updateMqttPortDefault() {
   const proto = document.getElementById('s-mqtt-protocol')?.value;
   const portEl = document.getElementById('s-mqtt-port');
   if (!portEl) return;
   const cur = parseInt(portEl.value);
-  if (proto === 'ws' && (cur === 1883 || !cur)) portEl.value = '9001';
-  else if (proto === 'tcp' && (cur === 9001 || !cur)) portEl.value = '1883';
+  // Only auto-switch the port if it still matches one of the known defaults —
+  // leaves a custom port the user typed in alone.
+  if (!cur || Object.values(MQTT_DEFAULT_PORTS).includes(cur)) {
+    portEl.value = MQTT_DEFAULT_PORTS[proto] || 1883;
+  }
+  const tlsRow = document.getElementById('s-mqtt-tls-row');
+  if (tlsRow) tlsRow.style.display = (proto === 'mqtts' || proto === 'wss') ? '' : 'none';
 }
 
 async function bindSettingsTab() {
@@ -2107,12 +2123,14 @@ async function bindSettingsTab() {
   document.getElementById('s-mqtt-enabled').checked    = s.mqtt_enabled !== '0';
   document.getElementById('s-mqtt-host').value         = s.mqtt_host || '';
   document.getElementById('s-mqtt-protocol').value     = s.mqtt_protocol || 'tcp';
-  document.getElementById('s-mqtt-port').value         = s.mqtt_port || s.mqtt_port_ws || (s.mqtt_protocol === 'ws' ? '9001' : '1883');
+  document.getElementById('s-mqtt-port').value         = s.mqtt_port || s.mqtt_port_ws || (MQTT_DEFAULT_PORTS[s.mqtt_protocol] || '1883');
   document.getElementById('s-mqtt-user').value         = s.mqtt_user || '';
   document.getElementById('s-mqtt-pass').value         = s.mqtt_pass || '';
   document.getElementById('s-mqtt-region').value       = s.mqtt_region || '';
   document.getElementById('s-mqtt-channel').value      = s.mqtt_channel || '';
   document.getElementById('s-mqtt-psk').value          = s.mqtt_psk || '';
+  document.getElementById('s-mqtt-tls-insecure').checked = s.mqtt_tls_insecure === '1';
+  updateMqttPortDefault();
   document.getElementById('s-aprs-enabled').checked  = s.aprs_enabled === '1';
   document.getElementById('s-aprs-callsign').value   = s.aprs_callsign || '';
   document.getElementById('s-aprs-server').value     = s.aprs_server || 'rotate.aprs2.net';
@@ -2138,6 +2156,7 @@ async function saveMqttSettings() {
     mqtt_region:     document.getElementById('s-mqtt-region').value.trim() || null,
     mqtt_channel:    document.getElementById('s-mqtt-channel').value.trim() || null,
     mqtt_psk:        document.getElementById('s-mqtt-psk').value.trim() || null,
+    mqtt_tls_insecure: document.getElementById('s-mqtt-tls-insecure').checked ? '1' : '0',
   });
   if (res.ok) RT.toast('MQTT settings saved', 'ok');
   else RT.toast(res.error, 'warn');

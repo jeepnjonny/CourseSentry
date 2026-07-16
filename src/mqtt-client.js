@@ -1102,7 +1102,7 @@ function connectFromSettings(db) {
   // mqtt_enabled defaults to '1' if never set (backward compat)
   if (s.mqtt_enabled === '0') { disconnect(); return false; }
   const protocol = s.mqtt_protocol || 'tcp';
-  const defaultPort = protocol === 'ws' ? 9001 : 1883;
+  const defaultPort = { tcp: 1883, ws: 9001, mqtts: 8883, wss: 8084 }[protocol] ?? 1883;
 
   // Derive gateway node ID from the APRS callsign so outbound packets have a valid from address
   // even before the beacon fires. The beacon will call setGatewayNodeId again with the live callsign.
@@ -1121,22 +1121,32 @@ function connectFromSettings(db) {
     channel: s.mqtt_channel || 'LongFast',
     format: s.mqtt_format || 'json',
     psk: s.mqtt_psk ?? 'AQ==',
+    tlsInsecure: s.mqtt_tls_insecure === '1',
   });
   return true;
 }
 
+// Maps the UI protocol selection to the URL scheme mqtt.js expects.
+const PROTOCOL_SCHEMES = { tcp: 'mqtt', ws: 'ws', mqtts: 'mqtts', wss: 'wss' };
+const TLS_PROTOCOLS = new Set(['mqtts', 'wss']);
+
 function connect(config) {
   disconnect();
   currentConfig = config;
-  const proto = config.protocol === 'ws' ? 'ws' : 'mqtt';
+  const proto = PROTOCOL_SCHEMES[config.protocol] || 'mqtt';
   const url = `${proto}://${config.host}:${config.port}`;
   const opts = {
     username: config.user || undefined,
     password: config.pass || undefined,
     reconnectPeriod: 5000,
   };
+  // Self-signed/private CA broker certs are common on locally-hosted MQTT servers —
+  // allow opting out of chain validation without disabling encryption entirely.
+  if (TLS_PROTOCOLS.has(config.protocol) && config.tlsInsecure) {
+    opts.rejectUnauthorized = false;
+  }
   const mqttLog = (level, msg) => { console.log(`[mqtt] ${msg}`); logger.log('mqtt', level, msg); };
-  mqttLog('info', `Connecting to ${url} as ${config.user || '(anonymous)'}`);
+  mqttLog('info', `Connecting to ${url} as ${config.user || '(anonymous)'}${TLS_PROTOCOLS.has(config.protocol) ? (opts.rejectUnauthorized === false ? ' (TLS, cert validation disabled)' : ' (TLS)') : ''}`);
   mqttClient = mqtt.connect(url, opts);
 
   mqttClient.on('connect', () => {
