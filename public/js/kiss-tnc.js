@@ -192,13 +192,24 @@ const KissTnc = (() => {
 
     _port = await navigator.serial.requestPort();
     await _port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none' });
-    // Matches the signal state used by the companion LoRa_FieldOps_APRS_Tracker
-    // project's serial_config.html, confirmed working against this same
-    // Heltec V3.2 hardware. Connecting normally reboots the device — that's
-    // expected, not a failure — so the boot-time console banner (including
-    // ESP-ROM output) showing up on the wire right after connect is routine;
-    // give it several seconds to finish booting before assuming it's stuck.
-    try { await _port.setSignals({ dataTerminalReady: true, requestToSend: false }); } catch {}
+    // On the Heltec V3.2's standard ESP32-S3 auto-reset circuit, RTS drives
+    // EN/reset and DTR drives GPIO0/boot-select through inverting
+    // transistors. A single combined setSignals({dataTerminalReady: true,
+    // requestToSend: false}) call was previously here and was proven via a
+    // captured RX byte log to reset straight into the ROM download
+    // bootloader ("rst:0x1 (POWERON),boot:0x0 (DOWNLOAD(USB/UART0))") —
+    // that's esptool's own classic bootloader-entry combination: any RTS
+    // transition pulses EN, and DTR being asserted at that instant latches
+    // GPIO0 low. Do NOT reintroduce that combined call, and do not revert
+    // this sequencing on the basis of an unverified "matches the reference
+    // implementation" claim alone — that reasoning is what caused the
+    // regression this fixes. DTR must be committed low as its own awaited
+    // call *before* RTS moves, so GPIO0 is already high by the time EN
+    // releases into a normal application boot.
+    try {
+      await _port.setSignals({ dataTerminalReady: false });
+      await _port.setSignals({ requestToSend: false });
+    } catch {}
     _writer = _port.writable.getWriter();
     _connected = true;
     _emit({ portInfo: _port.getInfo() });
