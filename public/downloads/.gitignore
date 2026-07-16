@@ -1,4 +1,0 @@
-# Built executables — not tracked in git (build with: cd tools/relay-app && npm install && npm run build)
-*.exe
-*.dmg
-*.zip
