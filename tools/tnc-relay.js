@@ -244,7 +244,15 @@ async function login() {
 function openSerial() {
   return new Promise((resolve, reject) => {
     serial = new SerialPort({ path: SERIAL_PORT, baudRate: BAUD_RATE }, err => {
-      if (err) reject(err); else resolve();
+      if (err) { reject(err); return; }
+      // Same DTR-then-RTS deassert ordering as the browser-side kiss-tnc.js:
+      // on the Heltec V3.2's auto-reset circuit, RTS drives EN/reset and DTR
+      // drives GPIO0/boot-select, so DTR must be committed low before RTS
+      // releases EN or the chip resets straight into the ROM download
+      // bootloader instead of the application.
+      serial.set({ dtr: false }, () => {
+        serial.set({ rts: false }, () => resolve());
+      });
     });
 
     const decoder = new KissDecoder(kissFrame => {
