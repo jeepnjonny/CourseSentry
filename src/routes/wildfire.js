@@ -170,3 +170,4 @@ router.get('/hotspots', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.resolveBbox = resolveBbox;
