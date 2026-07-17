@@ -16,6 +16,7 @@ let wildfirePerimeterInControl = null, wildfireHotspotInControl = null;
 let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
+let weatherAdjustableLayers = []; // [{ layer, apply(fraction) }] — layers the opacity slider controls
 let wxData = null, wxError = null, wxDataTs = 0, wxForecast = null, wxAlerts = [];
 let wxAlertPoller = null;
 let owmKey = null;
@@ -431,12 +432,22 @@ async function loadWildfireData() {
     RT.get(`/api/races/${race.id}/wildfire/hotspots`),
   ]);
 
+  weatherAdjustableLayers = weatherAdjustableLayers.filter(e =>
+    e.layer !== wildfirePerimeterLayer && e.layer !== wildfireHotspotLayer);
   if (wildfirePerimeterLayer) { leafletMap.removeLayer(wildfirePerimeterLayer); wildfirePerimeterLayer = null; }
   if (wildfireHotspotLayer)   { leafletMap.removeLayer(wildfireHotspotLayer);   wildfireHotspotLayer   = null; }
 
+  // Base design opacities for the wildfire vector layers; the slider scales these
+  // proportionally so the stroke-vs-fill visual balance is preserved across its range.
+  const PERIMETER_OPACITY = 0.9, PERIMETER_FILL_OPACITY = 0.25, HOTSPOT_FILL_OPACITY = 0.85;
+
   if (permRes.ok && permRes.data?.features?.length) {
     wildfirePerimeterLayer = L.geoJSON(permRes.data, {
-      style: () => ({ color:'#cc3300', weight:2, opacity:0.9, fillColor:'#ff4500', fillOpacity:0.25 }),
+      style: () => ({
+        color: '#cc3300', weight: 2,
+        opacity: PERIMETER_OPACITY * weatherOpacity,
+        fillColor: '#ff4500', fillOpacity: PERIMETER_FILL_OPACITY * weatherOpacity,
+      }),
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
         const name = p.poly_IncidentName || 'Unknown Fire';
@@ -451,6 +462,12 @@ async function loadWildfireData() {
         );
       },
     });
+    weatherAdjustableLayers.push({
+      layer: wildfirePerimeterLayer, keepAcrossSetup: true,
+      apply: (fraction) => wildfirePerimeterLayer.setStyle({
+        opacity: PERIMETER_OPACITY * fraction, fillOpacity: PERIMETER_FILL_OPACITY * fraction,
+      }),
+    });
   }
 
   if (hotRes.ok && hotRes.data?.features?.length) {
@@ -458,7 +475,7 @@ async function loadWildfireData() {
       pointToLayer: (feature, latlng) => {
         const frp = feature.properties?.frp || 0;
         const r   = Math.min(10, Math.max(4, 4 + frp / 20));
-        return L.circleMarker(latlng, { radius:r, color:'#ff4400', weight:1, fillColor:'#ffaa00', fillOpacity:0.85 });
+        return L.circleMarker(latlng, { radius:r, color:'#ff4400', weight:1, fillColor:'#ffaa00', fillOpacity: HOTSPOT_FILL_OPACITY * weatherOpacity });
       },
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
@@ -473,6 +490,10 @@ async function loadWildfireData() {
           { sticky: true, className: 'wildfire-tooltip' }
         );
       },
+    });
+    weatherAdjustableLayers.push({
+      layer: wildfireHotspotLayer, keepAcrossSetup: true,
+      apply: (fraction) => wildfireHotspotLayer.setStyle({ fillOpacity: HOTSPOT_FILL_OPACITY * fraction }),
     });
   }
 
@@ -557,25 +578,30 @@ async function setupWeatherLayers(key) {
   wildfirePerimeterInControl = null;
   wildfireHotspotInControl = null;
   activeWeatherOverlays.clear();
+  weatherAdjustableLayers = weatherAdjustableLayers.filter(e => e.keepAcrossSetup);
 
   const overlays = {};
   if (owmKey) {
-    const owm = (layer) => L.tileLayer(
+    const registerTile = (tileLayer) => {
+      weatherAdjustableLayers.push({ layer: tileLayer, apply: (fraction) => tileLayer.setOpacity(fraction) });
+      return tileLayer;
+    };
+    const owm = (layer) => registerTile(L.tileLayer(
       `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
       { opacity: weatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
-    );
+    ));
     overlays['&#9730; Precipitation'] = owm('precipitation_new');
     overlays['&#9729; Clouds']        = owm('clouds_new');
     overlays['&#127790; Wind Speed']  = owm('wind_new');
     overlays['&#127777; Temperature'] = owm('temp_new');
-    overlays['&#128205; Radar (NWS)'] = L.tileLayer(
+    overlays['&#128205; Radar (NWS)'] = registerTile(L.tileLayer(
       'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
       { opacity: weatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
-    );
-    overlays['⚡ Lightning'] = L.tileLayer(
+    ));
+    overlays['⚡ Lightning'] = registerTile(L.tileLayer(
       'https://maps.gnosis.cards/tilecache/tile.py/1.0.0/lightning-10m/{z}/{x}/{y}.png',
       { opacity: weatherOpacity, attribution: '© Blitzortung', maxZoom: 16, zIndex: 200 }
-    );
+    ));
   }
   weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
   _makeLayersControlClickToggle(weatherLayersControl);
@@ -626,12 +652,8 @@ function createWeatherLegendControl() {
 function setWeatherOpacity(val) {
   weatherOpacity = val / 100;
   document.getElementById('wx-opacity-lbl').textContent = val + '%';
-  // Update opacity of all active weather overlays
-  leafletMap.eachLayer(layer => {
-    if (layer.options && layer.options.attribution === '© OpenWeatherMap') {
-      layer.setOpacity(weatherOpacity);
-    }
-  });
+  // Update opacity of all weather/wildfire overlays (tile and vector alike)
+  for (const entry of weatherAdjustableLayers) entry.apply(weatherOpacity);
 }
 
 function updateWeatherLegend() {
