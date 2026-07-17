@@ -20,6 +20,9 @@ const { resolveBbox } = require('./routes/wildfire');
 const ENDPOINTS = ['wss://ws1.blitzortung.org/', 'wss://ws2.blitzortung.org/', 'wss://ws3.blitzortung.org/'];
 const STRIKE_MAX_AGE_MS = 20 * 60 * 1000;
 const IDLE_TIMEOUT_MS = 60 * 1000; // the feed is a firehose; silence this long means the connection is dead
+// Wider than wildfire's default ~15mi bbox pad — lightning is a fast-moving hazard,
+// so operators need strikes plotted well before a storm is directly overhead.
+const LIGHTNING_BBOX_PAD = 0.5; // ~30-35mi at US latitudes
 
 let socket = null;
 let wsRef = null;
@@ -87,9 +90,16 @@ function strikeInBbox(strike, bbox) {
 function handleStrike(strike) {
   recentStrikes.push(strike);
   if (!wsRef) return;
-  const races = db.prepare("SELECT * FROM races WHERE status='active'").all();
-  for (const race of races) {
-    const bbox = resolveBbox(race);
+  // Scope to races someone currently has open (by ws.raceId), not races flagged
+  // status='active' in the DB — an operator can be watching a race by direct URL
+  // (e.g. ?race=2) without it ever being marked active, and would otherwise never
+  // get live strikes.
+  const raceIds = wsRef.getConnectedRaceIds();
+  if (!raceIds.size) return;
+  for (const raceId of raceIds) {
+    const race = db.prepare('SELECT * FROM races WHERE id=?').get(raceId);
+    if (!race) continue;
+    const bbox = resolveBbox(race, LIGHTNING_BBOX_PAD);
     if (strikeInBbox(strike, bbox)) {
       wsRef.broadcastToRace(race.id, { type: 'lightning_strike', data: strike });
     }
@@ -98,7 +108,7 @@ function handleStrike(strike) {
 
 // Returns recent strikes near a race's course, for seeding newly-connected clients.
 function getRecentStrikes(race) {
-  const bbox = resolveBbox(race);
+  const bbox = resolveBbox(race, LIGHTNING_BBOX_PAD);
   if (!bbox) return [];
   const cutoff = Date.now() - STRIKE_MAX_AGE_MS;
   return recentStrikes.filter(s => s.time >= cutoff && strikeInBbox(s, bbox));
