@@ -55,6 +55,18 @@ function broadcastToRace(raceId, msg) {
   }
 }
 
+// Race IDs with at least one open connection — used to scope per-race feeds
+// (e.g. lightning) to races someone is actually watching, rather than only
+// races flagged status='active' in the DB (an operator may review a past or
+// upcoming race by its direct URL without ever marking it active).
+function getConnectedRaceIds() {
+  const ids = new Set();
+  for (const ws of clients) {
+    if (ws.readyState === 1 && ws.raceId) ids.add(ws.raceId);
+  }
+  return ids;
+}
+
 // ── WebSocket server initialization and connection handling ──────────────────
 function init(server, sessionMiddleware) {
   wss = new WebSocket.Server({ server, path: '/ws' });
@@ -331,4 +343,4 @@ function getClientById(id) {
   return null;
 }
 
-module.exports = { init, broadcast, broadcastToRole, broadcastToRace, broadcastInfra, send, getOnlineUsers, getClientById };
+module.exports = { init, broadcast, broadcastToRole, broadcastToRace, broadcastInfra, send, getOnlineUsers, getClientById, getConnectedRaceIds };

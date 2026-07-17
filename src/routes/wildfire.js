@@ -40,8 +40,10 @@ function httpGet(url) {
 }
 
 // Returns {minLat, maxLat, minLon, maxLon} covering all course/track points,
-// falling back to stations and then race weather_lat/lon.
-function resolveBbox(race) {
+// falling back to stations and then race weather_lat/lon. `pad` in degrees
+// defaults to BBOX_PAD (wildfire's ~15mi buffer) but callers needing a wider
+// catchment (e.g. lightning early-warning) can pass a larger value.
+function resolveBbox(race, pad = BBOX_PAD) {
   const lats = [], lons = [];
 
   try {
@@ -76,10 +78,10 @@ function resolveBbox(race) {
 
   if (!lats.length) return null;
   return {
-    minLat: Math.min(...lats) - BBOX_PAD,
-    maxLat: Math.max(...lats) + BBOX_PAD,
-    minLon: Math.min(...lons) - BBOX_PAD,
-    maxLon: Math.max(...lons) + BBOX_PAD,
+    minLat: Math.min(...lats) - pad,
+    maxLat: Math.max(...lats) + pad,
+    minLon: Math.min(...lons) - pad,
+    maxLon: Math.max(...lons) + pad,
   };
 }
 
