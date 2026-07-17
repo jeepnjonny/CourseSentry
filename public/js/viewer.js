@@ -8,14 +8,12 @@ let mapMode = true; // vs leaderboard on mobile
 let viewerLayersControl = null, viewerBaseTiles = null, currentViewerBaseLayer = null, currentViewerBaseLayerName = 'Topo';
 let viewerLegendControl = null, activeViewerOverlays = new Set(), viewerWeatherOpacity = 0.55;
 let viewerAdjustableLayers = []; // tile layers the opacity slider controls
+let viewerLightningLayer = null, viewerLightningStrikes = []; // live Blitzortung strikes: [{lat, lon, time, marker}]
+const VIEWER_LIGHTNING_MAX_AGE_MS = 20 * 60 * 1000;
 
 const LAYER_LEGENDS = {
-'Precipitation': { label:'PRECIP (mm/h)',    grad:'#c8e6fa,#64b4fa,#1464d2,#00be00,#fafa00,#fa8c32,#fa3232', ticks:['0.1','1','5','25','100','140'] },
-  'Clouds':        { label:'CLOUD COVER',      grad:'rgba(255,255,255,0.15),#888888',                   ticks:['0%','50%','100%'] },
-  'Wind Speed':    { label:'WIND (m/s)',        grad:'#ffffff,#64c8fa,#1464d2,#00be00,#fafa00,#fa6400,#fa0000', ticks:['0','5','15','25','50','200'] },
-  'Temperature':   { label:'TEMPERATURE (°F)', grad:'#820eb4,#1464d2,#20e8e8,#28b428,#f0f032,#fa8c32,#fa3232', ticks:['-4','32','59','86','104'] },
   'Radar':         { label:'RADAR (dBZ)',      grad:'#00ccff,#0066ff,#00ff00,#ffff00,#ff6600,#ff0000,#8b0000', ticks:['-30','-10','10','30','50','70'] },
-  'Lightning':     { label:'LIGHTNING STRIKES', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['0','1h','6h','24h'] },
+  'Lightning':     { label:'LIGHTNING STRIKES (live)', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['now','5m','10m','20m'] },
 };
 
 const BASE_LAYERS = {
@@ -33,6 +31,7 @@ async function init() {
   initMap();
   RT.connectWS(handleWS, token);
   startClock();
+  setInterval(pruneViewerLightningStrikes, 60000);
 }
 
 function initMap() {
@@ -92,32 +91,21 @@ function setViewerBaseLayer(name) {
   if (sel) sel.value = name;
 }
 
-async function setupWeatherLayers(owmKey) {
+async function setupWeatherLayers() {
   if (viewerLayersControl) { leafletMap.removeControl(viewerLayersControl); viewerLayersControl = null; }
   if (viewerLegendControl) { leafletMap.removeControl(viewerLegendControl); viewerLegendControl = null; }
   activeViewerOverlays.clear();
   viewerAdjustableLayers = [];
 
   const overlays = {};
-  if (owmKey) {
-    const registerTile = (tileLayer) => { viewerAdjustableLayers.push(tileLayer); return tileLayer; };
-    const owm = (layer) => registerTile(L.tileLayer(
-      `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
-      { opacity: viewerWeatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
-    ));
-    overlays['&#127783; Precipitation'] = owm('precipitation_new');
-    overlays['&#9729; Clouds']          = owm('clouds_new');
-    overlays['&#127790; Wind Speed']    = owm('wind_new');
-    overlays['&#127777; Temperature']   = owm('temp_new');
-    overlays['&#128205; Radar (NWS)'] = registerTile(L.tileLayer(
-      'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
-      { opacity: viewerWeatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
-    ));
-    overlays['⚡ Lightning'] = registerTile(L.tileLayer(
-      'https://maps.gnosis.cards/tilecache/tile.py/1.0.0/lightning-10m/{z}/{x}/{y}.png',
-      { opacity: viewerWeatherOpacity, attribution: '© Blitzortung', maxZoom: 16, zIndex: 200 }
-    ));
-  }
+  const registerTile = (tileLayer) => { viewerAdjustableLayers.push(tileLayer); return tileLayer; };
+  overlays['&#128205; Radar (NWS)'] = registerTile(L.tileLayer(
+    'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
+    { opacity: viewerWeatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
+  ));
+  viewerLightningLayer = L.layerGroup();
+  viewerLightningStrikes = [];
+  overlays['⚡ Lightning'] = viewerLightningLayer;
   if (Object.keys(overlays).length)
     viewerLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'topright' }).addTo(leafletMap);
   if (Object.keys(overlays).length) {
@@ -158,6 +146,28 @@ function setViewerWeatherOpacity(val) {
   document.getElementById('vw-wx-opacity-lbl').textContent = val + '%';
   // Update opacity of all weather overlays
   for (const layer of viewerAdjustableLayers) layer.setOpacity(viewerWeatherOpacity);
+  viewerLightningStrikes.forEach(s =>
+    s.marker.setStyle({ opacity: viewerWeatherOpacity, fillOpacity: viewerWeatherOpacity * 0.85 }));
+}
+
+function addViewerLightningStrike({ lat, lon, time }) {
+  if (!viewerLightningLayer) return;
+  const marker = L.circleMarker([lat, lon], {
+    radius: 5, weight: 1, color: '#e94560', fillColor: '#ffdd57',
+    opacity: viewerWeatherOpacity, fillOpacity: viewerWeatherOpacity * 0.85,
+  }).addTo(viewerLightningLayer);
+  viewerLightningStrikes.push({ lat, lon, time, marker });
+  pruneViewerLightningStrikes();
+}
+
+function pruneViewerLightningStrikes() {
+  if (!viewerLightningLayer) return;
+  const cutoff = Date.now() - VIEWER_LIGHTNING_MAX_AGE_MS;
+  viewerLightningStrikes = viewerLightningStrikes.filter(s => {
+    if (s.time >= cutoff) return true;
+    viewerLightningLayer.removeLayer(s.marker);
+    return false;
+  });
 }
 
 function handleWS(msg) {
@@ -166,6 +176,7 @@ function handleWS(msg) {
   else if (type === 'position') handlePosition(data);
   else if (type === 'event') handleEvent(data);
   else if (type === 'participant_update') handleParticipantUpdate(data);
+  else if (type === 'lightning_strike') addViewerLightningStrike(data);
   else if (type === 'race_update') {
     if (race && data.id === race.id) {
       const wasOfflineReady = race.offline_maps_status === 'ready';
@@ -206,7 +217,10 @@ function handleInit(data) {
   renderStationMarkers();
   renderAllMarkers();
   renderLeaderboard();
-  if (race.weather_enabled) setupWeatherLayers(data.weatherKey);
+  if (race.weather_enabled) {
+    setupWeatherLayers();
+    (data.lightning || []).forEach(addViewerLightningStrike);
+  }
   // Restrict selector and switch to offline URLs if already ready
   updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);

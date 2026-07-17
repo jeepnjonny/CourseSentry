@@ -17,9 +17,10 @@ let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
 let weatherAdjustableLayers = []; // [{ layer, apply(fraction) }] — layers the opacity slider controls
+let lightningLayer = null, lightningStrikes = []; // live Blitzortung strikes: [{lat, lon, time, marker}]
+const LIGHTNING_MAX_AGE_MS = 20 * 60 * 1000;
 let wxData = null, wxError = null, wxDataTs = 0, wxForecast = null, wxAlerts = [];
 let wxAlertPoller = null;
-let owmKey = null;
 let wxSetupInProgress = false;
 let sortBy = 'position', selectedPId = null, selectedStationId = null;
 let alerts = [], rightTab = 'info', leftTab = 'participants';
@@ -28,12 +29,8 @@ let _wsConn = null; // WS connection handle for client→server sends
 let activeRaces = [];
 
 const LAYER_LEGENDS = {
-'Precipitation': { label:'PRECIP (mm/h)',    grad:'#c8e6fa,#64b4fa,#1464d2,#00be00,#fafa00,#fa8c32,#fa3232', ticks:['0.1','1','5','25','100','140'] },
-  'Clouds':        { label:'CLOUD COVER',      grad:'rgba(255,255,255,0.15),#888888',                   ticks:['0%','50%','100%'] },
-  'Wind Speed':    { label:'WIND (m/s)',        grad:'#ffffff,#64c8fa,#1464d2,#00be00,#fafa00,#fa6400,#fa0000', ticks:['0','5','15','25','50','200'] },
-  'Temperature':   { label:'TEMPERATURE (°F)', grad:'#820eb4,#1464d2,#20e8e8,#28b428,#f0f032,#fa8c32,#fa3232', ticks:['-4','32','59','86','104'] },
   'Radar':         { label:'RADAR (dBZ)',      grad:'#00ccff,#0066ff,#00ff00,#ffff00,#ff6600,#ff0000,#8b0000', ticks:['-30','-10','10','30','50','70'] },
-  'Lightning':     { label:'LIGHTNING STRIKES', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['0','1h','6h','24h'] },
+  'Lightning':     { label:'LIGHTNING STRIKES (live)', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['now','5m','10m','20m'] },
   'Fire Perimeters': { label:'FIRE PERIMETERS',     grad:'#ff8c0033,#ff4500aa,#cc0000', ticks:['Low','Active','High'] },
   'Hotspots':        { label:'FIRE RADIATIVE POWER', grad:'#ffff00,#ff8800,#ff0000',    ticks:['Low FRP','Med','High'] },
 };
@@ -73,6 +70,7 @@ async function init() {
   startClock();
   missingCheckInterval = setInterval(checkMissing, 30000);
   stoppedCheckInterval = setInterval(checkStopped, 60000);
+  setInterval(pruneLightningStrikes, 60000);
   startWxPoller();
 }
 
@@ -97,6 +95,7 @@ function handleWS(msg) {
   else if (type === 'users_online')   { onlineUsers = data; renderPersonnelRecipients(); }
   else if (type === 'tnc_tx')         handleTncTx(data);
   else if (type === 'infra_update')   handleInfraUpdate(data);
+  else if (type === 'lightning_strike') addLightningStrike(data);
 }
 
 function handleRaceUpdate(data) {
@@ -264,7 +263,8 @@ function handleInit(data) {
   updateStats();
   checkStationWarnings();
   if (!trackPoints) loadTrackData(); // fallback API fetch if WS didn't include track
-  setupWeatherLayers(data.weatherKey);
+  setupWeatherLayers();
+  (data.lightning || []).forEach(addLightningStrike);
   loadWildfireData();
   // If offline tiles are already ready, restrict selector and switch to offline URLs
   updateBaseLayerSelector();
@@ -567,10 +567,9 @@ function setBaseLayer(name) {
   document.getElementById('base-layer-sel').value = name;
 }
 
-async function setupWeatherLayers(key) {
+async function setupWeatherLayers() {
   if (wxSetupInProgress) return;
   wxSetupInProgress = true;
-  owmKey = key;
   if (weatherLayersControl) { leafletMap.removeControl(weatherLayersControl); weatherLayersControl = null; }
   if (weatherLegendControl) { leafletMap.removeControl(weatherLegendControl); weatherLegendControl = null; }
   // The old control (and its overlay entries) is gone; wildfire layers need to be
@@ -581,28 +580,22 @@ async function setupWeatherLayers(key) {
   weatherAdjustableLayers = weatherAdjustableLayers.filter(e => e.keepAcrossSetup);
 
   const overlays = {};
-  if (owmKey) {
-    const registerTile = (tileLayer) => {
-      weatherAdjustableLayers.push({ layer: tileLayer, apply: (fraction) => tileLayer.setOpacity(fraction) });
-      return tileLayer;
-    };
-    const owm = (layer) => registerTile(L.tileLayer(
-      `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
-      { opacity: weatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
-    ));
-    overlays['&#9730; Precipitation'] = owm('precipitation_new');
-    overlays['&#9729; Clouds']        = owm('clouds_new');
-    overlays['&#127790; Wind Speed']  = owm('wind_new');
-    overlays['&#127777; Temperature'] = owm('temp_new');
-    overlays['&#128205; Radar (NWS)'] = registerTile(L.tileLayer(
-      'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
-      { opacity: weatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
-    ));
-    overlays['⚡ Lightning'] = registerTile(L.tileLayer(
-      'https://maps.gnosis.cards/tilecache/tile.py/1.0.0/lightning-10m/{z}/{x}/{y}.png',
-      { opacity: weatherOpacity, attribution: '© Blitzortung', maxZoom: 16, zIndex: 200 }
-    ));
-  }
+  const registerTile = (tileLayer) => {
+    weatherAdjustableLayers.push({ layer: tileLayer, apply: (fraction) => tileLayer.setOpacity(fraction) });
+    return tileLayer;
+  };
+  overlays['&#128205; Radar (NWS)'] = registerTile(L.tileLayer(
+    'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
+    { opacity: weatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
+  ));
+  lightningLayer = L.layerGroup();
+  lightningStrikes = [];
+  weatherAdjustableLayers.push({
+    layer: lightningLayer,
+    apply: (fraction) => lightningStrikes.forEach(s =>
+      s.marker.setStyle({ opacity: fraction, fillOpacity: fraction * 0.85 })),
+  });
+  overlays['⚡ Lightning'] = lightningLayer;
   weatherLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'bottomleft' }).addTo(leafletMap);
   _makeLayersControlClickToggle(weatherLayersControl);
   _syncLayersControlVisibility();
@@ -612,9 +605,8 @@ async function setupWeatherLayers(key) {
   wxSetupInProgress = false;
 }
 
-// Hides the layer-selector icon entirely when it has nothing to show (no weather API
-// key configured and no wildfire data for this race), instead of leaving a clickable
-// but empty box in the map's corner.
+// Hides the layer-selector icon entirely when it has nothing to show, instead of
+// leaving a clickable but empty box in the map's corner.
 function _syncLayersControlVisibility() {
   if (!weatherLayersControl) return;
   const container = weatherLayersControl.getContainer();
@@ -647,6 +639,26 @@ function createWeatherLegendControl() {
     return div;
   };
   return ctrl;
+}
+
+function addLightningStrike({ lat, lon, time }) {
+  if (!lightningLayer) return;
+  const marker = L.circleMarker([lat, lon], {
+    radius: 5, weight: 1, color: '#e94560', fillColor: '#ffdd57',
+    opacity: weatherOpacity, fillOpacity: weatherOpacity * 0.85,
+  }).addTo(lightningLayer);
+  lightningStrikes.push({ lat, lon, time, marker });
+  pruneLightningStrikes();
+}
+
+function pruneLightningStrikes() {
+  if (!lightningLayer) return;
+  const cutoff = Date.now() - LIGHTNING_MAX_AGE_MS;
+  lightningStrikes = lightningStrikes.filter(s => {
+    if (s.time >= cutoff) return true;
+    lightningLayer.removeLayer(s.marker);
+    return false;
+  });
 }
 
 function setWeatherOpacity(val) {

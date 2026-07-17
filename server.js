@@ -13,6 +13,7 @@ const mqttClient = require('./src/mqtt-client');
 const logger = require('./src/logger');
 const aprsClient = require('./src/aprs-client');
 const localTnc = require('./src/local-tnc');
+const lightning = require('./src/lightning');
 const beacon        = require('./src/beacon');
 const inreachPoller = require('./src/inreach-poller');
 const spotPoller    = require('./src/spot-poller');
@@ -284,6 +285,7 @@ mqttClient.setWs(wsManager);
 aprsClient.setWs(wsManager);
 localTnc.setWs(wsManager);
 logger.setWs(wsManager);
+lightning.setWs(wsManager);
 
 // ── Auto-connect on startup ───────────────────────────────────────────────────
 const mqttOk = mqttClient.connectFromSettings(db);
@@ -293,6 +295,9 @@ else console.log('[server] No MQTT settings configured yet');
 const aprsOk = aprsClient.connectFromSettings(db);
 if (aprsOk) console.log('[server] APRS-IS connecting from global settings');
 else console.log('[server] APRS-IS not configured');
+
+lightning.connect();
+console.log('[server] Connecting to Blitzortung lightning feed');
 
 beacon.start();
 inreachPoller.start();

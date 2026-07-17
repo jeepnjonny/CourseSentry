@@ -254,8 +254,10 @@ function sendInit(ws, user, reqUrl) {
     const registry = db.prepare('SELECT * FROM tracker_registry').all();
     const mqttMod = require('./mqtt-client');
     const aprsMod = require('./aprs-client');
+    const lightningMod = require('./lightning');
     const trackPoints = getTrackPointsForRace(race);
     const wxRow = db.prepare("SELECT value FROM settings WHERE key='weather_api_key'").get();
+    const weatherVisible = user.role !== 'viewer' || race.weather_enabled;
 
     send(ws, 'init', {
       race,
@@ -270,7 +272,8 @@ function sendInit(ws, user, reqUrl) {
       inreach:     require('./inreach-poller').getStatus(),
       spot:        require('./spot-poller').getStatus(),
       tnc:         (user.role !== 'viewer' && raceId) ? _tnc().getStatus(raceId) : null,
-      weatherKey:  (user.role !== 'viewer' || race.weather_enabled) ? (wxRow?.value || null) : null,
+      weatherKey:  weatherVisible ? (wxRow?.value || null) : null,
+      lightning:   weatherVisible ? lightningMod.getRecentStrikes(race) : [],
       onlineUsers: (user.role !== 'viewer' && raceId) ? getOnlineUsers(raceId) : [],
     });
   } catch (e) {
