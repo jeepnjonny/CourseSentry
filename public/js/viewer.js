@@ -7,6 +7,7 @@ let fmt24 = false;
 let mapMode = true; // vs leaderboard on mobile
 let viewerLayersControl = null, viewerBaseTiles = null, currentViewerBaseLayer = null, currentViewerBaseLayerName = 'Topo';
 let viewerLegendControl = null, activeViewerOverlays = new Set(), viewerWeatherOpacity = 0.55;
+let viewerAdjustableLayers = []; // tile layers the opacity slider controls
 
 const LAYER_LEGENDS = {
 'Precipitation': { label:'PRECIP (mm/h)',    grad:'#c8e6fa,#64b4fa,#1464d2,#00be00,#fafa00,#fa8c32,#fa3232', ticks:['0.1','1','5','25','100','140'] },
@@ -95,25 +96,27 @@ async function setupWeatherLayers(owmKey) {
   if (viewerLayersControl) { leafletMap.removeControl(viewerLayersControl); viewerLayersControl = null; }
   if (viewerLegendControl) { leafletMap.removeControl(viewerLegendControl); viewerLegendControl = null; }
   activeViewerOverlays.clear();
+  viewerAdjustableLayers = [];
 
   const overlays = {};
   if (owmKey) {
-    const owm = (layer) => L.tileLayer(
+    const registerTile = (tileLayer) => { viewerAdjustableLayers.push(tileLayer); return tileLayer; };
+    const owm = (layer) => registerTile(L.tileLayer(
       `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${owmKey}`,
       { opacity: viewerWeatherOpacity, attribution: '© OpenWeatherMap', maxZoom: 16, zIndex: 200 }
-    );
+    ));
     overlays['&#127783; Precipitation'] = owm('precipitation_new');
     overlays['&#9729; Clouds']          = owm('clouds_new');
     overlays['&#127790; Wind Speed']    = owm('wind_new');
     overlays['&#127777; Temperature']   = owm('temp_new');
-    overlays['&#128205; Radar (NWS)'] = L.tileLayer(
+    overlays['&#128205; Radar (NWS)'] = registerTile(L.tileLayer(
       'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q/{z}/{x}/{y}.png',
       { opacity: viewerWeatherOpacity, attribution: '© Iowa Environmental Mesonet / NOAA', maxZoom: 16, zIndex: 200 }
-    );
-    overlays['⚡ Lightning'] = L.tileLayer(
+    ));
+    overlays['⚡ Lightning'] = registerTile(L.tileLayer(
       'https://maps.gnosis.cards/tilecache/tile.py/1.0.0/lightning-10m/{z}/{x}/{y}.png',
       { opacity: viewerWeatherOpacity, attribution: '© Blitzortung', maxZoom: 16, zIndex: 200 }
-    );
+    ));
   }
   if (Object.keys(overlays).length)
     viewerLayersControl = L.control.layers({}, overlays, { collapsed: true, position: 'topright' }).addTo(leafletMap);
@@ -153,12 +156,8 @@ function updateViewerLegend() {
 function setViewerWeatherOpacity(val) {
   viewerWeatherOpacity = val / 100;
   document.getElementById('vw-wx-opacity-lbl').textContent = val + '%';
-  // Update opacity of all active weather overlays
-  leafletMap.eachLayer(layer => {
-    if (layer.options && layer.options.attribution === '© OpenWeatherMap') {
-      layer.setOpacity(viewerWeatherOpacity);
-    }
-  });
+  // Update opacity of all weather overlays
+  for (const layer of viewerAdjustableLayers) layer.setOpacity(viewerWeatherOpacity);
 }
 
 function handleWS(msg) {
