@@ -75,15 +75,19 @@ function init(server, sessionMiddleware) {
     // Authenticate via session cookie
     sessionMiddleware(req, {}, () => {
       const token = new URL(req.url, 'http://localhost').searchParams.get('token');
-      let user = req.session?.user || null;
+      let user = null;
 
-      // Viewer auth via race token
-      if (!user && token) {
+      // Viewer auth via race token — takes priority over any unrelated logged-in
+      // session on the same browser, since a token is only ever sent by the public
+      // /view/:token page and unambiguously names the race it wants.
+      if (token) {
         const race = db.prepare('SELECT id, name FROM races WHERE viewer_token = ?').get(token);
         if (race) {
           user = { role: 'viewer', raceId: race.id };
         }
       }
+
+      if (!user) user = req.session?.user || null;
 
       if (!user) {
         ws.close(4401, 'Unauthorized');
