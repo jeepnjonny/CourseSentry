@@ -17,7 +17,10 @@ const db = require('./db');
 const logger = require('./logger');
 const { resolveBbox } = require('./routes/wildfire');
 
-const ENDPOINTS = ['wss://ws1.blitzortung.org/', 'wss://ws2.blitzortung.org/', 'wss://ws3.blitzortung.org/'];
+// ws3-ws6 serve a TLS cert for maps.blitzortung.org / www.blitzortung.de instead of their
+// own hostname (server-side misconfiguration, verified persistent) — connecting to them
+// always fails with a cert hostname mismatch, so they're excluded from rotation.
+const ENDPOINTS = ['wss://ws1.blitzortung.org/', 'wss://ws2.blitzortung.org/', 'wss://ws7.blitzortung.org/', 'wss://ws8.blitzortung.org/'];
 const STRIKE_MAX_AGE_MS = 20 * 60 * 1000;
 const IDLE_TIMEOUT_MS = 60 * 1000; // the feed is a firehose; silence this long means the connection is dead
 // Wider than wildfire's default ~15mi bbox pad — lightning is a fast-moving hazard,

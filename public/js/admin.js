@@ -2343,7 +2343,8 @@ function _sourceColor(src) {
 
 function buildLogRow(entry) {
   const d = new Date(entry.ts * 1000);
-  const time = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const clock = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const time = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${clock}`;
   const color = LOG_LEVEL_COLORS[entry.level] || 'var(--text)';
   const src = entry.source || '';
   const srcBadge = src
@@ -2351,7 +2352,7 @@ function buildLogRow(entry) {
     : `<span style="min-width:72px"></span>`;
   const row = document.createElement('div');
   row.style.cssText = `display:flex;gap:8px;padding:2px 4px;border-radius:3px;line-height:1.5`;
-  row.innerHTML = `<span style="color:var(--text3);min-width:64px">${time}</span>`
+  row.innerHTML = `<span style="color:var(--text3);min-width:150px">${time}</span>`
     + `<span style="color:var(--accent4);min-width:48px">${(entry.level||'info').toUpperCase()}</span>`
     + srcBadge
     + `<span style="color:${color};word-break:break-all">${entry.msg}</span>`;
