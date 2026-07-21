@@ -27,7 +27,6 @@ let lineBuffer = '';
 let reconnectTimer = null;
 let _connected = false;
 let _loggedIn  = false;
-let _messagingCallsign = null; // set to logged-in user's callsign when available
 const _pendingAcks = new Map(); // key: "CALLSIGN:seqNum" → { messageId, timer, attempt, toCallsign, packet }
 
 // ── Byham APRS passcode algorithm ────────────────────────────────────────────
@@ -611,17 +610,8 @@ function connectFromSettings(dbArg) {
   const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
   if (s.aprs_enabled !== '1' || !s.aprs_callsign) return false;
 
-  // Default: global callsign with configured or read-only passcode
-  let callsign = s.aprs_callsign.toUpperCase().trim();
-  let passcode = s.aprs_passcode || '-1';
-
-  // If messaging is enabled and a user is logged in with a callsign, use it (allows sending)
-  const activeRace = _db.prepare("SELECT messaging_enabled FROM races WHERE status='active' AND messaging_enabled=1 LIMIT 1").get();
-  if (activeRace?.messaging_enabled && _messagingCallsign) {
-    callsign = _messagingCallsign;
-    passcode = String(generatePasscode(callsign));
-    logger.log('aprs', 'info', `Using user callsign ${callsign} (passcode auto-computed) for messaging`);
-  }
+  const callsign = s.aprs_callsign.toUpperCase().trim();
+  const passcode = s.aprs_passcode || '-1';
 
   connect({
     enabled: true,
@@ -742,11 +732,6 @@ function notifyRosterChange() {
   }
 }
 
-// Called on login/logout to set the callsign used for authenticated messaging
-function setMessagingCallsign(callsign) {
-  _messagingCallsign = callsign ? callsign.toUpperCase().trim() : null;
-}
-
 function getActiveCallsign() {
   return currentConfig?.callsign || null;
 }
@@ -777,4 +762,4 @@ function igate(rawLine) {
   }
 }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, igate, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, setMessagingCallsign, getActiveCallsign, processAprsLine: processLine };
+module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, igate, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, getActiveCallsign, processAprsLine: processLine };

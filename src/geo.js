@@ -123,6 +123,17 @@ function estimateETA(distRemaining, paceMs) {
   return Math.round(distRemaining / paceMs);
 }
 
+/**
+ * Offset (lat, lon) by a random bearing and a random distance in [0, maxMeters].
+ */
+function jitter(lat, lon, maxMeters) {
+  const dist = Math.random() * maxMeters;
+  const bearing = Math.random() * 2 * Math.PI;
+  const dLat = (dist * Math.cos(bearing)) / R;
+  const dLon = (dist * Math.sin(bearing)) / (R * Math.cos(toRad(lat)));
+  return { lat: lat + dLat * 180 / Math.PI, lon: lon + dLon * 180 / Math.PI };
+}
+
 module.exports = {
   haversine,
   findPositionOnRoute,
@@ -130,4 +141,5 @@ module.exports = {
   orderStationsByRoute,
   inGeofence,
   estimateETA,
+  jitter,
 };

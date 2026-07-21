@@ -9,7 +9,6 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const db = require('../db');
 const logger = require('../logger');
-const aprsClient = require('../aprs-client');
 
 const router = express.Router();
 
@@ -47,8 +46,6 @@ router.post('/login', async (req, res) => {
   };
 
   logger.log('system', 'info', `Login — ${user.username} (${user.role})${user.callsign ? ` callsign=${user.callsign}` : ''}`);
-  aprsClient.setMessagingCallsign(user.callsign || null);
-  aprsClient.connectFromSettings(db);
 
   res.json({ ok: true, data: { id: user.id, username: user.username, role: user.role, callsign: user.callsign || null } });
 });
@@ -60,8 +57,6 @@ router.post('/logout', (req, res) => {
   }
   req.session.destroy(() => {
     if (username) logger.log('system', 'info', `Logout — ${username}`);
-    aprsClient.setMessagingCallsign(null);
-    aprsClient.connectFromSettings(db);
     res.json({ ok: true });
   });
 });
