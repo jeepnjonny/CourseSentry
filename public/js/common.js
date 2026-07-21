@@ -179,6 +179,15 @@ const RT = (() => {
     return `<span class="badge" style="background:${c}22;color:${c}">${(status||'--').toUpperCase()}</span>`;
   }
 
+  // ── Table search/filter ──────────────────────────────────────────────────
+  // getters: array of row => value functions; row matches if ANY getter's
+  // value contains the query (case-insensitive substring).
+  function filterRows(rows, query, getters) {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(row => getters.some(get => String(get(row) ?? '').toLowerCase().includes(q)));
+  }
+
   // ── Theme ─────────────────────────────────────────────────────────────────
   const THEMES = [
     { id: 'dark',             label: 'Dark' },
@@ -319,5 +328,5 @@ const RT = (() => {
   return { BASE, getMe, logout, requireLogin, api, get, post, put, del, connectWS,
            fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo, fmtLabel,
            trackerIcon, iconSource, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES,
-           initPanelResizer };
+           initPanelResizer, filterRows };
 })();

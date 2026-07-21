@@ -219,6 +219,8 @@
         <button class="sort-btn" data-sort="heat" onclick="OP.setSort('heat')">HEAT</button>
         <button class="sort-btn" data-sort="class" onclick="OP.setSort('class')">CLASS</button>
       </div>
+      <!-- Search: filters the leaderboard live by bib or name -->
+      <input type="search" class="table-search" placeholder="Search bib or name…" oninput="OP.setSearch(this.value)" style="margin:6px 8px;max-width:none;flex-shrink:0">
       <!-- Leaderboard header row: position, bib, name, progress %, pace, alerts icon -->
       <div class="lb-head">
         <span>#</span><span>BIB</span><span>NAME</span><span>PROG</span><span>PACE</span>

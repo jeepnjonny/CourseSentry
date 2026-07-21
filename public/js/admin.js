@@ -616,7 +616,7 @@ async function deleteClass(id) {
 }
 
 // ── Course File Library ───────────────────────────────────────────────────────
-let courseFiles = [], selectedCourseId = null;
+let courseFiles = [], selectedCourseId = null, courseQuery = '';
 let courseParseData = null; // { paths, points, trackPoints, totalDistance, pathIndex }
 let _courseTabContext = 'global'; // 'global' | 'race'
 
@@ -636,9 +636,12 @@ function renderCoursesTab() {
         <input type="file" id="course-upload-input" accept=".kml,.gpx" style="display:none" onchange="uploadCourseFile(this)">
       </div>
     </div>
+    <input type="search" class="table-search" placeholder="Search…" value="${courseQuery}" oninput="setCourseQuery(this.value)">
     <div id="course-file-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
   </div>`;
 }
+
+function setCourseQuery(v) { courseQuery = v; renderCourseFileList(); }
 
 async function bindCoursesTab() {
   _courseTabContext = 'global';
@@ -688,6 +691,7 @@ function renderCourseTab() {
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="primary" onclick="openStationModal()">+ ADD</button>
     </div>
+    <input type="search" class="table-search" placeholder="Search…" value="${stationQuery}" oninput="setStationQuery(this.value)">
     <div id="stations-list"></div>
   </div>`;
 }
@@ -804,7 +808,9 @@ function renderCourseFileList() {
   if (!courseFiles.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No course files uploaded yet.</div>'; return; }
   el.style.maxHeight = '';
   el.style.overflowY = '';
-  el.innerHTML = courseFiles.map(c => `
+  const filtered = RT.filterRows(courseFiles, courseQuery, [c => c.name, c => c.file_type]);
+  if (!filtered.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No course files match your search.</div>'; return; }
+  el.innerHTML = filtered.map(c => `
     <div class="infra-row" style="cursor:pointer;border-radius:4px;min-width:0;${c.id===selectedCourseId?'background:var(--surface3,#161b22);':''}" onclick="selectCourse(${c.id})">
       <span title="${c.name}" style="flex:1;font-size:16px;font-weight:bold;color:var(--accent4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">${c.name}</span>
       <span class="badge" style="flex-shrink:0;color:${c.file_type==='kml'?'var(--accent4)':'var(--accent)'};">${c.file_type.toUpperCase()}</span>
@@ -984,7 +990,9 @@ async function seedWaypointsToRace() {
 }
 
 // ── Race stations ─────────────────────────────────────────────────────────────
-let stations = [];
+let stations = [], stationQuery = '';
+
+function setStationQuery(v) { stationQuery = v; renderStationsList(); }
 
 async function loadStations() {
   if (!selectedRaceId) return;
@@ -1015,8 +1023,10 @@ function renderStationsList() {
   const el = document.getElementById('stations-list');
   if (!el) return;
   if (!stations.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No stations yet. Seed from a course file above, or add manually.</div>'; return; }
+  const filtered = RT.filterRows(stations, stationQuery, [s => s.name, s => s.type]);
+  if (!filtered.length) { el.innerHTML = stationWarningHtml() + '<div class="text-dim" style="font-size:16px;padding:6px">No stations match your search.</div>'; return; }
   el.innerHTML = stationWarningHtml() + `<div class="table-scroll"><table class="data-table"><thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>LAT</th><th>LON</th><th>CUTOFF</th><th></th></tr></thead><tbody>
-    ${stations.map((s, i) => `<tr>
+    ${filtered.map((s, i) => `<tr>
       <td class="text-dim">${i + 1}</td>
       <td>${s.name}</td>
       <td><span class="badge" style="color:var(--accent4)">${s.type.toUpperCase()}</span></td>
@@ -1072,7 +1082,10 @@ async function deleteStation(id) {
 }
 
 // ── Participants ──────────────────────────────────────────────────────────────
-let participants = [], participantsCsvContent = '';
+let participants = [], participantsCsvContent = '', participantQuery = '';
+let _visibleParticipants = []; // rows currently shown after search filtering — "select all" scope
+
+function setParticipantQuery(v) { participantQuery = v; renderParticipantsList(); }
 let editingParticipantId = null;
 let selectedParticipantIds = new Set();
 
@@ -1087,6 +1100,7 @@ function renderParticipantsTab() {
       <button onclick="exportParticipantsCsv()">CSV EXPORT</button>
       <button class="danger" onclick="clearAllParticipants()" style="margin-left:auto">CLEAR ALL</button>
     </div>
+    <input type="search" class="table-search" placeholder="Search…" value="${participantQuery}" oninput="setParticipantQuery(this.value)" style="margin-top:10px">
     <div id="pt-bulk-bar" class="hidden" style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:8px;background:var(--surface2);border:1px solid var(--accent);border-radius:6px;flex-wrap:wrap">
       <span id="pt-bulk-count" style="font-size:14px;color:var(--accent);min-width:70px;white-space:nowrap"></span>
       <select id="pt-bulk-field" onchange="updateBulkValueOptions()" style="font-size:14px">
@@ -1163,6 +1177,14 @@ function trackerCell(p) {
   return '<span class="text-dim">—</span>';
 }
 
+// Plain-text equivalent of trackerCell(), for search matching.
+function trackerSearchText(p) {
+  if (p.tracker_id) return p.tracker_id;
+  if (p.inreach_url)  return 'inreach';
+  if (p.spot_feed_id) return 'spot';
+  return '';
+}
+
 function renderParticipantsList() {
   const el = document.getElementById('participants-list');
   if (!el) return;
@@ -1173,12 +1195,18 @@ function renderParticipantsList() {
     return;
   }
   const STATUS_C = { dns:'var(--text3)', active:'var(--accent)', dnf:'var(--accent3)', finished:'var(--accent2)' };
+  const filtered = RT.filterRows(participants, participantQuery, [p => p.bib, p => p.name, p => trackerSearchText(p), p => p.status]);
+  _visibleParticipants = filtered;
+  if (!filtered.length) {
+    el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No participants match your search.</div>';
+    return;
+  }
   el.innerHTML = `<div class="table-scroll"><table class="data-table">
     <thead><tr>
       <th style="width:28px"><input type="checkbox" id="pt-select-all" onchange="toggleSelectAllParticipants(this.checked)" title="Select all"></th>
       <th>#</th><th>BIB</th><th>NAME</th><th>HEAT</th><th>CLASS</th><th>TRACKER</th><th>STATUS</th><th>AGE</th><th></th>
     </tr></thead>
-    <tbody>${participants.map((p, i) => {
+    <tbody>${filtered.map((p, i) => {
       const heat = heats.find(h => h.id === p.heat_id);
       const cls  = classes.find(c => c.id === p.class_id);
       const dot  = heat ? `<span class="dot" style="background:${heat.color}"></span>` : '';
@@ -1206,12 +1234,12 @@ function toggleParticipantSelect(id, checked) {
   const row = document.getElementById(`pt-row-${id}`);
   if (row) row.style.background = checked ? 'var(--surface3,#161b22)' : '';
   const allBox = document.getElementById('pt-select-all');
-  if (allBox) allBox.checked = selectedParticipantIds.size === participants.length;
+  if (allBox) allBox.checked = _visibleParticipants.length > 0 && _visibleParticipants.every(p => selectedParticipantIds.has(p.id));
   updateBulkBar();
 }
 
 function toggleSelectAllParticipants(checked) {
-  participants.forEach(p => {
+  _visibleParticipants.forEach(p => {
     const cb = document.querySelector(`#pt-row-${p.id} input[type=checkbox]`);
     if (cb) cb.checked = checked;
     const row = document.getElementById(`pt-row-${p.id}`);
@@ -1433,7 +1461,9 @@ function exportParticipantsCsv() {
 }
 
 // ── Personnel ─────────────────────────────────────────────────────────────────
-let personnel = [], personnelCsvContent = '';
+let personnel = [], personnelCsvContent = '', personnelQuery = '';
+
+function setPersonnelQuery(v) { personnelQuery = v; renderPersonnelList(); }
 function renderPersonnelTab() {
   return `
   <div class="card">
@@ -1444,6 +1474,7 @@ function renderPersonnelTab() {
       <button onclick="exportPersonnelCsv()">CSV EXPORT</button>
       <button class="danger" onclick="clearAllPersonnel()" style="margin-left:auto">CLEAR ALL</button>
     </div>
+    <input type="search" class="table-search" placeholder="Search…" value="${personnelQuery}" oninput="setPersonnelQuery(this.value)">
     <div id="pers-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px">
       <div class="text-dim" style="font-size:14px;margin-bottom:6px">Columns: name, station_name, tracker_id, phone</div>
       <div class="upload-zone" onclick="document.getElementById('pers-csv-input').click()" style="padding:8px">
@@ -1509,11 +1540,18 @@ async function loadPersonnel() {
   ]);
   personnel = pr.ok ? pr.data : [];
   stations = sr.ok ? sr.data : [];
+  renderPersonnelList();
+}
+
+function renderPersonnelList() {
   const el = document.getElementById('personnel-list');
   if (!el) return;
   if (!personnel.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No personnel yet.</div>'; return; }
+  const filtered = RT.filterRows(personnel, personnelQuery,
+    [p => p.name, p => p.is_rover ? 'rover' : p.station_name, p => p.tracker_id, p => p.phone]);
+  if (!filtered.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No personnel match your search.</div>'; return; }
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
-    ${personnel.map(p => `<tr>
+    ${filtered.map(p => `<tr>
       <td>${p.name}</td>
       <td>${p.is_rover ? '<span style="color:var(--accent);font-size:12px;letter-spacing:1px">ROVER</span>' : (p.station_name || '<span class="text-dim">—</span>')}</td>
       <td>${p.tracker_id || '<span class="text-dim">—</span>'}</td>
@@ -1686,7 +1724,7 @@ async function clearAllPersonnel() {
 // tracker_registry row seen via MQTT/APRS and assigns a tracker to a *person*).
 // This tab manages infra_nodes: race-scoped devices that can be assigned to a
 // station and pre-registered before they've ever beaconed.
-let infraNodes = [];
+let infraNodes = [], networkQuery = '';
 
 function renderNetworkTab() {
   return `
@@ -1695,9 +1733,12 @@ function renderNetworkTab() {
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <button class="primary" onclick="openInfraNodeModal()">+ REGISTER NODE</button>
     </div>
+    <input type="search" class="table-search" placeholder="Search…" value="${networkQuery}" oninput="setNetworkQuery(this.value)">
     <div id="network-list"></div>
   </div>`;
 }
+
+function setNetworkQuery(v) { networkQuery = v; renderNetworkList(); }
 
 async function bindNetworkTab() {
   await loadStationsForNetwork();
@@ -1718,14 +1759,20 @@ async function loadInfraNodes() {
   if (!selectedRaceId) return;
   const res = await RT.get(`/api/races/${selectedRaceId}/infrastructure`);
   infraNodes = res.ok ? res.data : [];
+  renderNetworkList();
+}
+
+function renderNetworkList() {
   const el = document.getElementById('network-list');
   if (!el) return;
   if (!infraNodes.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No infrastructure registered yet.</div>'; return; }
+  const filtered = RT.filterRows(infraNodes, networkQuery, [n => n.name, n => n.node_type, n => n.station_name, n => n.node_id]);
+  if (!filtered.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No nodes match your search.</div>'; return; }
 
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>
     <th>NAME</th><th>TYPE</th><th>STATION</th><th>NODE ID</th><th>BATTERY</th><th>LAST SEEN</th><th>HEALTH</th><th></th>
   </tr></thead><tbody>
-    ${infraNodes.map(n => `<tr style="${n.health !== 'ok' ? 'opacity:0.6' : ''}">
+    ${filtered.map(n => `<tr style="${n.health !== 'ok' ? 'opacity:0.6' : ''}">
       <td>${n.name}</td>
       <td class="text-dim">${n.node_type}</td>
       <td>${n.station_name || '<span class="text-dim">— Unassigned —</span>'}</td>
@@ -1794,12 +1841,16 @@ function renderInfraTab() {
       <input id="purge-hours" type="number" min="1" value="24" style="width:56px;text-align:right">
       <span style="font-size:14px;color:var(--text3)">hours</span>
     </div>
+    <input type="search" class="table-search" placeholder="Search…" value="${infraQuery}" oninput="setInfraQuery(this.value)">
     <div id="infra-list"><div class="text-dim" style="font-size:16px;padding:6px">Loading...</div></div>
   </div>`;
 }
 
+function setInfraQuery(v) { infraQuery = v; renderInfraList(); }
+
 let _assignNodeId = null, _assignLongName = null;
 let _infraPeople = []; // [{id, name, type, tracker_id}]
+let trackers = [], infraQuery = '';
 
 async function refreshInfra() {
   const [res, ptRes, pnlRes] = await Promise.all([
@@ -1815,14 +1866,22 @@ async function refreshInfra() {
     ...(pnlRes.ok ? pnlRes.data.map(p => ({ id: p.id,  name: p.name,  type: 'personnel',   tracker_id: p.tracker_id  })) : []),
   ];
 
-  const trackers = res.data;
+  trackers = res.data;
+  renderInfraList();
+}
+
+function renderInfraList() {
+  const el = document.getElementById('infra-list');
+  if (!el) return;
   if (!trackers.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No trackers seen yet.</div>'; return; }
+  const filtered = RT.filterRows(trackers, infraQuery, [t => t.node_id, t => t.long_name, t => t.short_name]);
+  if (!filtered.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No trackers match your search.</div>'; return; }
   const now = Math.floor(Date.now() / 1000);
   const missingTimer = (races.find(r=>r.id===activeRaceId))?.missing_timer || 3600;
 
   const assignedCol = selectedRaceId ? '<th>ASSIGNED TO</th>' : '';
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NODE ID</th><th>LONG NAME</th><th>SHORT</th><th>BATTERY</th><th>LAST SEEN</th><th>POSITION</th>${assignedCol}</tr></thead><tbody>
-    ${trackers.map(t => {
+    ${filtered.map(t => {
       const missing = t.last_seen && (now - t.last_seen) > missingTimer;
       const age = RT.timeAgo(t.last_seen);
       let assignCell = '';
@@ -1890,15 +1949,18 @@ async function purgeTrackers() {
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
-let users = [];
+let users = [], userQuery = '';
 function renderUsersTab() {
   return `
   <div class="card">
     <h3>USER MANAGEMENT</h3>
     <button class="primary" onclick="openUserModal()" style="margin-bottom:10px">+ NEW USER</button>
+    <input type="search" class="table-search" placeholder="Search…" value="${userQuery}" oninput="setUserQuery(this.value)">
     <div id="users-list"></div>
   </div>`;
 }
+
+function setUserQuery(v) { userQuery = v; renderUsersList(); }
 
 function aprsPasscode(callsign) {
   const base = callsign.toUpperCase().split('-')[0];
@@ -1926,10 +1988,16 @@ function umUpdatePreview() {
 async function loadUsers() {
   const res = await RT.get('/api/users');
   users = res.ok ? res.data : [];
+  renderUsersList();
+}
+
+function renderUsersList() {
   const el = document.getElementById('users-list');
   if (!el) return;
+  const filtered = RT.filterRows(users, userQuery, [u => u.username, u => u.callsign, u => u.phone]);
+  if (!filtered.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No users match your search.</div>'; return; }
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>USERNAME</th><th>ROLE</th><th>CALLSIGN</th><th>PHONE</th><th>MARKER</th><th>CREATED</th><th></th></tr></thead><tbody>
-    ${users.map(u => `<tr>
+    ${filtered.map(u => `<tr>
       <td>${u.username}${u.id===currentUser.id?' <span class="text-dim">(you)</span>':''}</td>
       <td><span class="badge" style="color:${u.role==='admin'?'var(--accent3)':u.role==='station'?'var(--accent2)':'var(--accent)'}">${u.role.toUpperCase()}</span></td>
       <td style="font-size:13px;color:var(--accent2)">${u.callsign || '<span class="text-dim">—</span>'}</td>

@@ -22,7 +22,7 @@ const LIGHTNING_MAX_AGE_MS = 20 * 60 * 1000;
 let wxData = null, wxError = null, wxDataTs = 0, wxForecast = null, wxAlerts = [];
 let wxAlertPoller = null;
 let wxSetupInProgress = false;
-let sortBy = 'position', selectedPId = null, selectedStationId = null;
+let sortBy = 'position', selectedPId = null, selectedStationId = null, searchQuery = '';
 let alerts = [], rightTab = 'info', leftTab = 'participants';
 let batchStationId = null;
 let _wsConn = null; // WS connection handle for client→server sends
@@ -908,16 +908,22 @@ function toggleInfra(on) {
 }
 
 // ── Leaderboard ───────────────────────────────────────────────────────────────
+function setSearch(v) {
+  searchQuery = v;
+  renderLeaderboard();
+}
+
 function renderLeaderboard() {
   const el = document.getElementById('leaderboard-body');
   if (!el) return;
   updateSortPillVisibility();
-  const list = Object.values(participants);
-  list.forEach(p => {
+  const full = Object.values(participants);
+  full.forEach(p => {
     p._pct = computePercent(p);
     p._pace = computePace(p);
   });
 
+  const list = RT.filterRows(full, searchQuery, [p => p.bib, p => p.name]);
   list.sort((a, b) => {
     if (sortBy === 'position') return (b._pct || 0) - (a._pct || 0);
     if (sortBy === 'bib') return String(a.bib).localeCompare(String(b.bib), undefined, { numeric: true });
@@ -954,7 +960,7 @@ function renderLeaderboard() {
     </div>`;
   }).join('');
 
-  updateStats(list);
+  updateStats(full);
 }
 
 const STATUS_COLORS = { dns: '#8b949e', active: '#58a6ff', dnf: '#f78166', finished: '#3fb950' };
@@ -2892,7 +2898,7 @@ function openHelp() {
 
 init();
 
-return { setBaseLayer, setSort, selectParticipant, switchRightTab, saveParticipant,
+return { setBaseLayer, setSort, setSearch, selectParticipant, switchRightTab, saveParticipant,
          openEditModal, sendMessage, updateMsgCharCount, dismissAlert, jumpToMsg, showViewerLink, copyViewerLink,
          endRace,
          switchLeftTab, selectStation,

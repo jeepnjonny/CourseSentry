@@ -121,6 +121,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 input[type=range] { padding: 2px 0; accent-color: var(--accent); }
 input[type=checkbox] { width: auto; accent-color: var(--accent); }
 textarea { resize: vertical; min-height: 60px; }
+.table-search { margin-bottom: 8px; max-width: 280px; }
 .form-group { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
 .form-row { display: flex; gap: 8px; }
 .form-row > * { flex: 1; min-width: 0; }
