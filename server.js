@@ -135,10 +135,14 @@ app.get('/api/settings', requireAuth, (req, res) => {
 });
 
 app.put('/api/settings', requireRole('admin'), (req, res) => {
+  const body = { ...req.body };
+  if (body.aprs_callsign) {
+    body.aprs_passcode = String(aprsClient.generatePasscode(body.aprs_callsign));
+  }
   const upsert = db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
   const tx = db.transaction(entries => { for (const [k, v] of entries) upsert.run(k, v ?? null); });
-  tx(Object.entries(req.body));
-  const keys = Object.keys(req.body);
+  tx(Object.entries(body));
+  const keys = Object.keys(body);
   logger.log('system', 'info', `Settings saved by ${req.session.user.username}: ${keys.join(', ')}`);
 
   // Apply datasource changes immediately so the global enable toggles (and any

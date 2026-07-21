@@ -6,6 +6,7 @@
  */
 const db = require('./db');
 const logger = require('./logger');
+const geo = require('./geo');
 const aprsClient = require('./aprs-client');
 const localTnc   = require('./local-tnc');
 const mqttClient = require('./mqtt-client');
@@ -22,6 +23,15 @@ function getNetControlStation(raceId) {
     AND lat IS NOT NULL AND lon IS NOT NULL
     LIMIT 1
   `).get(raceId);
+}
+
+function getLoggedInOperators() {
+  return db.prepare(`
+    SELECT callsign FROM users
+    WHERE active_session_token IS NOT NULL
+      AND callsign IS NOT NULL AND callsign != ''
+      AND role IN ('admin', 'operator')
+  `).all();
 }
 
 function sendBeacons() {
@@ -42,6 +52,12 @@ function sendBeacons() {
     if (aprsClient.getStatus().connected) {
       if (station) {
         aprsClient.sendObjectBeacon(station.lat, station.lon, name);
+        // Report each logged-in operator as an object near Net Control, as if this
+        // station (the igate) were hearing them on RF.
+        for (const op of getLoggedInOperators()) {
+          const pos = geo.jitter(station.lat, station.lon, 100);
+          aprsClient.sendObjectBeacon(pos.lat, pos.lon, op.callsign);
+        }
       } else {
         logger.log('system', 'info', `Beacon: APRS-IS connected but no Net Control station for "${race.name}" — skipping`);
       }

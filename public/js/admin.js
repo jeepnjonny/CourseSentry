@@ -390,7 +390,7 @@ async function openRaceModal(id) {
   document.getElementById('rm-tnc-enabled').checked  = !!(race?.tnc_enabled ?? 1);
   document.getElementById('rm-spot-feed-id').value       = race?.spot_feed_id || '';
   document.getElementById('rm-spot-feed-password').value = race?.spot_feed_password || '';
-  document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || currentUser?.callsign || '';
+  document.getElementById('rm-tactical-callsign').value = race?.tactical_callsign || 'NETCTL';
   document.getElementById('rm-rf-path').value           = race?.rf_path || 'WIDE1-1';
   _updateCallsignRequired();
   document.getElementById('race-modal').classList.remove('hidden');
@@ -2113,7 +2113,10 @@ function renderSettingsTab() {
       <input type="checkbox" id="s-aprs-enabled"> Enable APRS-IS <span class="text-dim">(system-wide, all races)</span>
     </label>
     <div class="form-row">
-      <div class="form-group"><label>CALLSIGN</label><input id="s-aprs-callsign" placeholder="K7SWI" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="form-group">
+        <label>CALLSIGN</label><input id="s-aprs-callsign" placeholder="K7SWI" oninput="this.value=this.value.toUpperCase()">
+        <div style="font-size:13px;color:var(--text3);margin-top:3px">Passcode is generated automatically from the callsign</div>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>SERVER</label><input id="s-aprs-server" placeholder="rotate.aprs2.net"></div>
@@ -2235,7 +2238,6 @@ async function saveAprsSettings() {
   const res = await RT.put('/api/settings', {
     aprs_enabled:     document.getElementById('s-aprs-enabled').checked ? '1' : '0',
     aprs_callsign:    document.getElementById('s-aprs-callsign').value.trim().toUpperCase() || null,
-    aprs_passcode:    '-1',
     aprs_server:      document.getElementById('s-aprs-server').value.trim() || 'rotate.aprs2.net',
     aprs_port:        document.getElementById('s-aprs-port').value || '14580',
     aprs_filter_type: filterType,
