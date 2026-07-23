@@ -1115,7 +1115,7 @@ function renderParticipantsTab() {
     <div id="pt-csv-panel" class="hidden" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:10px">
       <div style="font-size:14px;color:var(--text3);margin-bottom:6px">
         <span style="color:var(--accent3)">Required column:</span> <code>bib</code><br>
-        <span style="color:var(--text3)">Plus any of:</span> <code>name, tracker_id, heat, class, age, phone, emergency_contact</code><br>
+        <span style="color:var(--text3)">Plus any of:</span> <code>name, tracker_id, heat, class, age, phone, emergency_contact, notes</code><br>
         <span style="color:var(--text3)">Tracking feeds:</span> <code>inreach_url, spot_feed_id, spot_feed_password</code><br>
         First row must be a header. Heat/class matched by name. Only the columns you include
         are updated — existing bibs are patched by bib # (so you can pair trackers later).
@@ -1316,6 +1316,7 @@ function openParticipantModal(id) {
   document.getElementById('pm2-inreach-url').value       = p?.inreach_url || '';
   document.getElementById('pm2-spot-feed-id').value      = p?.spot_feed_id || '';
   document.getElementById('pm2-spot-feed-password').value = p?.spot_feed_password || '';
+  document.getElementById('pm2-notes').value             = p?.notes || '';
   document.getElementById('pm2-phone').value             = p?.phone || '';
   document.getElementById('pm2-emergency').value         = p?.emergency_contact || '';
   document.getElementById('pm2-status').value            = p?.status || 'dns';
@@ -1342,6 +1343,7 @@ async function saveParticipant() {
     spot_feed_id:      document.getElementById('pm2-spot-feed-id').value.trim() || null,
     spot_feed_password: document.getElementById('pm2-spot-feed-password').value.trim() || null,
     age:               parseInt(document.getElementById('pm2-age').value) || null,
+    notes:             document.getElementById('pm2-notes').value.trim() || null,
     phone:             document.getElementById('pm2-phone').value.trim() || null,
     emergency_contact: document.getElementById('pm2-emergency').value.trim() || null,
     status:            document.getElementById('pm2-status').value,
@@ -1410,7 +1412,7 @@ function ptCsvSelected(input) {
     // Partial merge: only `bib` is required. At least one updatable column must
     // also be present, else there's nothing to import. New bibs still need a
     // `name` column, but that's enforced server-side per row.
-    const UPDATABLE = ['name', 'trackerid', 'tracker', 'heat', 'class', 'age', 'phone', 'emergencycontact',
+    const UPDATABLE = ['name', 'trackerid', 'tracker', 'heat', 'class', 'age', 'phone', 'emergencycontact', 'notes',
                        'inreachurl', 'spotfeedid', 'spotfeedpassword'];
     if (!headers.includes('bib')) {
       const found = firstLine.split(',').map(h => h.trim()).join(', ') || '(empty)';
@@ -1446,12 +1448,12 @@ async function importParticipantsCsv() {
 }
 
 function exportParticipantsCsv() {
-  const header = 'bib,name,tracker_id,heat,class,age,phone,emergency_contact,status';
+  const header = 'bib,name,tracker_id,heat,class,age,phone,emergency_contact,notes,status';
   const rows = participants.map(p => {
     const heat = heats.find(h => h.id === p.heat_id);
     const cls  = classes.find(c => c.id === p.class_id);
     return [p.bib, p.name, p.tracker_id||'', heat?.name||'', cls?.name||'',
-            p.age||'', p.phone||'', p.emergency_contact||'', p.status].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+            p.age||'', p.phone||'', p.emergency_contact||'', p.notes||'', p.status].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
   });
   const csv = [header, ...rows].join('\n');
   const a = document.createElement('a');
