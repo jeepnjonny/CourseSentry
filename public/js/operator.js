@@ -1562,6 +1562,7 @@ async function showParticipantInfo(id) {
       <div class="info-field"><span class="lbl">TRACKER</span><span class="val text-dim" style="font-size:13px">${p.tracker_id||'—'}</span></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:8px">
+      ${p.notes ? `<div class="info-field"><span class="lbl">NOTES</span><span class="val">${p.notes}</span></div>` : ''}
       <div class="info-field"><span class="lbl">PHONE</span><span class="val">${p.phone||'—'}</span></div>
       <div class="info-field"><span class="lbl">EMERGENCY</span><span class="val">${p.emergency_contact||'—'}</span></div>
       ${p.age ? `<div class="info-field"><span class="lbl">AGE</span><span class="val">${p.age}</span></div>` : ''}
@@ -1896,6 +1897,7 @@ async function openEditModal(id) {
   document.getElementById('em-name').value      = p.name;
   document.getElementById('em-status').value    = p.status || 'dns';
   document.getElementById('em-tracker').value   = p.tracker_id || '';
+  document.getElementById('em-participant-notes').value = p.notes || '';
   document.getElementById('em-phone').value     = p.phone || '';
   document.getElementById('em-emergency').value = p.emergency_contact || '';
   document.getElementById('em-start').value     = p.start_time ? new Date(p.start_time * 1000).toTimeString().slice(0,8) : '';
@@ -1916,6 +1918,7 @@ async function saveParticipant() {
     class_id:          document.getElementById('em-class').value || null,
     phone:             document.getElementById('em-phone').value.trim() || null,
     emergency_contact: document.getElementById('em-emergency').value.trim() || null,
+    notes:             document.getElementById('em-participant-notes').value.trim() || null,
   };
 
   // Parse optional time fields

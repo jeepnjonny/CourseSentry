@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS participants (
   age               INTEGER,
   phone             TEXT,
   emergency_contact TEXT,
+  notes             TEXT,
   inreach_url       TEXT,
   status            TEXT    DEFAULT 'dns'
                     CHECK(status IN ('dns','active','dnf','finished')),
@@ -461,6 +462,9 @@ try { db.prepare('ALTER TABLE races ADD COLUMN spot_feed_password TEXT').run(); 
 // these alongside any per-race feed and auto-registers the tracker.
 try { db.prepare('ALTER TABLE participants ADD COLUMN spot_feed_id TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE participants ADD COLUMN spot_feed_password TEXT').run(); } catch {}
+
+// Free-form staff notes per participant — admin/operator only, never shown to viewer/station.
+try { db.prepare('ALTER TABLE participants ADD COLUMN notes TEXT').run(); } catch {}
 
 // Add class display fields (color/shape for map visualization), mirroring heats
 try { db.prepare("ALTER TABLE classes ADD COLUMN color TEXT NOT NULL DEFAULT '#58a6ff'").run(); } catch {}
