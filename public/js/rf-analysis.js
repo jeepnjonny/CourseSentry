@@ -12,27 +12,35 @@ let gapLayers       = [];   // L.polyline instances for silence gaps
 
 let races        = [];
 let currentRaceId = null;
-let allPositions  = [];   // raw from API [{node_id,lat,lon,snr,rssi,rf_source,timestamp}]
+let allPositions  = [];   // raw from API [{node_id,lat,lon,snr,rssi,rf_source,timestamp,heard_via}]
 let nodeSummary   = [];   // from /nodes endpoint
 let summary       = {};   // per-source stats (unfiltered)
 let stationData   = [];
 let routePoints   = [];
-let trackMeta     = null; // pre-computed from routePoints via geoBuildTrackMeta
-
-let segmentData       = null;  // computed lazily on SEGS tab, reset when source/time changes
-let stationMatrixData = null;  // fetched lazily on STNS tab, reset on race change
 
 let activeSources   = new Set();
 let metric          = 'density';   // 'density' | 'snr' | 'rssi'
 let heatOpacity     = 0.70;
 let gridSizeM       = 50;   // grid cell edge in meters
 let rightTab        = 'stats';
-let timeWindowMode  = 'race';      // 'race' | 'all'
+let timeWindowMode  = 'race';      // 'race' | 'all' | 'custom'
 let raceWindowStart = null;        // computed unix ts
 let raceWindowEnd   = null;        // computed unix ts (null = live/now)
+let customStart     = null;        // unix ts — user-picked custom window start
+let customEnd       = null;        // unix ts — user-picked custom window end
 let showCoverage    = false;
 let showGaps        = false;
 let gapMinutes      = 5;
+
+// Infrastructure (digipeaters/igates/repeaters/beacons) + per-node coverage scoping
+let infraNodes       = [];   // from /infrastructure endpoint
+let infraLayer       = null; // L.layerGroup of infra markers
+let selectedInfraNode = null; // the infra node object currently scoping filteredPositions(), or null
+
+// Per-node breadcrumb trails (Nodes tab: click a node to toggle its trail)
+let tailHours        = 0;    // 0 (off) | 1|2|4|8|12 | 'full'
+let selectedTrailNodes = new Set(); // node_ids currently showing a trail
+let trailLayers       = new Map();  // node_id → { marker, line }
 
 // Replay: scrubs/animates through the current time window by capping
 // filteredPositions() at a cursor timestamp. Bounds track raceWindowStart/End
@@ -65,38 +73,6 @@ const BASE_LAYERS = {
 
 // Signal quality gradient: weak (red) → strong (blue) — industry standard
 const SIGNAL_GRADIENT = { 0.0: '#f85149', 0.35: '#ffa657', 0.55: '#fafa00', 0.75: '#3fb950', 1.0: '#58a6ff' };
-
-// ── Ported geo helpers (mirrors src/geo.js — pure math, no dependencies) ──────
-function geoToRad(d) { return d * Math.PI / 180; }
-function geoHaversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const dLat = geoToRad(lat2 - lat1), dLon = geoToRad(lon2 - lon1);
-  const a = Math.sin(dLat/2)**2 + Math.cos(geoToRad(lat1))*Math.cos(geoToRad(lat2))*Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-function geoPointToSegment(pLat, pLon, aLat, aLon, bLat, bLon) {
-  const ax = geoToRad(aLon)*Math.cos(geoToRad(aLat)), ay = geoToRad(aLat);
-  const bx = geoToRad(bLon)*Math.cos(geoToRad(aLat)), by = geoToRad(bLat);
-  const px = geoToRad(pLon)*Math.cos(geoToRad(aLat)), py = geoToRad(pLat);
-  const dx = bx-ax, dy = by-ay, lenSq = dx*dx+dy*dy;
-  const t = lenSq > 0 ? Math.max(0, Math.min(1, ((px-ax)*dx+(py-ay)*dy)/lenSq)) : 0;
-  return { dist: Math.sqrt((px-ax-t*dx)**2+(py-ay-t*dy)**2)*6371000, t };
-}
-function geoBuildTrackMeta(points) {
-  const dists = [0];
-  for (let i = 1; i < points.length; i++)
-    dists.push(dists[i-1] + geoHaversine(points[i-1][0], points[i-1][1], points[i][0], points[i][1]));
-  return { dists, total: dists[dists.length-1] };
-}
-function geoDistAlongRoute(lat, lon, points, meta) {
-  let minDist = Infinity, bestAlong = 0;
-  for (let i = 0; i < points.length-1; i++) {
-    const [lat1,lon1] = points[i], [lat2,lon2] = points[i+1];
-    const { dist, t } = geoPointToSegment(lat, lon, lat1, lon1, lat2, lon2);
-    if (dist < minDist) { minDist = dist; bestAlong = meta.dists[i] + t*(meta.dists[i+1]-meta.dists[i]); }
-  }
-  return bestAlong;
-}
 
 // ── Node display name helper ───────────────────────────────────────────────────
 function getNodeDisplayName(nodeId) {
@@ -207,160 +183,6 @@ function setGapMin(val) {
   if (showGaps) renderGapLines();
 }
 
-// ── Segment peer comparison (computed client-side from allPositions + routePoints) ──
-function computeSegmentData() {
-  if (!routePoints.length || !trackMeta) return null;
-  const SEGMENT_M = 1000;
-  const pts = filteredPositions();
-  if (!pts.length) return { segments: [], nodeIds: [], cells: [] };
-
-  const nodeCells = {}; // node_id -> { seg_idx -> count }
-  for (const pos of pts) {
-    const along = geoDistAlongRoute(pos.lat, pos.lon, routePoints, trackMeta);
-    const idx   = Math.floor(along / SEGMENT_M);
-    if (!nodeCells[pos.node_id]) nodeCells[pos.node_id] = {};
-    nodeCells[pos.node_id][idx] = (nodeCells[pos.node_id][idx] || 0) + 1;
-  }
-
-  const totalSegs = Math.ceil(trackMeta.total / SEGMENT_M);
-
-  // Per-segment fleet median (only over nodes that reported in that segment)
-  const segCounts = {};
-  for (const segs of Object.values(nodeCells))
-    for (const [idxStr, cnt] of Object.entries(segs)) {
-      const i = parseInt(idxStr);
-      if (!segCounts[i]) segCounts[i] = [];
-      segCounts[i].push(cnt);
-    }
-  const segMedians = {};
-  for (const [idxStr, cnts] of Object.entries(segCounts)) {
-    const s = [...cnts].sort((a, b) => a - b);
-    const m = Math.floor(s.length / 2);
-    segMedians[parseInt(idxStr)] = s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
-  }
-
-  const nodeIds = Object.keys(nodeCells);
-  const segments = Array.from({length: totalSegs}, (_, i) => ({
-    idx: i, label: `${(i * SEGMENT_M / 1000).toFixed(1)}`, hasData: !!segCounts[i],
-  }));
-  const cells = [];
-  for (const [nodeId, segs] of Object.entries(nodeCells))
-    for (const [idxStr, cnt] of Object.entries(segs)) {
-      const idx = parseInt(idxStr);
-      const med = segMedians[idx] || 1;
-      cells.push({ node_id: nodeId, segment_idx: idx, count: cnt, pct: Math.round((cnt/med)*100) });
-    }
-
-  return { segments, nodeIds, cells };
-}
-
-function renderSegmentGrid() {
-  const wrap = document.getElementById('seg-grid-wrap');
-  if (!wrap) return;
-
-  if (!routePoints.length) {
-    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No route defined for this race</span>';
-    return;
-  }
-  if (!allPositions.length) {
-    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No position data</span>';
-    return;
-  }
-
-  if (!segmentData) {
-    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">Computing…</span>';
-    setTimeout(() => { segmentData = computeSegmentData(); renderSegmentGrid(); }, 10);
-    return;
-  }
-
-  const { segments, nodeIds, cells } = segmentData;
-  if (!nodeIds.length) {
-    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No data</span>';
-    return;
-  }
-
-  const activeSegs = segments.filter(s => s.hasData);
-  const cellMap = {};
-  for (const c of cells) cellMap[`${c.node_id}:${c.segment_idx}`] = c;
-
-  const headerCells = nodeIds.map(nid => {
-    const n = nodeSummary.find(x => x.node_id === nid);
-    const short = n?.participant_name ? `#${n.bib}` : (n?.short_name || nid.slice(-4));
-    const full  = n?.participant_name ? `#${n.bib} ${n.participant_name}` : (n?.long_name || n?.short_name || nid);
-    return `<th title="${full}">${short}</th>`;
-  }).join('');
-
-  const bodyRows = activeSegs.map(seg => {
-    const tds = nodeIds.map(nid => {
-      const c = cellMap[`${nid}:${seg.idx}`];
-      if (!c) return `<td class="seg-cell-none">—</td>`;
-      const cls = c.pct >= 75 ? 'seg-cell-ok' : c.pct >= 50 ? 'seg-cell-warn' : 'seg-cell-bad';
-      return `<td class="${cls}" title="${c.count} pkts (${c.pct}% of median)">${c.count}</td>`;
-    }).join('');
-    return `<tr><td>${seg.label} km</td>${tds}</tr>`;
-  }).join('');
-
-  wrap.innerHTML = `
-    <table class="seg-grid">
-      <thead><tr><th></th>${headerCells}</tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>`;
-}
-
-// ── Station reception matrix (lazy: fetches /station-matrix on first view) ────
-async function renderStationMatrix() {
-  const wrap = document.getElementById('station-matrix-wrap');
-  if (!wrap) return;
-
-  if (!stationMatrixData) {
-    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">Loading…</span>';
-    const res = await RT.get(`/api/races/${currentRaceId}/rf-analysis/station-matrix`);
-    if (!res.ok) {
-      wrap.innerHTML = '<span class="text-dim" style="font-size:13px">Failed to load station data</span>';
-      return;
-    }
-    stationMatrixData = res.data;
-  }
-
-  const { stations, participants, cells } = stationMatrixData;
-  if (!cells.length) {
-    wrap.innerHTML = '<span class="text-dim" style="font-size:13px">No confirmed station arrivals found — check that participants have trackers assigned and aid_arrive events exist</span>';
-    return;
-  }
-
-  const cellMap = {};
-  for (const c of cells) cellMap[`${c.participant_id}:${c.station_id}`] = c;
-
-  const pIds = new Set(cells.map(c => c.participant_id));
-  const sIds = new Set(cells.map(c => c.station_id));
-  const activeParts = participants.filter(p => pIds.has(p.id));
-  const activeStns  = stations.filter(s => sIds.has(s.id));
-
-  const headerCells = activeParts.map(p =>
-    `<th title="${p.name}" style="white-space:nowrap">#${p.bib}</th>`
-  ).join('');
-
-  const bodyRows = activeStns.map(s => {
-    const tds = activeParts.map(p => {
-      const c = cellMap[`${p.id}:${s.id}`];
-      if (!c) return `<td class="stn-cell-na" title="${p.name} not confirmed at ${s.name}">·</td>`;
-      return c.has_packet
-        ? `<td class="stn-cell-ok"   title="${p.name} — packet received near ${s.name}">✓</td>`
-        : `<td class="stn-cell-miss" title="${p.name} — no RF packet near ${s.name}">✗</td>`;
-    }).join('');
-    return `<tr><td>${s.name}</td>${tds}</tr>`;
-  }).join('');
-
-  wrap.innerHTML = `
-    <div class="stn-matrix-inner">
-      <table class="stn-matrix">
-        <thead><tr><th>Station</th>${headerCells}</tr></thead>
-        <tbody>${bodyRows}</tbody>
-      </table>
-    </div>`;
-}
-
-
 // ── Init ───────────────────────────────────────────────────────────────────────
 async function init() {
   const user = await RT.requireLogin('admin');
@@ -415,11 +237,12 @@ async function selectRace(raceId) {
   currentRaceId = parseInt(raceId);
   showLoading(true);
 
-  const [rfRes, nodeRes, stnRes, trackRes] = await Promise.all([
+  const [rfRes, nodeRes, stnRes, trackRes, infraRes] = await Promise.all([
     RT.get(`/api/races/${raceId}/rf-analysis`),
     RT.get(`/api/races/${raceId}/rf-analysis/nodes`),
     RT.get(`/api/races/${raceId}/stations`),
     RT.get(`/api/races/${raceId}/tracks/parse`),
+    RT.get(`/api/races/${raceId}/infrastructure`),
   ]);
 
   showLoading(false);
@@ -431,17 +254,31 @@ async function selectRace(raceId) {
   stationData  = (stnRes.ok && stnRes.data?.length) ? stnRes.data : [];
   routePoints  = (trackRes.ok && trackRes.data?.trackPoints?.length)
     ? trackRes.data.trackPoints.map(([lat, lon]) => [lat, lon]) : [];
+  infraNodes   = infraRes.ok ? infraRes.data : [];
 
-  // Pre-compute track metadata for client-side segment projection
-  trackMeta = routePoints.length >= 2 ? geoBuildTrackMeta(routePoints) : null;
-
-  // Reset lazy-computed data for the new race
-  segmentData = null;
-  stationMatrixData = null;
   clearGapLines();
+  selectedInfraNode = null;
+  selectedTrailNodes = new Set();
+  clearTrails();
 
   // Compute race time bounds before any rendering
   computeRaceBounds();
+
+  // Reset time window to the race default on every race change — a stale
+  // custom range (or its now-mismatched datetime inputs) from a previous
+  // race is more confusing than useful.
+  timeWindowMode = 'race';
+  customStart = null;
+  customEnd   = null;
+  const timeWindowSel = document.getElementById('time-window');
+  if (timeWindowSel) timeWindowSel.value = 'race';
+  const customBox = document.getElementById('custom-window-inputs');
+  if (customBox) customBox.style.display = 'none';
+  const startEl = document.getElementById('custom-start');
+  const endEl   = document.getElementById('custom-end');
+  if (startEl) startEl.value = '';
+  if (endEl)   endEl.value = '';
+
   resetReplay();
 
   // Build active sources from data
@@ -454,6 +291,7 @@ async function selectRace(raceId) {
   renderRawTable();
   renderGrid();
   renderCoveragePolygons();
+  renderInfraMarkers();
   updateTimeWindowInfo();
 
   // Route overlay
@@ -512,17 +350,62 @@ function computeRaceBounds() {
   raceWindowEnd = race.status === 'active' ? null : posMax;
 }
 
+// ── Custom range <-> datetime-local conversion (local timezone, second-truncated) ──
+function tsToLocalInput(ts) {
+  if (ts == null) return '';
+  const d = new Date(ts * 1000);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function localInputToTs(val) {
+  if (!val) return null;
+  const t = new Date(val).getTime();
+  return isNaN(t) ? null : Math.floor(t / 1000);
+}
+
 function setTimeWindow(val) {
   timeWindowMode = val;
-  segmentData = null; // recompute segments with new time window
+
+  const customBox = document.getElementById('custom-window-inputs');
+  if (customBox) customBox.style.display = val === 'custom' ? 'flex' : 'none';
+
+  if (val === 'custom') {
+    const startEl = document.getElementById('custom-start');
+    const endEl   = document.getElementById('custom-end');
+    // Prefill from the race window (or all-data bounds) as a sane starting point
+    if (startEl && !startEl.value) {
+      const posMin = allPositions.length ? Math.min(...allPositions.map(p => p.timestamp)) : null;
+      startEl.value = tsToLocalInput(raceWindowStart ?? posMin);
+    }
+    if (endEl && !endEl.value) {
+      const posMax = allPositions.length ? Math.max(...allPositions.map(p => p.timestamp)) : null;
+      endEl.value = tsToLocalInput(raceWindowEnd ?? posMax);
+    }
+    customStart = localInputToTs(startEl?.value);
+    customEnd   = localInputToTs(endEl?.value);
+  }
+
   resetReplay();
   renderGrid();
   renderCoveragePolygons();
   renderRawTable();
   renderStats();
+  renderTrails();
   updateTimeWindowInfo();
   if (showGaps) renderGapLines();
-  if (rightTab === 'segs') renderSegmentGrid();
+}
+
+function setCustomWindow() {
+  customStart = localInputToTs(document.getElementById('custom-start')?.value);
+  customEnd   = localInputToTs(document.getElementById('custom-end')?.value);
+  resetReplay();
+  renderGrid();
+  renderCoveragePolygons();
+  renderRawTable();
+  renderStats();
+  renderTrails();
+  updateTimeWindowInfo();
+  if (showGaps) renderGapLines();
 }
 
 function updateTimeWindowInfo() {
@@ -532,14 +415,20 @@ function updateTimeWindowInfo() {
 
   if (!allPositions.length) { rangeEl.textContent = ''; countEl.textContent = ''; return; }
 
+  const fmt    = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fmtDay = ts => new Date(ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' });
+
   if (timeWindowMode === 'race' && raceWindowStart != null) {
     const endTs  = raceWindowEnd ?? Math.floor(Date.now() / 1000);
-    const fmt    = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const fmtDay = ts => new Date(ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' });
     const sameDay = fmtDay(raceWindowStart) === fmtDay(endTs);
     rangeEl.innerHTML = sameDay
       ? `${fmtDay(raceWindowStart)}&nbsp; ${fmt(raceWindowStart)} → ${fmt(endTs)}${raceWindowEnd == null ? ' <span style="color:var(--accent2)">● LIVE</span>' : ''}`
       : `${fmtDay(raceWindowStart)} ${fmt(raceWindowStart)} → ${fmtDay(endTs)} ${fmt(endTs)}`;
+  } else if (timeWindowMode === 'custom' && customStart != null && customEnd != null) {
+    const sameDay = fmtDay(customStart) === fmtDay(customEnd);
+    rangeEl.innerHTML = sameDay
+      ? `${fmtDay(customStart)}&nbsp; ${fmt(customStart)} → ${fmt(customEnd)}`
+      : `${fmtDay(customStart)} ${fmt(customStart)} → ${fmtDay(customEnd)} ${fmt(customEnd)}`;
   } else {
     rangeEl.textContent = '';
   }
@@ -548,12 +437,19 @@ function updateTimeWindowInfo() {
   countEl.textContent = `${visible.length.toLocaleString()} of ${allPositions.length.toLocaleString()} packets`;
 }
 
-// Returns positions filtered by active sources, time window, AND replay cursor
+// Returns positions filtered by active sources, time window, replay cursor, AND
+// (if a digi/igate is selected) which node actually relayed the packet.
 function filteredPositions() {
   let pts = allPositions.filter(p => activeSources.has(p.rf_source || 'meshtastic'));
   if (timeWindowMode === 'race' && raceWindowStart != null) {
     const endTs = raceWindowEnd ?? Math.floor(Date.now() / 1000);
     pts = pts.filter(p => p.timestamp >= raceWindowStart && p.timestamp <= endTs);
+  } else if (timeWindowMode === 'custom' && customStart != null && customEnd != null) {
+    pts = pts.filter(p => p.timestamp >= customStart && p.timestamp <= customEnd);
+  }
+  if (selectedInfraNode) {
+    const call = selectedInfraNode.node_id;
+    pts = pts.filter(p => p.heard_via && p.heard_via.split(',').includes(call));
   }
   if (replayCursor != null) {
     pts = pts.filter(p => p.timestamp <= replayCursor);
@@ -566,6 +462,9 @@ function computeReplayBounds() {
   if (!allPositions.length) return { start: null, end: null };
   if (timeWindowMode === 'race' && raceWindowStart != null) {
     return { start: raceWindowStart, end: raceWindowEnd ?? Math.floor(Date.now() / 1000) };
+  }
+  if (timeWindowMode === 'custom' && customStart != null && customEnd != null) {
+    return { start: customStart, end: customEnd };
   }
   const posMin = Math.min(...allPositions.map(p => p.timestamp));
   const posMax = Math.max(...allPositions.map(p => p.timestamp));
@@ -628,16 +527,16 @@ function updatePlayButton() {
 
 // Re-renders everything that depends on the replay-filtered position set.
 // Mirrors toggleSource()'s conditional-by-tab pattern to keep animated
-// playback cheap (raw table / segment grid only recompute when visible).
+// playback cheap (raw table only recomputes when visible).
 function onReplayChange() {
   renderGrid();
   renderCoveragePolygons();
+  renderTrails();
   updateTimeWindowInfo();
   updateReplayLabel();
   if (showGaps) renderGapLines();
   if (rightTab === 'raw')   renderRawTable();
   if (rightTab === 'stats') renderStats();
-  if (rightTab === 'segs')  { segmentData = null; renderSegmentGrid(); }
 }
 
 function playReplay() {
@@ -789,22 +688,32 @@ function renderNodeList() {
     return;
   }
 
+  // Zip health scores (parallel array over the full nodeSummary) before
+  // filtering to the active technologies, so indices stay aligned.
   const healthColors = computeHealthScores();
+  const visibleNodes = nodeSummary
+    .map((n, i) => ({ ...n, health: healthColors[i] }))
+    .filter(n => activeSources.has(n.rf_source));
 
-  el.innerHTML = nodeSummary.map((n, i) => {
+  if (!visibleNodes.length) {
+    el.innerHTML = '<span class="text-dim" style="font-size:13px">No nodes for the selected technology</span>';
+    return;
+  }
+
+  el.innerHTML = visibleNodes.map(n => {
     const m = srcMeta(n.rf_source);
     const displayName = n.participant_name
       ? `#${n.bib} ${n.participant_name}`
       : (n.long_name || n.short_name || n.node_id);
-    const hColor  = healthColors[i];
-    const hDot    = hColor ? `<span class="health-dot" style="background:${hColor}" title="Packet rate health"></span>` : '';
+    const hDot    = n.health ? `<span class="health-dot" style="background:${n.health}" title="Packet rate health"></span>` : '';
     const intervals = computeNodeIntervals(n.node_id);
     const spark   = intervals.some(v => v > 0) ? renderSparkline(intervals) : '';
     const snrStr  = n.avg_snr  != null ? `SNR ${Math.round(n.avg_snr)} dB`   : '';
     const rssiStr = n.avg_rssi != null ? `RSSI ${Math.round(n.avg_rssi)} dBm` : '';
     const sigStr  = [snrStr, rssiStr].filter(Boolean).join('  ');
+    const selected = selectedTrailNodes.has(n.node_id) ? ' selected' : '';
     return `
-      <div class="node-row" title="${n.node_id}">
+      <div class="node-row${selected}" title="${n.node_id} — click to toggle trail" onclick="RF.toggleTrailNode('${n.node_id}')">
         ${hDot}
         <span class="src-dot" style="background:${m.color}"></span>
         <span class="node-name">${displayName}</span>
@@ -812,6 +721,57 @@ function renderNodeList() {
       </div>
       ${sigStr ? `<div style="font-size:11px;color:${snrQualityColor(n.avg_snr)};padding:0 4px 4px 22px">${sigStr}</div>` : ''}`;
   }).join('');
+}
+
+// ── Per-node breadcrumb trails ──────────────────────────────────────────────────
+function setTailLength(val) {
+  tailHours = val === 'full' ? 'full' : parseInt(val);
+  renderTrails();
+}
+
+function toggleTrailNode(nodeId) {
+  if (selectedTrailNodes.has(nodeId)) selectedTrailNodes.delete(nodeId);
+  else selectedTrailNodes.add(nodeId);
+  renderNodeList();
+  renderTrails();
+}
+
+function clearTrails() {
+  for (const { marker, line } of trailLayers.values()) {
+    if (marker) leafletMap.removeLayer(marker);
+    if (line)   leafletMap.removeLayer(line);
+  }
+  trailLayers.clear();
+}
+
+function renderTrails() {
+  clearTrails();
+  if (!selectedTrailNodes.size || !leafletMap) return;
+
+  const { end: windowEnd } = computeReplayBounds();
+  const cursorEnd = replayCursor ?? windowEnd;
+  if (cursorEnd == null) return;
+  const cutoff = tailHours === 'full' ? -Infinity : cursorEnd - tailHours * 3600;
+
+  for (const nodeId of selectedTrailNodes) {
+    const pts = filteredPositions()
+      .filter(p => p.node_id === nodeId && p.timestamp >= cutoff && p.timestamp <= cursorEnd)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    if (!pts.length) continue;
+
+    const last  = pts[pts.length - 1];
+    const color = srcMeta(last.rf_source || 'meshtastic').color;
+    const latLngs = pts.map(p => [p.lat, p.lon]);
+
+    const line = pts.length >= 2
+      ? L.polyline(latLngs, { color, weight: 2.5, opacity: 0.85 }).addTo(leafletMap)
+      : null;
+    const marker = L.circleMarker([last.lat, last.lon], {
+      radius: 6, color: '#fff', weight: 1.5, fillColor: color, fillOpacity: 1,
+    }).bindTooltip(getNodeDisplayName(nodeId)).addTo(leafletMap);
+
+    trailLayers.set(nodeId, { marker, line });
+  }
 }
 
 // ── Raw data table ─────────────────────────────────────────────────────────────
@@ -862,6 +822,20 @@ function renderCoveragePolygons() {
 
   const visible = filteredPositions();
   if (!visible.length) return;
+
+  // A selected digi/igate scopes filteredPositions() down to just what it relayed
+  // (see filteredPositions()'s heard_via filter) — draw one hull for that instead
+  // of grouping by technology.
+  if (selectedInfraNode) {
+    const pts = visible.map(p => [p.lat, p.lon]);
+    const hull = convexHull(pts);
+    if (hull.length < 3) return;
+    const color = infraNodeColor(selectedInfraNode.node_type);
+    coverageLayers.infra = L.polygon(hull, {
+      color, weight: 1.5, opacity: 0.8, fillColor: color, fillOpacity: 0.12, dashArray: '5,4',
+    }).bindTooltip(`${selectedInfraNode.name} coverage — ${pts.length.toLocaleString()} packets heard`).addTo(leafletMap);
+    return;
+  }
 
   // Group by source
   const bySource = {};
@@ -916,6 +890,56 @@ function convexHull(points) {
 // Cross product z-component — positive = counter-clockwise
 function ccw(a, b, c) {
   return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+// ── Infrastructure markers (digipeaters/igates/repeaters/beacons) ──────────────
+const INFRA_ICON = {
+  digipeater: { color: '#a371f7', letter: '▲' },
+  igate:      { color: '#f78166', letter: '◆' },
+  repeater:   { color: '#8b949e', letter: '●' },
+  beacon:     { color: '#8b949e', letter: '■' },
+  other:      { color: '#8b949e', letter: '?' },
+};
+function infraNodeColor(nodeType) { return (INFRA_ICON[nodeType] || INFRA_ICON.other).color; }
+
+function renderInfraMarkers() {
+  if (infraLayer) { leafletMap.removeLayer(infraLayer); infraLayer = null; }
+  if (!infraNodes.length) return;
+
+  infraLayer = L.layerGroup().addTo(leafletMap);
+  for (const n of infraNodes) {
+    if (n.resolved_lat == null || n.resolved_lon == null) continue;
+    const cfg = INFRA_ICON[n.node_type] || INFRA_ICON.other;
+    const isSelected = selectedInfraNode?.id === n.id;
+    const marker = L.marker([n.resolved_lat, n.resolved_lon], {
+      icon: L.divIcon({
+        html: `<div style="width:22px;height:22px;border-radius:4px;background:${cfg.color};border:2px solid ${isSelected ? '#fff' : '#fff4'};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:#000">${cfg.letter}</div>`,
+        className: '', iconAnchor: [11, 11],
+      }),
+    }).bindTooltip(`${n.name} (${n.node_type})${n.health === 'never_seen' ? ' — never seen' : ''}`)
+      .on('click', () => selectInfraNode(n))
+      .addTo(infraLayer);
+  }
+}
+
+// Selecting a digi/igate scopes the grid/coverage/stats/table to only what that
+// node actually relayed (heard_via) — click again to clear the selection.
+function selectInfraNode(node) {
+  selectedInfraNode = (selectedInfraNode?.id === node.id) ? null : node;
+
+  if (selectedInfraNode) {
+    showCoverage = true;
+    const chk = document.getElementById('chk-coverage');
+    if (chk) chk.checked = true;
+  }
+
+  renderInfraMarkers();
+  renderGrid();
+  renderCoveragePolygons();
+  renderStats();
+  updateTimeWindowInfo();
+  if (showGaps) renderGapLines();
+  if (rightTab === 'raw') renderRawTable();
 }
 
 // ── Grid square rendering ──────────────────────────────────────────────────────
@@ -1059,28 +1083,26 @@ function renderLegend(hasCells) {
 // ── Right panel tabs ───────────────────────────────────────────────────────────
 function switchTab(id) {
   rightTab = id;
-  ['stats', 'nodes', 'segs', 'stns', 'raw'].forEach(t => {
+  ['stats', 'nodes', 'raw'].forEach(t => {
     document.getElementById(`rp-tab-${t}`)?.classList.toggle('active', t === id);
     const el = document.getElementById(`rp-${t}`);
     if (el) el.style.display = t === id ? '' : 'none';
   });
-  if (id === 'raw')  renderRawTable();
-  if (id === 'segs') renderSegmentGrid();
-  if (id === 'stns') renderStationMatrix();
+  if (id === 'raw') renderRawTable();
 }
 
 // ── Controls ───────────────────────────────────────────────────────────────────
 function toggleSource(src, checked) {
   if (checked) activeSources.add(src);
   else         activeSources.delete(src);
-  segmentData = null; // recompute segments with new source filter
   renderGrid();
   renderCoveragePolygons();
+  renderNodeList();
+  renderTrails();
   updateTimeWindowInfo();
   if (showGaps) renderGapLines();
   if (rightTab === 'raw')  renderRawTable();
   if (rightTab === 'stats') renderStats();
-  if (rightTab === 'segs')  renderSegmentGrid();
 }
 
 function setMetric(m) {
@@ -1119,7 +1141,8 @@ function showLoading(on) {
 init();
 
 return { selectRace, toggleSource, setMetric, setOpacity, setGridSize,
-         clearData, switchTab, setTimeWindow, toggleCoverage,
+         clearData, switchTab, setTimeWindow, setCustomWindow, toggleCoverage,
          toggleGaps, setGapMin, setBaseLayer,
-         toggleReplayPlay, scrubReplay, setReplaySpeed };
+         toggleReplayPlay, scrubReplay, setReplaySpeed,
+         setTailLength, toggleTrailNode };
 })();

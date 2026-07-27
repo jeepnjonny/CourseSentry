@@ -470,6 +470,11 @@ try { db.prepare('ALTER TABLE participants ADD COLUMN notes TEXT').run(); } catc
 try { db.prepare("ALTER TABLE classes ADD COLUMN color TEXT NOT NULL DEFAULT '#58a6ff'").run(); } catch {}
 try { db.prepare("ALTER TABLE classes ADD COLUMN shape TEXT NOT NULL DEFAULT 'circle'").run(); } catch {}
 
+// Digipeater/igate callsigns that actually relayed an APRS packet (parsed from the
+// path/q-construct in aprs-client.js). NULL for non-APRS sources. Powers per-node
+// coverage scoping in the RF Analysis tool.
+try { db.prepare('ALTER TABLE tracker_positions ADD COLUMN heard_via TEXT').run(); } catch {}
+
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.
 db.prepare('UPDATE users SET active_session_token = NULL').run();
