@@ -33,11 +33,13 @@ function createApp() {
   app.use('/api/races', require('../../src/routes/races'));
 
   const raceRouter = express.Router({ mergeParams: true });
-  raceRouter.use('/stations',     require('../../src/routes/stations'));
-  raceRouter.use('/participants', require('../../src/routes/participants'));
-  raceRouter.use('/heats',        require('../../src/routes/heats'));
-  raceRouter.use('/classes',      require('../../src/routes/classes'));
-  raceRouter.use('/events',       require('../../src/routes/events'));
+  raceRouter.use('/stations',       require('../../src/routes/stations'));
+  raceRouter.use('/participants',   require('../../src/routes/participants'));
+  raceRouter.use('/heats',          require('../../src/routes/heats'));
+  raceRouter.use('/classes',        require('../../src/routes/classes'));
+  raceRouter.use('/events',         require('../../src/routes/events'));
+  raceRouter.use('/personnel',      require('../../src/routes/personnel'));
+  raceRouter.use('/infrastructure', require('../../src/routes/infrastructure'));
   app.use('/api/races/:raceId', raceRouter);
 
   app.use((err, req, res, _next) => {
