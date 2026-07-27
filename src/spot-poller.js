@@ -139,8 +139,14 @@ function batteryStateToPct(state) {
   }
 }
 
+const SOS_MESSAGE_TYPES = new Set(['SOS', 'HELP']);
+
 /**
  * Reduce a feed's messages to the newest fix per device (keyed by messengerId).
+ * Position/battery/messageType reflect the newest message, but `sosSeen` is
+ * OR'd across every message in the batch — a poll interval can contain several
+ * messages per device, and an SOS/HELP must never be masked by a later plain
+ * TRACK message that happens to land in the same 5-minute window.
  */
 function newestPerDevice(messages) {
   const byDevice = new Map();
@@ -151,8 +157,9 @@ function newestPerDevice(messages) {
     const ts = parseInt(m.unixTime, 10);
     if (!id || isNaN(lat) || isNaN(lon) || isNaN(ts)) continue;
 
+    const isSos = SOS_MESSAGE_TYPES.has(String(m.messageType || '').toUpperCase());
     const prev = byDevice.get(id);
-    if (!prev || ts > prev.timestamp) {
+    if (!prev) {
       byDevice.set(id, {
         messengerId: id,
         name: m.messengerName || null,
@@ -161,7 +168,18 @@ function newestPerDevice(messages) {
         timestamp: ts,
         messageType: m.messageType || null,
         battery: batteryStateToPct(m.batteryState),
+        sosSeen: isSos,
       });
+    } else {
+      prev.sosSeen = prev.sosSeen || isSos;
+      if (ts > prev.timestamp) {
+        prev.name = m.messengerName || prev.name;
+        prev.lat = lat;
+        prev.lon = lon;
+        prev.timestamp = ts;
+        prev.messageType = m.messageType || null;
+        prev.battery = batteryStateToPct(m.batteryState);
+      }
     }
   }
   return [...byDevice.values()];
@@ -226,6 +244,16 @@ async function pollRaceFeed(race) {
         timestamp: dev.timestamp,
         rfSource: 'spot',
       });
+
+      // handlePosition() only stores battery in the registry — route it through
+      // handleTelemetry() too so the existing low-battery alert threshold applies.
+      if (dev.battery != null) {
+        mqttClient.handleTelemetry({ nodeId, battery: dev.battery, timestamp: dev.timestamp });
+      }
+      if (dev.sosSeen) {
+        logger.log('spot', 'error', `SOS/HELP — ${dev.name || nodeId}`);
+        mqttClient.handleSosAlert({ nodeId, timestamp: dev.timestamp });
+      }
     }
   } catch (e) {
     logger.log('spot', 'warn', `Poll failed for race "${race.name}": ${e.message}`);
@@ -291,6 +319,16 @@ async function pollParticipantFeed(participant) {
       timestamp: dev.timestamp,
       rfSource: 'spot',
     });
+
+    // handlePosition() only stores battery in the registry — route it through
+    // handleTelemetry() too so the existing low-battery alert threshold applies.
+    if (dev.battery != null) {
+      mqttClient.handleTelemetry({ nodeId, battery: dev.battery, timestamp: dev.timestamp });
+    }
+    if (dev.sosSeen) {
+      logger.log('spot', 'error', `SOS/HELP — ${participant.name} (#${participant.bib})`);
+      mqttClient.handleSosAlert({ nodeId, timestamp: dev.timestamp });
+    }
   } catch (e) {
     logger.log('spot', 'warn',
       `Poll failed for ${participant.name} (#${participant.bib}): ${e.message}`);

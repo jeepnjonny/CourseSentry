@@ -107,6 +107,32 @@ describe('newestPerDevice', () => {
     ]);
     expect(out).toEqual([]);
   });
+
+  test('sosSeen is true when the newest message is SOS/HELP', () => {
+    const out = newestPerDevice([
+      { messengerId: '0-111', latitude: 40.1, longitude: -105.2, unixTime: 1700000000, messageType: 'TRACK' },
+      { messengerId: '0-111', latitude: 40.5, longitude: -105.9, unixTime: 1700000500, messageType: 'SOS' },
+    ]);
+    expect(out.find(d => d.messengerId === '0-111').sosSeen).toBe(true);
+  });
+
+  test('sosSeen stays true even when a later plain TRACK message in the same batch overwrites the newest fix', () => {
+    const out = newestPerDevice([
+      { messengerId: '0-111', latitude: 40.1, longitude: -105.2, unixTime: 1700000000, messageType: 'HELP' },
+      { messengerId: '0-111', latitude: 40.5, longitude: -105.9, unixTime: 1700000500, messageType: 'TRACK' },
+    ]);
+    const alpha = out.find(d => d.messengerId === '0-111');
+    expect(alpha.sosSeen).toBe(true);
+    expect(alpha.messageType).toBe('TRACK'); // newest fix's type still wins for display
+    expect(alpha.timestamp).toBe(1700000500);
+  });
+
+  test('sosSeen is false for ordinary TRACK/OK messages', () => {
+    const out = newestPerDevice([
+      { messengerId: '0-222', latitude: 41.0, longitude: -106.0, unixTime: 1700000100, messageType: 'OK' },
+    ]);
+    expect(out.find(d => d.messengerId === '0-222').sosSeen).toBe(false);
+  });
 });
 
 describe('batteryStateToPct', () => {

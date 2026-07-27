@@ -1783,11 +1783,27 @@ function renderNetworkList() {
       <td>${n.last_seen ? RT.timeAgo(n.last_seen) : '—'}</td>
       <td class="${n.health === 'stale' ? 'text-warn' : n.health === 'never_seen' ? 'text-dim' : 'text-accent2'}">${INFRA_HEALTH_LABEL[n.health]}</td>
       <td style="text-align:right">
+        ${n.node_id ? `<button style="font-size:13px;padding:2px 8px" onclick="pingInfraNode(${n.id})">PING</button>` : ''}
         <button style="font-size:13px;padding:2px 8px" onclick="openInfraNodeModal(${n.id})">EDIT</button>
         <button class="danger" style="font-size:13px;padding:2px 8px" onclick="deleteInfraNode(${n.id})">DEL</button>
       </td>
     </tr>`).join('')}
   </tbody></table></div>`;
+}
+
+// Same detection the backend uses (messages.js APRS_CALL_RE) to pick the
+// right ping payload: APRS wants a query-style "?PING?", Meshtastic just
+// wants a short text message.
+const NETWORK_APRS_CALL_RE = /^[A-Z0-9]{1,6}(-(?:1[0-5]|[0-9]))?$/i;
+
+async function pingInfraNode(id) {
+  const n = infraNodes.find(x => x.id === id);
+  if (!n?.node_id) return;
+  const target = n.node_id.trim();
+  const text = NETWORK_APRS_CALL_RE.test(target) ? '?PING?' : 'ping';
+  const res = await RT.post(`/api/races/${selectedRaceId}/messages`, { to_node_id: target, to_name: n.name, text });
+  if (res.ok) RT.toast(`Ping sent to ${n.name}`, 'ok');
+  else RT.toast(res.error || 'Ping failed', 'warn');
 }
 
 let editingInfraNodeId = null;
@@ -1855,10 +1871,11 @@ let _infraPeople = []; // [{id, name, type, tracker_id}]
 let trackers = [], infraQuery = '';
 
 async function refreshInfra() {
-  const [res, ptRes, pnlRes] = await Promise.all([
+  const [res, ptRes, pnlRes, nodeRes] = await Promise.all([
     RT.get('/api/trackers'),
     selectedRaceId ? RT.get(`/api/races/${selectedRaceId}/participants`) : Promise.resolve({ ok: false }),
     selectedRaceId ? RT.get(`/api/races/${selectedRaceId}/personnel`)    : Promise.resolve({ ok: false }),
+    selectedRaceId ? RT.get(`/api/races/${selectedRaceId}/infrastructure`) : Promise.resolve({ ok: false }),
   ]);
   const el = document.getElementById('infra-list');
   if (!el || !res.ok) return;
@@ -1867,6 +1884,7 @@ async function refreshInfra() {
     ...(ptRes.ok  ? ptRes.data.map(p  => ({ id: p.id,  name: p.name,  type: 'participant', tracker_id: p.tracker_id  })) : []),
     ...(pnlRes.ok ? pnlRes.data.map(p => ({ id: p.id,  name: p.name,  type: 'personnel',   tracker_id: p.tracker_id  })) : []),
   ];
+  if (nodeRes.ok) infraNodes = nodeRes.data;
 
   trackers = res.data;
   renderInfraList();
@@ -1889,9 +1907,14 @@ function renderInfraList() {
       let assignCell = '';
       if (selectedRaceId) {
         const person = _infraPeople.find(p => p.tracker_id && (p.tracker_id === t.node_id || p.tracker_id === t.long_name));
-        assignCell = person
-          ? `<td><span style="color:var(--accent2)">${person.name}</span> <span class="text-dim" style="font-size:13px">${person.type === 'participant' ? 'racer' : 'crew'}</span></td>`
-          : `<td><a href="#" style="font-size:13px;color:var(--accent4)" onclick="openAssignPicker('${t.node_id}','${(t.long_name||'').replace(/'/g,"\\'")}');return false">ASSIGN</a></td>`;
+        const link = !person && infraNodes.find(n => n.node_id && (n.node_id === t.node_id || n.node_id === t.long_name));
+        if (person) {
+          assignCell = `<td><span style="color:var(--accent2)">${person.name}</span> <span class="text-dim" style="font-size:13px">${person.type === 'participant' ? 'racer' : 'crew'}</span></td>`;
+        } else if (link) {
+          assignCell = `<td><span style="color:var(--accent2)">${link.name}</span> <span class="text-dim" style="font-size:13px">network link</span></td>`;
+        } else {
+          assignCell = `<td><a href="#" style="font-size:13px;color:var(--accent4)" onclick="openAssignPicker('${t.node_id}','${(t.long_name||'').replace(/'/g,"\\'")}');return false">ASSIGN</a></td>`;
+        }
       }
       return `<tr style="${missing?'opacity:0.45':''}">
         <td class="text-accent">${t.node_id}</td>
@@ -1913,10 +1936,22 @@ function openAssignPicker(nodeId, longName) {
   if (nodeEl) nodeEl.textContent = `Node: ${longName || nodeId}`;
   const sel = document.getElementById('assign-person-sel');
   if (!sel) return;
-  const unassigned = _infraPeople.filter(p => !p.tracker_id);
-  sel.innerHTML = unassigned.length
-    ? unassigned.map(p => `<option value="${p.type}:${p.id}">${p.name} (${p.type === 'participant' ? 'racer' : 'crew'})</option>`).join('')
-    : '<option value="">— No unassigned people —</option>';
+
+  const participants = _infraPeople.filter(p => p.type === 'participant' && !p.tracker_id);
+  const personnel    = _infraPeople.filter(p => p.type === 'personnel'   && !p.tracker_id);
+  const links        = infraNodes.filter(n => !n.node_id);
+
+  const optgroup = (label, items, render) => items.length
+    ? `<optgroup label="${label}">${items.map(render).join('')}</optgroup>`
+    : '';
+
+  const html = [
+    optgroup('Participants', participants, p => `<option value="participant:${p.id}">${p.name}</option>`),
+    optgroup('Personnel',    personnel,    p => `<option value="personnel:${p.id}">${p.name}</option>`),
+    optgroup('Network Links', links,       n => `<option value="node:${n.id}">${n.name} (${n.node_type})</option>`),
+  ].join('');
+
+  sel.innerHTML = html || '<option value="">— Nothing available to assign —</option>';
   document.getElementById('assign-modal').classList.remove('hidden');
 }
 
@@ -1925,10 +1960,17 @@ async function confirmAssignTracker() {
   if (!sel?.value) return;
   const [type, idStr] = sel.value.split(':');
   const id = parseInt(idStr);
-  const url = type === 'participant'
-    ? `/api/races/${selectedRaceId}/participants/${id}`
-    : `/api/races/${selectedRaceId}/personnel/${id}`;
-  const res = await RT.put(url, { tracker_id: _assignNodeId });
+  let url, body;
+  if (type === 'node') {
+    url = `/api/races/${selectedRaceId}/infrastructure/${id}`;
+    body = { node_id: _assignNodeId };
+  } else {
+    url = type === 'participant'
+      ? `/api/races/${selectedRaceId}/participants/${id}`
+      : `/api/races/${selectedRaceId}/personnel/${id}`;
+    body = { tracker_id: _assignNodeId };
+  }
+  const res = await RT.put(url, body);
   if (res.ok) {
     RT.toast('Tracker assigned', 'ok');
     closeModal('assign-modal');

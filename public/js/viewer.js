@@ -275,12 +275,10 @@ function renderAllMarkers() {
 }
 
 function createMarker(p) {
-  const label = RT.fmtLabel(p.name);
   const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
   const { svg } = RT.trackerIcon(src, false, false);
   const nametags = !!(race?.viewer_nametags);
-  const showNames = !!(race?.viewer_show_names ?? 1);
-  const tooltipText = showNames ? `#${p.bib} ${label}` : `#${p.bib}`;
+  const tooltipText = `#${p.bib}`;
   const icon = L.divIcon({ html: `<div>${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
   const m = L.marker([p.last_lat, p.last_lon], { icon });
   m._pid = p.id;

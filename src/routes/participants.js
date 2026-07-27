@@ -86,6 +86,34 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ ok: true, data: { ...enrichParticipant(p), events } });
 });
 
+const stmtTrail = db.prepare(`
+  SELECT tp.lat, tp.lon, tp.timestamp
+  FROM tracker_positions tp
+  LEFT JOIN tracker_registry tr ON tr.node_id = tp.node_id
+  WHERE tp.race_id = ?
+    AND tp.lat IS NOT NULL AND tp.lon IS NOT NULL
+    AND (
+      UPPER(tp.node_id) = UPPER(?)
+      OR UPPER(tr.long_name) = UPPER(?)
+      OR UPPER(tr.short_name) = UPPER(?)
+    )
+  ORDER BY tp.timestamp DESC
+  LIMIT ?
+`);
+
+// Recent position breadcrumb for one participant — powers the operator map's
+// "selected marker" sparkline. Deliberately separate from rf-analysis's full
+// race-wide position dump, which is far too heavy to fetch on every click.
+router.get('/:id/trail', requireAuth, (req, res) => {
+  const p = db.prepare('SELECT id, tracker_id FROM participants WHERE id=? AND race_id=?').get(req.params.id, req.params.raceId);
+  if (!p) return res.status(404).json({ ok: false, error: 'Participant not found' });
+  if (!p.tracker_id) return res.json({ ok: true, data: [] });
+
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const rows = stmtTrail.all(req.params.raceId, p.tracker_id, p.tracker_id, p.tracker_id, limit);
+  res.json({ ok: true, data: rows.reverse() }); // oldest → newest, ready to draw as a line
+});
+
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
   const { bib, name, tracker_id, heat_id, class_id, age, phone, emergency_contact, notes, inreach_url,
           spot_feed_id, spot_feed_password } = req.body;
