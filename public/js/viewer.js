@@ -29,9 +29,28 @@ const token = location.pathname.split('/view/')[1]?.split('/')[0];
 async function init() {
   if (!token) { document.body.innerHTML = '<div style="padding:40px;color:#f78166;font-family:monospace">Invalid viewer link.</div>'; return; }
   initMap();
-  RT.connectWS(handleWS, token);
+  RT.connectWS(handleWS, token, null, setWsStatus);
   startClock();
   setInterval(pruneViewerLightningStrikes, 60000);
+  setInterval(refreshMarkerStaleness, 30000);
+}
+
+// Reflects live WS connection state via the status dot in the topbar so a
+// spectator on a bad connection can tell "no updates because nothing's
+// changed" apart from "no updates because we're disconnected".
+function setWsStatus(state) {
+  const light = document.getElementById('vw-ws-light');
+  if (!light) return;
+  if (state === 'open') {
+    light.className = 'ds-light ds-light-ok';
+    light.title = 'Live updates: connected';
+  } else if (state === 'connecting') {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'Live updates: connecting…';
+  } else {
+    light.className = 'ds-light ds-light-error';
+    light.title = 'Live updates: disconnected — reconnecting';
+  }
 }
 
 function initMap() {
@@ -173,6 +192,7 @@ function pruneViewerLightningStrikes() {
 function handleWS(msg) {
   const { type, data } = msg;
   if (type === 'init') handleInit(data);
+  else if (type === 'init_extra') handleInitExtra(data);
   else if (type === 'position') handlePosition(data);
   else if (type === 'event') handleEvent(data);
   else if (type === 'participant_update') handleParticipantUpdate(data);
@@ -216,19 +236,27 @@ function handleInit(data) {
     participants[p.id] = enrichParticipant(p, data.registry || []);
   });
 
-  if (data.trackPoints?.length) { trackPoints = data.trackPoints; _cachedDists = null; _total = null; _stationAlongCache = null; }
-  renderRoute();
+  // Render markers/leaderboard from last-known locations right away — the
+  // course route, weather, and lightning layers arrive in a separate
+  // 'init_extra' message and shouldn't block getting positions on screen.
   renderStationMarkers();
   renderAllMarkers();
   renderLeaderboard();
-  if (race.weather_enabled) {
-    setupWeatherLayers();
-    (data.lightning || []).forEach(addViewerLightningStrike);
-  }
   // Restrict selector and switch to offline URLs if already ready
   updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
   updateClockDisplay();
+}
+
+function handleInitExtra(data) {
+  if (!race) return; // stray extra with no race loaded yet — ignore
+  if (data.trackPoints?.length) { trackPoints = data.trackPoints; _cachedDists = null; _total = null; _stationAlongCache = null; }
+  renderRoute();
+  renderLeaderboard(); // re-run now that trackPoints may have arrived (affects % progress)
+  if (race.weather_enabled) {
+    setupWeatherLayers();
+    (data.lightning || []).forEach(addViewerLightningStrike);
+  }
 }
 
 function updateRacePill() {
@@ -289,11 +317,9 @@ function renderStationMarkers() {
 
 function renderAllMarkers() {
   markerLayer.clearLayers();
-  for (const p of Object.values(participants)) {
-    if (p.last_lat && p.last_lon) createMarker(p);
-  }
+  for (const p of Object.values(participants)) createOrUpdateMarker(p);
   // Auto-fit map to markers
-  const pts = Object.values(participants).filter(p => p.last_lat);
+  const pts = Object.values(participants).filter(p => p.last_lat && p.last_lon && p.status !== 'dns');
   if (pts.length >= 2) {
     const bounds = L.latLngBounds(pts.map(p => [p.last_lat, p.last_lon]));
     leafletMap.fitBounds(bounds, { padding: [30, 30] });
@@ -302,18 +328,55 @@ function renderAllMarkers() {
   }
 }
 
-function createMarker(p) {
+// Re-applies staleness/status styling to every existing marker in place
+// (no clearLayers/fitBounds) so a periodic recheck doesn't yank the view.
+function refreshMarkerStaleness() {
+  if (!race) return;
+  for (const p of Object.values(participants)) createOrUpdateMarker(p);
+}
+
+const FINISHED_FADE_SEC = 600; // fade a finisher's marker 10 min after they cross
+
+// Creates a participant's marker, or updates it in place if one already
+// exists. DNS participants never get a marker (they never started, so any
+// GPS fix is misleading). Markers with no recent signal (older than
+// race.missing_timer) are grayed the same way the station page does; DNF and
+// long-finished participants are dimmed so they read as "no longer racing"
+// instead of looking identical to an active participant.
+function createOrUpdateMarker(p) {
+  const existing = markerLayer.getLayers().find(m => m._pid === p.id);
+  if (p.status === 'dns' || !p.last_lat || !p.last_lon) {
+    if (existing) markerLayer.removeLayer(existing);
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const missingTimer = race?.missing_timer || 3600;
+  const lastSeen = p.registry?.last_seen || p.last_seen || 0;
+  const missing = !!lastSeen && (now - lastSeen) > missingTimer;
+  const finishedFaded = p.status === 'finished' && (!p.finish_time || (now - p.finish_time) > FINISHED_FADE_SEC);
+  const muted = p.status === 'dnf' || finishedFaded;
+
   const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
-  const { svg } = RT.trackerIcon(src, false, false);
+  const { svg } = RT.trackerIcon(src, false, missing);
   const nametags = !!(race?.viewer_nametags);
-  const tooltipText = `#${p.bib}`;
-  const icon = L.divIcon({ html: `<div>${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
-  const m = L.marker([p.last_lat, p.last_lon], { icon });
-  m._pid = p.id;
-  m.bindTooltip(tooltipText, {
-    permanent: nametags, direction: 'top', offset: [0, -6], className: 'map-nametag',
-  });
-  m.addTo(markerLayer);
+  const statusSuffix = p.status === 'dnf' ? ' (DNF)' : missing ? ' (no signal)' : '';
+  const tooltipText = `#${p.bib}${statusSuffix}`;
+  const wrapStyle = muted ? 'opacity:0.5;filter:grayscale(60%)' : '';
+  const icon = L.divIcon({ html: `<div style="${wrapStyle}">${svg}</div>`, className: 'leaflet-div-icon', iconAnchor: [10, 10] });
+
+  if (existing) {
+    existing.setLatLng([p.last_lat, p.last_lon]);
+    existing.setIcon(icon);
+    existing.setTooltipContent(tooltipText);
+  } else {
+    const m = L.marker([p.last_lat, p.last_lon], { icon });
+    m._pid = p.id;
+    m.bindTooltip(tooltipText, {
+      permanent: nametags, direction: 'top', offset: [0, -6], className: 'map-nametag',
+    });
+    m.addTo(markerLayer);
+  }
 }
 
 function handlePosition(data) {
@@ -324,10 +387,7 @@ function handlePosition(data) {
   p.last_lat = lat; p.last_lon = lon;
   if (!p.registry) p.registry = {};
   p.registry.last_seen = timestamp;
-  // Update marker
-  const existing = markerLayer.getLayers().find(m => m._pid === p.id);
-  if (existing) existing.setLatLng([lat, lon]);
-  else createMarker(p);
+  createOrUpdateMarker(p);
   renderLeaderboard();
 }
 
@@ -335,8 +395,9 @@ function handleEvent(data) {
   const p = participants[data.participant_id];
   if (!p) return;
   if (data.event_type === 'start')  { p.status = 'active';   p.start_time = data.timestamp; }
-  if (data.event_type === 'finish') p.status = 'finished';
+  if (data.event_type === 'finish') { p.status = 'finished'; p.finish_time = data.timestamp; }
   if (data.event_type === 'dnf')    p.status = 'dnf';
+  if (data.event_type === 'dns')    p.status = 'dns';
   if (data.has_turnaround && !p.has_turnaround) {
     p.has_turnaround = true;
     const td = _total || computeTotal();
@@ -350,14 +411,43 @@ function handleEvent(data) {
   }
   if (data.event_type === 'aid_depart' && data.station_name)
     p._lastStation = data.station_name;
+  // Status changes (dns/dnf/finish) affect marker visibility/styling immediately
+  // rather than waiting for the next periodic staleness recheck.
+  createOrUpdateMarker(p);
   renderLeaderboard();
 }
 
 function handleParticipantUpdate(data) {
-  if (data.action === 'delete') { delete participants[data.id]; renderLeaderboard(); return; }
-  if (data.action === 'clear') { participants = {}; renderLeaderboard(); return; }
+  if (data.action === 'delete') {
+    const existing = markerLayer.getLayers().find(m => m._pid === data.id);
+    if (existing) markerLayer.removeLayer(existing);
+    delete participants[data.id];
+    renderLeaderboard();
+    return;
+  }
+  if (data.action === 'clear') { markerLayer.clearLayers(); participants = {}; renderLeaderboard(); return; }
   if (!data.participant) return;
-  participants[data.participant.id] = enrichParticipant(data.participant, []);
+  // REST-route participant_update payloads nest tracker info under `.tracker`
+  // (or omit it entirely) rather than the flat last_lat/last_lon the WS
+  // init/position paths use. Without this fallback, an edit made via the
+  // participant form (e.g. marking DNF) would wipe the marker's last known
+  // GPS fix and make it vanish instead of just re-styling.
+  const prev = participants[data.participant.id];
+  const incoming = data.participant;
+  const merged = enrichParticipant(incoming, []);
+  if (incoming.last_lat == null) {
+    if (incoming.tracker?.last_lat != null) {
+      merged.last_lat = incoming.tracker.last_lat;
+      merged.last_lon = incoming.tracker.last_lon;
+      merged.registry = incoming.tracker;
+    } else if (prev) {
+      merged.last_lat = prev.last_lat;
+      merged.last_lon = prev.last_lon;
+      merged.registry = prev.registry;
+    }
+  }
+  participants[data.participant.id] = merged;
+  createOrUpdateMarker(merged);
   renderLeaderboard();
 }
 

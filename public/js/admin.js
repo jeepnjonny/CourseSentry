@@ -86,7 +86,9 @@ function handleWS(msg) {
     // Throttle: at most one refresh per 5 s so bursts of MQTT/APRS packets don't flood GET /api/trackers
     if (!_infraRefreshTimer) _infraRefreshTimer = setTimeout(() => { _infraRefreshTimer = null; refreshInfra(); }, 5000);
   }
-  if (msg.type === 'init') {
+  if (msg.type === 'init' || msg.type === 'init_extra') {
+    // Datasource status now arrives on 'init_extra' (a heavier follow-up to the
+    // fast 'init' message) — check both so this keeps working regardless of split.
     if (msg.data.mqtt)    updateMqttPill(msg.data.mqtt);
     if (msg.data.aprs)    updateAprsPill(msg.data.aprs);
     if (msg.data.tnc)     updateTncLight(msg.data.tnc);

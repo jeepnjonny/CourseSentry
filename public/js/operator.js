@@ -60,7 +60,7 @@ async function init() {
 
   const urlRaceId = new URLSearchParams(location.search).get('race') || null;
   initMap();
-  _wsConn = RT.connectWS(handleWS, null, urlRaceId);
+  _wsConn = RT.connectWS(handleWS, null, urlRaceId, setWsStatus);
   RT.wsSend = d => _wsConn?.send(d); // expose for TNC module callbacks
   _initTncButton();
   const [, racesRes] = await Promise.all([
@@ -80,6 +80,7 @@ async function init() {
 function handleWS(msg) {
   const { type, data } = msg;
   if (type === 'init') handleInit(data);
+  else if (type === 'init_extra') handleInitExtra(data);
   else if (type === 'position') handlePosition(data);
   else if (type === 'event') handleEvent(data);
   else if (type === 'alert') handleAlert(data);
@@ -235,16 +236,11 @@ function handleInit(data) {
   fmt24 = race.time_format === '24h';
   applySpeedDisplayLabels();
   updateRacePill(race);
-  updateMqttPill(data.mqtt);
-  if (data.aprs)    updateAprsPill(data.aprs);
-  if (data.tnc)     updateTncLight(data.tnc);
-  if (data.inreach) updateInreachLight(data.inreach);
   applyMessagingFlag();
   applyTncFlag();
   applyWeatherFlag();
   updateEndRaceBtn();
 
-  onlineUsers = data.onlineUsers || [];
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
   classes = {}; (data.classes || []).forEach(c => classes[c.id] = c);
   stations = data.stations || [];
@@ -255,22 +251,36 @@ function handleInit(data) {
   });
   updateStartBtn();
 
-  if (data.trackPoints?.length) { trackPoints = data.trackPoints; _cachedDists = null; _cachedTotalDist = null; _stationAlongCache = null; }
-  renderRoute();
+  // Render markers/leaderboard from last-known locations right away — course
+  // route, weather/lightning, and datasource status arrive in a separate
+  // 'init_extra' message and shouldn't block getting positions on screen.
   renderStationMarkers();
   renderStationList();
   renderAllMarkers();
   renderLeaderboard();
-  renderPersonnelRecipients();
   updateStats();
   checkStationWarnings();
+  // If offline tiles are already ready, restrict selector and switch to offline URLs
+  updateBaseLayerSelector();
+  if (race.offline_maps && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
+}
+
+function handleInitExtra(data) {
+  if (!race) return; // stray extra with no race loaded yet — ignore
+  updateMqttPill(data.mqtt);
+  if (data.aprs)    updateAprsPill(data.aprs);
+  if (data.tnc)     updateTncLight(data.tnc);
+  if (data.inreach) updateInreachLight(data.inreach);
+  onlineUsers = data.onlineUsers || [];
+  renderPersonnelRecipients();
+
+  if (data.trackPoints?.length) { trackPoints = data.trackPoints; _cachedDists = null; _cachedTotalDist = null; _stationAlongCache = null; }
+  renderRoute();
+  renderLeaderboard(); // re-run now that trackPoints may have arrived (affects % progress)
   if (!trackPoints) loadTrackData(); // fallback API fetch if WS didn't include track
   setupWeatherLayers();
   (data.lightning || []).forEach(addLightningStrike);
   loadWildfireData();
-  // If offline tiles are already ready, restrict selector and switch to offline URLs
-  updateBaseLayerSelector();
-  if (race.offline_maps && race.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
   // Reflect any TNC already active for this race (e.g. another tab on same browser)
   if (data.tnc) handleTncStatus(data.tnc);
 }
@@ -388,8 +398,23 @@ async function loadInitialData(urlRaceId) {
   // (full network for operator/admin/rover, own-station-only for a fixed station).
   infraNodes = infraR.data || [];
 
+  // This REST fetch runs in parallel with the WS init handshake as a fast
+  // first-paint fallback (useful when the socket is slow to connect on a bad
+  // link) — but /participants nests tracker data under `.tracker` rather than
+  // the flat last_lat/last_lon the WS init and marker code use. Flattening it
+  // here means whichever of the two finishes last doesn't clobber the other
+  // with a lat/lon-less copy that silently blanks every marker until the next
+  // beacon arrives.
   participants = {};
-  (pr.data || []).forEach(p => { participants[p.id] = p; });
+  (pr.data || []).forEach(p => {
+    const enriched = enrichParticipant(p, []);
+    if (p.tracker) {
+      enriched.last_lat = p.tracker.last_lat;
+      enriched.last_lon = p.tracker.last_lon;
+      enriched.registry = p.tracker;
+    }
+    participants[p.id] = enriched;
+  });
   updateStartBtn();
 
   renderRoute();
@@ -786,7 +811,19 @@ function renderAllMarkers() {
   }
 }
 
+// A finisher's marker fades to "no longer racing" styling this long after
+// their finish event, so recent finishers stay visible near the finish line.
+const FINISHED_FADE_SEC = 600;
+
 function updateOrCreateMarker(p) {
+  // DNS participants never started — any GPS fix on the course is misleading,
+  // so they get no marker at all rather than a stale/confusing one.
+  if (p.status === 'dns') {
+    const stale = markerLayer.getLayers().find(m => m._pid === p.id);
+    if (stale) markerLayer.removeLayer(stale);
+    return;
+  }
+
   // Prefer live GPS; fall back to last confirmed station location
   let lat = p.last_lat, lon = p.last_lon;
   let isManual = false;
@@ -802,13 +839,19 @@ function updateOrCreateMarker(p) {
   // For manual markers, age is from last station timestamp; no blinking unless stale
   const lastSeen = isManual ? (p.last_station_ts || 0) : (p.registry?.last_seen || p.last_seen || 0);
   const missing = !isManual && lastSeen && (now - lastSeen) > missingTimer;
+  const finishedFaded = p.status === 'finished' && (!p.finish_time || (now - p.finish_time) > FINISHED_FADE_SEC);
+  const statusMuted = p.status === 'dnf' || finishedFaded;
   const alerting = alerts.some(a => a.participantId === p.id);
   const src = RT.iconSource(classes[p.class_id], heats[p.heat_id]);
   const { svg, cls } = RT.trackerIcon(src, alerting, missing);
 
-  // Manual markers rendered with reduced opacity and a dashed ring to signal "last known"
-  const wrapStyle = isManual ? 'opacity:0.65;filter:grayscale(30%)' : '';
-  const tooltipText = `#${p.bib}${isManual ? ' (last station)' : ''}`;
+  // Manual markers rendered with reduced opacity and a dashed ring to signal "last known";
+  // DNF/long-finished participants get a distinct muted treatment so they read as
+  // "no longer racing" rather than looking identical to an active participant.
+  const wrapStyle = isManual ? 'opacity:0.65;filter:grayscale(30%)'
+    : statusMuted ? 'opacity:0.5;filter:grayscale(60%)' : '';
+  const statusSuffix = p.status === 'dnf' ? ' (DNF)' : finishedFaded ? ' (finished)' : '';
+  const tooltipText = `#${p.bib}${isManual ? ' (last station)' : statusSuffix}`;
   // Highlight the selected participant's marker and dim everyone else so it's
   // findable at a glance in a tight cluster; distinct from the alert blink above.
   const selCls = p.id === selectedPId ? ' tracker-icon-selected'
@@ -2088,6 +2131,7 @@ function handleEvent(data) {
     if (data.event_type === 'start')  { p.status = 'active';   p.start_time  = data.timestamp; }
     if (data.event_type === 'finish') { p.status = 'finished'; p.finish_time = data.timestamp; }
     if (data.event_type === 'dnf')      p.status = 'dnf';
+    if (data.event_type === 'dns')      p.status = 'dns';
     if (data.has_turnaround && !p.has_turnaround) {
       p.has_turnaround = true;
       // Seed return-leg tracking at turnaround distance so window starts correctly
@@ -2104,6 +2148,9 @@ function handleEvent(data) {
         if (!p.has_turnaround) p._stationFloor = Math.max(p._stationFloor ?? 0, along);
       }
     }
+    // Status changes (dns/dnf/finish) affect marker visibility/styling immediately
+    // rather than waiting for the next 30s checkMissing recheck.
+    updateOrCreateMarker(p);
     if (pid === selectedPId) showParticipantInfo(pid);
     renderLeaderboard();
     if (data.event_type === 'start') updateStartBtn();
@@ -2192,8 +2239,27 @@ function handleMessage(data) {
 
 function handleParticipantUpdate(data) {
   if (data.action === 'add' || data.action === 'update') {
-    participants[data.participant.id] = data.participant;
-    updateOrCreateMarker(data.participant);
+    // REST-route participant_update payloads nest tracker info under
+    // `.tracker` (or omit it entirely) rather than the flat last_lat/last_lon
+    // the WS init/position paths use. Without this fallback, an edit made
+    // via the participant form (e.g. marking DNF) would wipe the marker's
+    // last known GPS fix and make it vanish instead of just re-styling.
+    const prev = participants[data.participant.id];
+    const incoming = data.participant;
+    const merged = { ...prev, ...incoming };
+    if (incoming.last_lat == null) {
+      if (incoming.tracker?.last_lat != null) {
+        merged.last_lat = incoming.tracker.last_lat;
+        merged.last_lon = incoming.tracker.last_lon;
+        merged.registry = incoming.tracker;
+      } else if (prev) {
+        merged.last_lat = prev.last_lat;
+        merged.last_lon = prev.last_lon;
+        merged.registry = prev.registry;
+      }
+    }
+    participants[data.participant.id] = merged;
+    updateOrCreateMarker(merged);
     // Immediately clear any missing/stopped alerts if the new status suppresses them
     const p = participants[data.participant.id];
     if (shouldSuppressAlerts(p)) {
@@ -2203,6 +2269,8 @@ function handleParticipantUpdate(data) {
     }
     renderLeaderboard();
   } else if (data.action === 'delete') {
+    const existing = markerLayer.getLayers().find(m => m._pid === data.id);
+    if (existing) markerLayer.removeLayer(existing);
     delete participants[data.id];
     renderLeaderboard();
   } else if (data.action === 'clear') {
@@ -2301,6 +2369,24 @@ function handleInfraUpdate(data) {
   updateInfraMarkers();
   renderInfraList();
   if (selectedStationId != null) showStationInfo(selectedStationId);
+}
+
+// Reflects live WS connection state via the status dot in the topbar so a
+// flaky-connection reconnect/backoff cycle is visible instead of silently
+// leaving the map/leaderboard showing whatever was last received.
+function setWsStatus(state) {
+  const light = document.getElementById('ws-light');
+  if (!light) return;
+  if (state === 'open') {
+    light.className = 'ds-light ds-light-ok';
+    light.title = 'Live updates: connected';
+  } else if (state === 'connecting') {
+    light.className = 'ds-light ds-light-idle';
+    light.title = 'Live updates: connecting…';
+  } else {
+    light.className = 'ds-light ds-light-error';
+    light.title = 'Live updates: disconnected — reconnecting';
+  }
 }
 
 function updateMqttPill(status) {

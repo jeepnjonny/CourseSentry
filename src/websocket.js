@@ -295,6 +295,11 @@ function sendInit(ws, user, reqUrl) {
     const weatherVisible = user.role !== 'viewer' || race.weather_enabled;
     const participantsOut = user.role === 'viewer' ? participants.map(redactParticipantForViewer) : participants;
 
+    // Split into a small, fast "positions now" message the client can render
+    // immediately (last-known locations + roster), followed by a heavier
+    // "extras" message (course polyline, weather/lightning, datasource status).
+    // On a slow/lossy link the first message still completes and renders the
+    // map/leaderboard without waiting on the rest of the payload.
     send(ws, 'init', {
       race,
       participants: participantsOut,
@@ -302,6 +307,9 @@ function sendInit(ws, user, reqUrl) {
       heats,
       classes,
       registry,
+    });
+
+    send(ws, 'init_extra', {
       trackPoints,
       mqtt:        mqttMod.getStatus(),
       aprs:        aprsMod.getStatus(),

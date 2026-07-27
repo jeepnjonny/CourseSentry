@@ -59,7 +59,10 @@ const RT = (() => {
   const del  = url        => api('POST', url, undefined, 'DELETE');
 
   // ── WebSocket ─────────────────────────────────────────────────────────────
-  function connectWS(onMessage, tokenParam, raceParam) {
+  // onStatus(state), state one of 'connecting' | 'open' | 'closed', lets pages
+  // surface live-connection state (e.g. a status dot) instead of leaving a
+  // dropped/reconnecting socket invisible to the user.
+  function connectWS(onMessage, tokenParam, raceParam, onStatus) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const parts = [];
     if (tokenParam) parts.push(`token=${tokenParam}`);
@@ -67,12 +70,14 @@ const RT = (() => {
     const qs = parts.length ? '?' + parts.join('&') : '';
     const url = `${proto}://${location.host}${BASE}ws${qs}`;
     let ws, reconnectTimer;
+    const setStatus = s => { try { onStatus && onStatus(s); } catch {} };
 
     function connect() {
+      setStatus('connecting');
       ws = new WebSocket(url);
-      ws.onopen  = () => { console.log('[ws] connected'); clearTimeout(reconnectTimer); };
+      ws.onopen  = () => { console.log('[ws] connected'); clearTimeout(reconnectTimer); setStatus('open'); };
       ws.onmessage = e => { try { onMessage(JSON.parse(e.data)); } catch {} };
-      ws.onclose = () => { reconnectTimer = setTimeout(connect, 2000 + Math.random() * 4000); };
+      ws.onclose = () => { setStatus('closed'); reconnectTimer = setTimeout(connect, 2000 + Math.random() * 4000); };
       ws.onerror = () => ws.close();
     }
     connect();

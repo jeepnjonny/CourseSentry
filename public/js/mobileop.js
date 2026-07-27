@@ -534,6 +534,15 @@ function handleWS(msg) {
     // Restrict selector and switch to offline URLs if already ready
     updateBaseLayerSelector();
     if (race?.offline_maps && race?.offline_maps_status === 'ready') setBaseLayer(currentBaseLayerName);
+  } else if (msg.type === 'init_extra') {
+    // Course route and online-users list arrive on this heavier follow-up
+    // message so the fast 'init' isn't held up waiting for them.
+    onlineUsers = msg.data.onlineUsers || [];
+    if (msg.data.trackPoints?.length) {
+      trackPoints = msg.data.trackPoints;
+      _cachedDists = null; _total = null; _stationAlongCache = null;
+      renderRoute();
+    }
   } else if (msg.type === 'position') {
     const p = participants.find(x => x.tracker_id === msg.data.nodeId);
     if (p) { p.last_lat = msg.data.lat; p.last_lon = msg.data.lon; }
