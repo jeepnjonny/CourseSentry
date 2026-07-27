@@ -38,6 +38,18 @@
 <style>
   .tracker-icon-alert { animation: blink 1s infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  /* Selected-participant marker: a few expanding pulse rings to draw the eye,
+     then a lasting glow so it stays findable among nearby markers. */
+  .tracker-icon-selected { position: relative; z-index: 700; }
+  .tracker-icon-selected svg { filter: drop-shadow(0 0 4px #58a6ff) drop-shadow(0 0 4px #58a6ff); }
+  .tracker-icon-selected::after {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 22px; height: 22px; margin: -11px 0 0 -11px;
+    border-radius: 50%; border: 2px solid #58a6ff;
+    animation: selectedRing 1s ease-out 3; pointer-events: none;
+  }
+  @keyframes selectedRing { 0%{transform:scale(0.8);opacity:0.9} 100%{transform:scale(2.8);opacity:0} }
+  .tracker-icon-dimmed { opacity: 0.28; }
   .leaflet-div-icon { background: none; border: none; }
   #map-overlay {
     position: absolute; top: 10px; right: 10px;

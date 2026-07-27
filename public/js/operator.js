@@ -5,14 +5,15 @@ let race = null, participants = {}, stations = [], heats = {}, classes = {};
 let personnel = [], messages = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
 let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
+let selectedTrailLayer = null; // recent-position breadcrumb for the currently-selected participant
 let showNametags = false, showPersonnelMarkers = true;
 let infraNodes = [], infraLayer = null, showInfraMarkers = true;
 let leafletMap = null, currentBaseLayer = null, currentBaseLayerName = 'topo', weatherLayersControl = null, weatherLegendControl = null;
-let wildfirePerimeterLayer = null, wildfireHotspotLayer = null;
+let wildfirePerimeterLayer = null, wildfireHotspotLayer = null, wildfireIncidentLayer = null;
 // Tracks which layer objects are currently represented as overlay entries in
 // weatherLayersControl, so stale entries can be removed before re-adding
 // (Leaflet's addOverlay() doesn't dedupe by name).
-let wildfirePerimeterInControl = null, wildfireHotspotInControl = null;
+let wildfirePerimeterInControl = null, wildfireHotspotInControl = null, wildfireIncidentInControl = null;
 let tncConnected = false, tncIsPrimary = false;
 let activeWeatherOverlays = new Set(), wxPoller = null;
 let weatherOpacity = 0.55;
@@ -33,6 +34,7 @@ const LAYER_LEGENDS = {
   'Lightning':     { label:'LIGHTNING STRIKES (live)', grad:'#1a1a2e,#16213e,#0f3460,#e94560', ticks:['now','5m','10m','20m'] },
   'Fire Perimeters': { label:'FIRE PERIMETERS',     grad:'#ff8c0033,#ff4500aa,#cc0000', ticks:['Low','Active','High'] },
   'Hotspots':        { label:'FIRE RADIATIVE POWER', grad:'#ffff00,#ff8800,#ff0000',    ticks:['Low FRP','Med','High'] },
+  'Fire Incidents':  { label:'ACTIVE FIRE INCIDENTS', grad:'#ffcc00,#ff6600',            ticks:['Reported','Sizing up'] },
 };
 let clockInterval = null, missingCheckInterval = null, stoppedCheckInterval = null, lastSeenInterval = null;
 let fmt24 = false;
@@ -427,15 +429,17 @@ async function loadTrackData() {
 
 async function loadWildfireData() {
   if (!race) return;
-  const [permRes, hotRes] = await Promise.all([
+  const [permRes, hotRes, incRes] = await Promise.all([
     RT.get(`/api/races/${race.id}/wildfire/perimeters`),
     RT.get(`/api/races/${race.id}/wildfire/hotspots`),
+    RT.get(`/api/races/${race.id}/wildfire/incidents`),
   ]);
 
   weatherAdjustableLayers = weatherAdjustableLayers.filter(e =>
-    e.layer !== wildfirePerimeterLayer && e.layer !== wildfireHotspotLayer);
+    e.layer !== wildfirePerimeterLayer && e.layer !== wildfireHotspotLayer && e.layer !== wildfireIncidentLayer);
   if (wildfirePerimeterLayer) { leafletMap.removeLayer(wildfirePerimeterLayer); wildfirePerimeterLayer = null; }
   if (wildfireHotspotLayer)   { leafletMap.removeLayer(wildfireHotspotLayer);   wildfireHotspotLayer   = null; }
+  if (wildfireIncidentLayer)  { leafletMap.removeLayer(wildfireIncidentLayer);  wildfireIncidentLayer  = null; }
 
   // Base design opacities for the wildfire vector layers; the slider scales these
   // proportionally so the stroke-vs-fill visual balance is preserved across its range.
@@ -497,6 +501,33 @@ async function loadWildfireData() {
     });
   }
 
+  if (incRes.ok && incRes.data?.features?.length) {
+    const INCIDENT_FILL_OPACITY = 0.9;
+    wildfireIncidentLayer = L.geoJSON(incRes.data, {
+      pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+        radius: 7, color: '#cc6600', weight: 1.5,
+        fillColor: '#ffcc00', fillOpacity: INCIDENT_FILL_OPACITY * weatherOpacity,
+      }),
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const name = p.IncidentName || 'Unnamed incident';
+        const parts = [
+          p.IncidentSize      != null ? Math.round(p.IncidentSize).toLocaleString() + ' acres' : '',
+          p.PercentContained  != null ? p.PercentContained + '% contained'                      : '',
+          p.FireDiscoveryDateTime      ? new Date(p.FireDiscoveryDateTime).toLocaleDateString()  : '',
+        ].filter(Boolean).join(' · ');
+        layer.bindTooltip(
+          `<strong>${name}</strong>${parts ? '<br>' + parts : ''}`,
+          { sticky: true, className: 'wildfire-tooltip' }
+        );
+      },
+    });
+    weatherAdjustableLayers.push({
+      layer: wildfireIncidentLayer, keepAcrossSetup: true,
+      apply: (fraction) => wildfireIncidentLayer.setStyle({ fillOpacity: INCIDENT_FILL_OPACITY * fraction }),
+    });
+  }
+
   _addWildfireLayersToControl();
 }
 
@@ -510,6 +541,10 @@ function _addWildfireLayersToControl() {
     weatherLayersControl.removeLayer(wildfireHotspotInControl);
     wildfireHotspotInControl = null;
   }
+  if (wildfireIncidentInControl && wildfireIncidentInControl !== wildfireIncidentLayer) {
+    weatherLayersControl.removeLayer(wildfireIncidentInControl);
+    wildfireIncidentInControl = null;
+  }
   if (wildfirePerimeterLayer && wildfirePerimeterInControl !== wildfirePerimeterLayer) {
     weatherLayersControl.addOverlay(wildfirePerimeterLayer, '&#128293; Fire Perimeters');
     wildfirePerimeterInControl = wildfirePerimeterLayer;
@@ -517,6 +552,10 @@ function _addWildfireLayersToControl() {
   if (wildfireHotspotLayer && wildfireHotspotInControl !== wildfireHotspotLayer) {
     weatherLayersControl.addOverlay(wildfireHotspotLayer, '&#128293; Hotspots');
     wildfireHotspotInControl = wildfireHotspotLayer;
+  }
+  if (wildfireIncidentLayer && wildfireIncidentInControl !== wildfireIncidentLayer) {
+    weatherLayersControl.addOverlay(wildfireIncidentLayer, '&#128293; Fire Incidents');
+    wildfireIncidentInControl = wildfireIncidentLayer;
   }
   _syncLayersControlVisibility();
 }
@@ -694,6 +733,8 @@ function onMapClick(e) {
   selectedPId = null;
   selectedStationId = null;
   renderLeaderboard();
+  clearSelectedTrail();
+  refreshMarkerSelection();
 }
 
 function renderRoute() {
@@ -767,10 +808,13 @@ function updateOrCreateMarker(p) {
 
   // Manual markers rendered with reduced opacity and a dashed ring to signal "last known"
   const wrapStyle = isManual ? 'opacity:0.65;filter:grayscale(30%)' : '';
-  const label = RT.fmtLabel(p.name);
-  const tooltipText = `#${p.bib} ${label}${isManual ? ' (last station)' : ''}`;
+  const tooltipText = `#${p.bib}${isManual ? ' (last station)' : ''}`;
+  // Highlight the selected participant's marker and dim everyone else so it's
+  // findable at a glance in a tight cluster; distinct from the alert blink above.
+  const selCls = p.id === selectedPId ? ' tracker-icon-selected'
+    : (selectedPId != null ? ' tracker-icon-dimmed' : '');
   const icon = L.divIcon({
-    html: `<div class="${cls}" style="${wrapStyle}">${svg}</div>`,
+    html: `<div class="${cls}${selCls}" style="${wrapStyle}">${svg}</div>`,
     className: 'leaflet-div-icon', iconAnchor: [10, 10],
   });
 
@@ -787,6 +831,40 @@ function updateOrCreateMarker(p) {
     m.on('click', () => showParticipantInfo(p.id));
     m.addTo(markerLayer);
   }
+}
+
+// Re-applies the selected/dimmed icon class to every existing marker without
+// rebuilding the whole layer — called whenever selectedPId changes.
+function refreshMarkerSelection() {
+  for (const p of Object.values(participants)) updateOrCreateMarker(p);
+}
+
+function clearSelectedTrail() {
+  if (selectedTrailLayer) { leafletMap.removeLayer(selectedTrailLayer); selectedTrailLayer = null; }
+}
+
+// Draws a fading breadcrumb of the participant's recent fixes so an operator
+// can see which direction they're moving, not just where they are right now.
+async function loadSelectedTrail(id) {
+  clearSelectedTrail();
+  if (!id || !race) return;
+  const res = await RT.get(`/api/races/${race.id}/participants/${id}/trail?limit=20`);
+  if (id !== selectedPId || !res.ok || !res.data?.length) return; // selection may have changed mid-fetch
+
+  const pts = res.data; // oldest → newest
+  const group = L.layerGroup();
+  if (pts.length > 1) {
+    L.polyline(pts.map(pt => [pt.lat, pt.lon]), {
+      color: '#58a6ff', weight: 2, opacity: 0.5, dashArray: '4,5',
+    }).addTo(group);
+  }
+  pts.forEach((pt, i) => {
+    const frac = pts.length > 1 ? i / (pts.length - 1) : 1;
+    L.circleMarker([pt.lat, pt.lon], {
+      radius: 2 + frac * 2, weight: 0, fillColor: '#58a6ff', fillOpacity: 0.15 + frac * 0.55,
+    }).addTo(group);
+  });
+  selectedTrailLayer = group.addTo(leafletMap);
 }
 
 // ── Personnel markers ─────────────────────────────────────────────────────────
@@ -1241,6 +1319,8 @@ function selectStation(id) {
   selectedPId = null;
   switchLeftTab('stations');
   renderLeaderboard(); // clear participant highlight
+  clearSelectedTrail();
+  refreshMarkerSelection();
   showStationInfo(id);
   switchRightTab('info');
   // Pan map to station
@@ -1533,6 +1613,8 @@ function fmtEtaDist(meters) {
 
 async function showParticipantInfo(id) {
   selectedPId = id;
+  refreshMarkerSelection();
+  loadSelectedTrail(id); // fire-and-forget; doesn't block the info panel
   const res = await RT.get(`/api/races/${race.id}/participants/${id}`);
   if (!res.ok) return;
   const p = res.data;
@@ -1798,7 +1880,7 @@ async function _putInfraStation(id, stationId) {
 function showStationInfo(id) {
   clearInterval(lastSeenInterval);
   selectedStationId = id;
-  selectedPId = null;
+  if (selectedPId != null) { selectedPId = null; clearSelectedTrail(); refreshMarkerSelection(); }
   const s = stations.find(x => x.id === id);
   if (!s) return;
   switchRightTab('info');
@@ -2035,7 +2117,8 @@ function handleAlert(data) {
   renderLeaderboard();
   renderAlertsList();
   updateAlertCount();
-  RT.toast(`ALERT: ${data.type.replace('_',' ')} — Bib ${data.bib} ${data.name}`, 'alert', 8000);
+  const isSos = data.type === 'sos';
+  RT.toast(`${isSos ? '🆘 SOS' : 'ALERT: ' + data.type.replace('_',' ').toUpperCase()} — Bib ${data.bib} ${data.name}`, 'alert', isSos ? 20000 : 8000);
   // Update marker
   const p = participants[data.participantId];
   if (p) updateOrCreateMarker(p);
@@ -2404,10 +2487,11 @@ function renderAlertsList() {
         <button style="font-size:13px;padding:2px 6px" onclick="OP.dismissAlert(${a.id})">✕</button>
       </div>`;
     }
-    return `<div class="alert-badge">
-      <span style="font-size:24px">⚠</span>
+    const isSos = a.type === 'sos';
+    return `<div class="alert-badge"${isSos ? ' style="border-color:#e5393566;background:#e5393518"' : ''}>
+      <span style="font-size:24px">${isSos ? '🆘' : '⚠'}</span>
       <div>
-        <div style="font-weight:bold">${a.type?.replace('_',' ').toUpperCase()}</div>
+        <div style="font-weight:bold${isSos ? ';color:#e53935' : ''}">${a.type?.replace('_',' ').toUpperCase()}</div>
         <div class="text-dim" style="font-size:13px">#${a.bib} ${a.name} · ${RT.fmtTime(a.timestamp, fmt24)}</div>
         ${a.distanceFromRoute ? `<div style="font-size:13px">${a.distanceFromRoute}m off course</div>` : ''}
         ${a.battery != null ? `<div style="font-size:13px">${a.battery}% battery remaining</div>` : ''}

@@ -351,7 +351,7 @@ function updateMarker(nodeId, pos) {
   }
   const src = RT.iconSource(classes.find(c => c.id === p.class_id), heats.find(h => h.id === p.heat_id));
   const { svg, cls } = RT.trackerIcon(src, false, false);
-  const label = RT.fmtLabel(p.name);
+  const label = `#${p.bib}`;
   const icon = L.divIcon({ html: svg, className: cls, iconSize: [20, 20], iconAnchor: [10, 10] });
   if (trackerMarkers[nodeId]) {
     trackerMarkers[nodeId].setLatLng([pos.lat, pos.lon]).setIcon(icon);
@@ -404,7 +404,7 @@ function toggleParticipantNametags(on) {
     const p = participants.find(p => p.tracker_id === nodeId);
     if (!p) continue;
     marker.unbindTooltip();
-    marker.bindTooltip(RT.fmtLabel(p.name), { permanent: showParticipantNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
+    marker.bindTooltip(`#${p.bib}`, { permanent: showParticipantNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
   }
 }
 

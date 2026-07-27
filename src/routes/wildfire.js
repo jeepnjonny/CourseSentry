@@ -171,5 +171,52 @@ router.get('/hotspots', requireAuth, async (req, res) => {
   }
 });
 
+// NIFC's perimeter layer above only covers incidents large/established enough
+// to have a GIS-mapped polygon, so small or newly-reported fires are invisible
+// there. This point layer (one point per active incident, regardless of size)
+// fills that gap.
+router.get('/incidents', requireAuth, async (req, res) => {
+  const race = db.prepare('SELECT * FROM races WHERE id=?').get(req.params.raceId);
+  if (!race) return res.status(404).json({ ok: false, error: 'Race not found' });
+
+  const bbox = resolveBbox(race);
+  if (!bbox) {
+    console.warn(`[wildfire] race ${race.id}: no location data, cannot fetch incidents`);
+    return res.status(400).json({ ok: false, error: 'No location for this race' });
+  }
+
+  const cacheKey = `${race.id}:incidents`;
+  const hit = cache.get(cacheKey);
+  if (hit && (Date.now() - hit.ts) < CACHE_TTL) {
+    console.log(`[wildfire] race ${race.id}: incidents cache hit (${hit.data.features?.length ?? 0} features)`);
+    return res.json({ ok: true, data: hit.data, cached: true });
+  }
+
+  const env = `${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`;
+  console.log(`[wildfire] race ${race.id}: fetching NIFC incident points bbox=${env}`);
+
+  const params = new URLSearchParams({
+    where: '1=1',
+    geometry: env,
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    outFields: 'IncidentName,IncidentSize,PercentContained,FireDiscoveryDateTime,IncidentTypeCategory',
+    f: 'geojson',
+    outSR: '4326',
+  });
+  const url = `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations_Current/FeatureServer/0/query?${params}`;
+
+  try {
+    const data = await httpGet(url);
+    const count = data.features?.length ?? 0;
+    console.log(`[wildfire] race ${race.id}: NIFC returned ${count} incident(s)`);
+    cache.set(cacheKey, { data, ts: Date.now() });
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error(`[wildfire] race ${race.id}: NIFC incidents API error — ${err.message}`);
+    res.status(502).json({ ok: false, error: `NIFC API error: ${err.message}` });
+  }
+});
+
 module.exports = router;
 module.exports.resolveBbox = resolveBbox;

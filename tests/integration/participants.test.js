@@ -136,6 +136,60 @@ describe('Participants API', () => {
     });
   });
 
+  // ── GET /:id/trail ────────────────────────────────────────────────────────
+
+  describe('GET /api/races/:raceId/participants/:id/trail', () => {
+    let pid;
+
+    beforeAll(async () => {
+      const r = await admin.post(`/api/races/${raceId}/participants`)
+        .send({ bib: '51', name: 'Trail Runner', tracker_id: 'TRAIL1' });
+      pid = r.body.data.id;
+
+      const db = require('../../src/db');
+      const insert = db.prepare(`
+        INSERT INTO tracker_positions (race_id, node_id, lat, lon, timestamp)
+        VALUES (?,?,?,?,?)
+      `);
+      insert.run(raceId, 'TRAIL1', 40.0, -105.0, 1700000000);
+      insert.run(raceId, 'TRAIL1', 40.1, -105.1, 1700000100);
+      insert.run(raceId, 'TRAIL1', 40.2, -105.2, 1700000200);
+    });
+
+    test('unauthenticated → 401', async () => {
+      const res = await request(app).get(`/api/races/${raceId}/participants/${pid}/trail`);
+      expect(res.status).toBe(401);
+    });
+
+    test('nonexistent participant → 404', async () => {
+      const res = await admin.get(`/api/races/${raceId}/participants/999999/trail`);
+      expect(res.status).toBe(404);
+    });
+
+    test('returns positions oldest → newest', async () => {
+      const res = await admin.get(`/api/races/${raceId}/participants/${pid}/trail`);
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.data).toHaveLength(3);
+      expect(res.body.data[0].timestamp).toBe(1700000000);
+      expect(res.body.data[2].timestamp).toBe(1700000200);
+      expect(res.body.data[2].lat).toBeCloseTo(40.2);
+    });
+
+    test('respects the limit query param', async () => {
+      const res = await admin.get(`/api/races/${raceId}/participants/${pid}/trail?limit=1`);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].timestamp).toBe(1700000200); // most recent of the capped set
+    });
+
+    test('participant with no tracker_id → empty array', async () => {
+      const r = await admin.post(`/api/races/${raceId}/participants`).send({ bib: '52', name: 'No Tracker' });
+      const res = await admin.get(`/api/races/${raceId}/participants/${r.body.data.id}/trail`);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
+  });
+
   // ── PUT /:id ──────────────────────────────────────────────────────────────
 
   describe('PUT /api/races/:raceId/participants/:id', () => {

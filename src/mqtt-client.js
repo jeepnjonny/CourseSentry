@@ -69,7 +69,9 @@ const _stmt = {
   activeRaces:        db.prepare("SELECT * FROM races WHERE status='active'"),
   updateMsgStatus:    db.prepare("UPDATE messages SET status=? WHERE id=?"),
   getMsgById:         db.prepare('SELECT * FROM messages WHERE id=?'),
-  lowBattParticipant: db.prepare(`
+  // Generic "which active-race participant carries this tracker" lookup —
+  // used by both the low-battery and SOS alert paths.
+  findTrackerParticipant: db.prepare(`
     SELECT p.id, p.bib, p.name FROM participants p
     WHERE p.tracker_id = ?
       AND p.race_id IN (SELECT id FROM races WHERE status='active')
@@ -396,7 +398,7 @@ function handleTelemetry({ nodeId, battery, voltage, timestamp }) {
     const last = lastLowBatteryAlert.get(alertKey) || 0;
     if (timestamp - last > 600) {
       lastLowBatteryAlert.set(alertKey, timestamp);
-      const row = _stmt.lowBattParticipant.get(nodeId);
+      const row = _stmt.findTrackerParticipant.get(nodeId);
       if (row) {
         logger.log('race', 'warn', `LOW BATTERY — ${row.name} (#${row.bib}) tracker ${nodeId} at ${batteryPct}%`);
         broadcast('alert', { type: 'low_battery', participantId: row.id, bib: row.bib, name: row.name, battery: batteryPct, nodeId, timestamp });
@@ -910,6 +912,23 @@ function auditMissedStations(participantId, raceId) {
 
 const lastOffCourseAlert = new Map();
 const lastLowBatteryAlert = new Map();
+const lastSosAlert = new Map();
+
+// SOS/help events from satellite trackers (SPOT, inReach) that have no MQTT
+// telemetry path of their own — pollers call this directly after handlePosition().
+// Unlike off-course/low-battery there's no cooldown: as long as the device
+// keeps reporting a new timestamp while still in SOS, we keep alerting, since
+// this is a life-safety event an operator must not be able to miss.
+function handleSosAlert({ nodeId, timestamp }) {
+  if (!nodeId) return;
+  const row = _stmt.findTrackerParticipant.get(nodeId);
+  if (!row) return;
+  const alertKey = nodeId + '_sos';
+  if (lastSosAlert.get(alertKey) === timestamp) return; // same fix already alerted
+  lastSosAlert.set(alertKey, timestamp);
+  logger.log('race', 'error', `SOS — ${row.name} (#${row.bib}) tracker ${nodeId}`);
+  broadcast('alert', { type: 'sos', participantId: row.id, bib: row.bib, name: row.name, nodeId, timestamp });
+}
 
 function voltageToPct(voltage) {
   if (voltage == null) return null;
@@ -1276,4 +1295,4 @@ function invalidateRouteCache(raceId) {
   participantPrevEff.clear();
 }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, publishMessage, sendNodeInfo, sendPositionBeacon, callsignToNodeId, setGatewayNodeId, invalidateRouteCache, handlePosition, handleNodeInfo, handleTelemetry, auditMissedStations };
+module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, publishMessage, sendNodeInfo, sendPositionBeacon, callsignToNodeId, setGatewayNodeId, invalidateRouteCache, handlePosition, handleNodeInfo, handleTelemetry, handleSosAlert, auditMissedStations };
