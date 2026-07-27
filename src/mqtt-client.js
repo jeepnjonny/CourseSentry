@@ -44,8 +44,8 @@ const _stmt = {
   `),
   insertPosition: db.prepare(`
     INSERT INTO tracker_positions
-      (race_id, node_id, lat, lon, altitude, speed, heading, battery, snr, rssi, timestamp, rf_source)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      (race_id, node_id, lat, lon, altitude, speed, heading, battery, snr, rssi, timestamp, rf_source, heard_via)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
   `),
   getRegistry:        db.prepare('SELECT long_name, short_name FROM tracker_registry WHERE node_id=?'),
   getRegistryFull:    db.prepare('SELECT long_name, short_name, last_lat, last_lon, last_seen FROM tracker_registry WHERE node_id=?'),
@@ -352,7 +352,7 @@ function broadcastToRace(raceId, type, data) {
 }
 
 // Persist position, update registry, check geofences & alerts
-function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi, battery, timestamp, rfSource }) {
+function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi, battery, timestamp, rfSource, heardVia }) {
   if (!nodeId || isNaN(lat) || isNaN(lon)) return;
 
   routeTable.update(nodeId, 'mqtt');
@@ -367,7 +367,7 @@ function handlePosition({ nodeId, lat, lon, altitude, speed, heading, snr, rssi,
     const src = rfSource || activeRace.mqtt_rf_tech || 'meshtastic';
     _stmt.insertPosition.run(activeRace.id, nodeId, lat, lon,
       altitude ?? null, speed ?? null, heading ?? null,
-      battery ?? null, snr ?? null, rssi ?? null, timestamp, src);
+      battery ?? null, snr ?? null, rssi ?? null, timestamp, src, heardVia ?? null);
 
     // Resolve participant and personnel from the single-query helpers
     const participant = findParticipant(nodeId, activeRace.id);

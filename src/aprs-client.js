@@ -338,6 +338,24 @@ function handleInboundMessage(fromCall, text) {
   broadcast('message', msg);
 }
 
+// Extracts which digipeaters/igate actually relayed this packet from the header's
+// path + q-construct, e.g. "W1AW-9>APRS,WIDE1-1*,WIDE2-1,qAR,N0CALL" — WIDE1-1 was
+// used (marked with a trailing '*') and N0CALL is the igate that gated it to
+// APRS-IS. Returns a comma-joined callsign list, or null if nothing relayed it
+// (e.g. we heard it directly, or the header has no q-construct).
+function parseHeardVia(header) {
+  const gi = header.indexOf('>');
+  if (gi < 0) return null;
+  const rest = header.slice(gi + 1).split(',').slice(1); // drop dest, keep path+q-construct
+  const qIdx = rest.findIndex(t => /^qA/i.test(t));
+  const digis = (qIdx >= 0 ? rest.slice(0, qIdx) : rest)
+    .filter(t => t.endsWith('*'))
+    .map(t => t.slice(0, -1));
+  const igateCall = qIdx >= 0 ? rest[qIdx + 1] : null;
+  const via = [...digis, igateCall].filter(Boolean);
+  return via.length ? via.join(',') : null;
+}
+
 // ── Main packet processing loop ───────────────────────────────────────────────
 // Parses APRS packet header and body, routes to appropriate handlers
 function processLine(line) {
@@ -415,6 +433,7 @@ function processLine(line) {
     (voltage     != null ? ` batt=${voltage}V` : ''));
 
   const ts = Math.floor(Date.now() / 1000);
+  const heardVia = parseHeardVia(header);
   try {
     const mqttClient = require('./mqtt-client');
     // Store callsign as long_name so it appears in infrastructure and triggers tracker_info broadcast
@@ -431,6 +450,7 @@ function processLine(line) {
       rssi: null,
       timestamp: ts,
       rfSource: 'aprs',
+      heardVia,
     });
     if (voltage != null) {
       mqttClient.handleTelemetry({ nodeId, battery: null, voltage, timestamp: ts });
