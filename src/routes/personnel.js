@@ -128,22 +128,29 @@ router.post('/link-me', requireAuth, (req, res) => {
 });
 
 router.post('/', requireRole('admin', 'operator'), (req, res) => {
-  const { name, station_id, tracker_id, phone, color, shape, is_rover } = req.body;
+  const { name, station_id, tracker_id, phone, color, shape, is_rover, is_sweep,
+          spot_feed_id, spot_feed_password, inreach_url } = req.body;
   if (!name) {
     return res.status(400).json({ ok: false, error: 'name is required' });
   }
 
   const result = db.prepare(
-    'INSERT INTO personnel (race_id, station_id, name, tracker_id, phone, color, shape, is_rover) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    `INSERT INTO personnel (race_id, station_id, name, tracker_id, phone, color, shape, is_rover, is_sweep,
+                             spot_feed_id, spot_feed_password, inreach_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     req.params.raceId,
-    is_rover ? null : (station_id || null),
+    (is_rover || is_sweep) ? null : (station_id || null),
     name,
     tracker_id || null,
     phone || null,
     color || '#f5a623',
-    shape || 'triangle',
-    is_rover ? 1 : 0
+    shape || (is_sweep ? 'star' : 'triangle'),
+    is_rover ? 1 : 0,
+    is_sweep ? 1 : 0,
+    spot_feed_id || null,
+    spot_feed_password || null,
+    inreach_url || null
   );
 
   const person = db.prepare(`
@@ -161,17 +168,26 @@ router.put('/:id', requireRole('admin', 'operator'), (req, res) => {
     return res.status(404).json({ ok: false, error: 'personnel not found' });
   }
 
-  const { name, station_id, tracker_id, phone, color, shape, is_rover } = req.body;
+  const { name, station_id, tracker_id, phone, color, shape, is_rover, is_sweep,
+          spot_feed_id, spot_feed_password, inreach_url } = req.body;
   const roverVal = is_rover !== undefined ? (is_rover ? 1 : 0) : existing.is_rover;
-  db.prepare('UPDATE personnel SET name = ?, station_id = ?, tracker_id = ?, phone = ?, color = ?, shape = ?, is_rover = ? WHERE id = ?')
-    .run(
+  const sweepVal = is_sweep !== undefined ? (is_sweep ? 1 : 0) : existing.is_sweep;
+  db.prepare(
+    `UPDATE personnel SET name = ?, station_id = ?, tracker_id = ?, phone = ?, color = ?, shape = ?,
+                           is_rover = ?, is_sweep = ?, spot_feed_id = ?, spot_feed_password = ?, inreach_url = ?
+     WHERE id = ?`
+  ).run(
       name ?? existing.name,
-      roverVal ? null : (station_id !== undefined ? station_id : existing.station_id),
+      (roverVal || sweepVal) ? null : (station_id !== undefined ? station_id : existing.station_id),
       tracker_id !== undefined ? tracker_id : existing.tracker_id,
       phone !== undefined ? phone : existing.phone,
       color ?? existing.color,
       shape ?? existing.shape,
       roverVal,
+      sweepVal,
+      spot_feed_id !== undefined ? (spot_feed_id || null) : existing.spot_feed_id,
+      spot_feed_password !== undefined ? (spot_feed_password || null) : existing.spot_feed_password,
+      inreach_url !== undefined ? (inreach_url || null) : existing.inreach_url,
       existing.id
     );
 

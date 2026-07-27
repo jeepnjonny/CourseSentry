@@ -91,6 +91,14 @@
   .v-sort-btn { font-size: 13px; padding: 2px 8px; }
   .v-sort-btn.active { border-color: var(--accent); color: var(--accent); }
 
+  /* Legend for the BIB-color status coding (dns/active/dnf/finished) */
+  #viewer-lb-legend {
+    display: flex; gap: 12px; flex-wrap: wrap; padding: 5px 8px;
+    font-size: 12px; color: var(--text3); border-bottom: 1px solid var(--border);
+  }
+  #viewer-lb-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  #viewer-lb-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
   /* Leaderboard grid — named areas so responsive override is clean */
   .v-lb-cols { grid-template-columns: 22px 50px 2fr 44px 68px minmax(72px, 1fr); }
   .v-lb-head {
@@ -207,6 +215,12 @@
       <button class="v-sort-btn" data-sort="name" onclick="VW.setSort('name')">NAME</button>
       <button class="v-sort-btn" data-sort="heat" onclick="VW.setSort('heat')">HEAT</button>
       <button class="v-sort-btn" data-sort="class" onclick="VW.setSort('class')">CLASS</button>
+    </div>
+    <div id="viewer-lb-legend">
+      <span><i style="background:#8b949e"></i>DNS</span>
+      <span><i style="background:#58a6ff"></i>Active</span>
+      <span><i style="background:#f78166"></i>DNF</span>
+      <span><i style="background:#3fb950"></i>Finished</span>
     </div>
     <div class="v-lb-head v-lb-cols">
       <span>#</span><span>BIB</span><span>NAME</span><span>PROG</span><span>PACE</span><span>LAST AID</span>

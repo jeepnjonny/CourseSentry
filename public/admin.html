@@ -481,10 +481,16 @@
         <select id="pm-station-id">
           <option value="">— Unassigned —</option>
           <option value="rover">Rover (mobile, no fixed station)</option>
+          <option value="sweep">Sweep (course cleanup, moves behind runners)</option>
         </select>
       </div>
       <div class="form-group"><label>TRACKER ID <span class="text-dim">(node ID, longname, or shortname)</span></label><input id="pm-tracker-id" placeholder="leave blank if none"></div>
       <div class="form-group"><label>PHONE</label><input id="pm-phone" placeholder="optional"></div>
+      <div class="form-group"><label>GARMIN INREACH URL <span class="text-dim">(optional)</span></label><input id="pm-inreach-url" placeholder="leave blank if not using inReach"></div>
+      <div class="form-row">
+        <div class="form-group"><label>SPOT FEED ID <span class="text-dim">(optional)</span></label><input id="pm-spot-feed-id" placeholder="leave blank if not using a SPOT feed"></div>
+        <div class="form-group"><label>SPOT FEED PASSWORD</label><input id="pm-spot-feed-password" placeholder="leave blank if none"></div>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label>MAP ICON COLOR</label>

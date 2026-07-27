@@ -46,11 +46,30 @@ function getOnlineUsers(raceId) {
   return result;
 }
 
+// Fields staff-only UIs collect on a participant but never render on the public
+// viewer — stripped from anything a viewer-role connection receives, whether at
+// initial load (sendInit) or a live update (broadcastToRace), since both paths
+// otherwise send the full `participants` row verbatim.
+const VIEWER_HIDDEN_PARTICIPANT_FIELDS = [
+  'notes', 'phone', 'emergency_contact', 'spot_feed_id', 'spot_feed_password', 'inreach_url',
+];
+
+function redactParticipantForViewer(p) {
+  const copy = { ...p };
+  for (const f of VIEWER_HIDDEN_PARTICIPANT_FIELDS) delete copy[f];
+  return copy;
+}
+
 function broadcastToRace(raceId, msg) {
+  const isParticipantMsg = msg.type === 'participant_update' && msg.data && msg.data.participant;
   const str = JSON.stringify(msg);
+  const viewerStr = isParticipantMsg
+    ? JSON.stringify({ ...msg, data: { ...msg.data, participant: redactParticipantForViewer(msg.data.participant) } })
+    : str;
   for (const ws of clients) {
     if (ws.readyState === 1 && ws.raceId === raceId) {
-      try { ws.send(str); } catch (e) { clients.delete(ws); }
+      const payload = ws.user?.role === 'viewer' ? viewerStr : str;
+      try { ws.send(payload); } catch (e) { clients.delete(ws); }
     }
   }
 }
@@ -274,10 +293,11 @@ function sendInit(ws, user, reqUrl) {
     const trackPoints = getTrackPointsForRace(race);
     const wxRow = db.prepare("SELECT value FROM settings WHERE key='weather_api_key'").get();
     const weatherVisible = user.role !== 'viewer' || race.weather_enabled;
+    const participantsOut = user.role === 'viewer' ? participants.map(redactParticipantForViewer) : participants;
 
     send(ws, 'init', {
       race,
-      participants,
+      participants: participantsOut,
       stations,
       heats,
       classes,
