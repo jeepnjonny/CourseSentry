@@ -22,6 +22,7 @@ jest.mock('../../src/websocket', () => ({
   broadcast: jest.fn(),
   broadcastToRole: jest.fn(),
   broadcastToRace: jest.fn(),
+  broadcastInfra: jest.fn(),
   init: jest.fn(),
 }));
 
@@ -366,6 +367,116 @@ describe('Races API', () => {
     test('clone nonexistent source → 404', async () => {
       const res = await admin.post('/api/races/999999/clone').send({ name: 'X', date: '2027-01-01' });
       expect(res.status).toBe(404);
+    });
+
+    test('clone copies race-level network/RF settings', async () => {
+      await admin.put(`/api/races/${sourceId}`).send({
+        tactical_callsign: 'NETCT1', tnc_enabled: 0, rf_path: 'WIDE2-1',
+        spot_feed_id: 'feed123', spot_feed_password: 'secret',
+      });
+      const res = await admin.post(`/api/races/${sourceId}/clone`).send({
+        name: 'CloneNetworkSettings', date: '2027-07-07',
+      });
+      expect(res.body.data.tactical_callsign).toBe('NETCT1');
+      expect(res.body.data.tnc_enabled).toBe(0);
+      expect(res.body.data.rf_path).toBe('WIDE2-1');
+      expect(res.body.data.spot_feed_id).toBe('feed123');
+      expect(res.body.data.spot_feed_password).toBe('secret');
+    });
+
+    test('clone copies infrastructure nodes (NETWORK tab)', async () => {
+      const station = await admin.post(`/api/races/${sourceId}/stations`).send({
+        name: 'Hilltop', lat: 47.6, lon: -122.3, type: 'repeater',
+      });
+      await admin.post(`/api/races/${sourceId}/infrastructure`).send({
+        name: 'Hilltop Digi', node_type: 'digipeater', node_id: '!abc123',
+        station_id: station.body.data.id, notes: 'primary digi',
+      });
+
+      const res = await admin.post(`/api/races/${sourceId}/clone`).send({
+        name: 'CloneInfra', date: '2027-07-08',
+      });
+      const newId = res.body.data.id;
+
+      const newStations = await admin.get(`/api/races/${newId}/stations`);
+      const newStation = newStations.body.data.find(s => s.name === 'Hilltop');
+      expect(newStation).toBeTruthy();
+
+      const infra = await admin.get(`/api/races/${newId}/infrastructure`);
+      const node = infra.body.data.find(n => n.name === 'Hilltop Digi');
+      expect(node).toBeTruthy();
+      expect(node.node_type).toBe('digipeater');
+      expect(node.node_id).toBe('!abc123');
+      expect(node.station_id).toBe(newStation.id);
+      expect(node.notes).toBe('primary digi');
+    });
+
+    test('clone copies personnel with station assignment, color, shape, and rover flag', async () => {
+      const station = await admin.post(`/api/races/${sourceId}/stations`).send({
+        name: 'Aid 1', lat: 47.6, lon: -122.3, type: 'aid',
+      });
+      await admin.post(`/api/races/${sourceId}/personnel`).send({
+        name: 'Jane Volunteer', station_id: station.body.data.id, phone: '555-1234',
+        color: '#00ff00', shape: 'square',
+      });
+      await admin.post(`/api/races/${sourceId}/personnel`).send({
+        name: 'Rover Bob', is_rover: true, phone: '555-9999',
+      });
+
+      const res = await admin.post(`/api/races/${sourceId}/clone`).send({
+        name: 'ClonePersonnel', date: '2027-07-09',
+      });
+      const newId = res.body.data.id;
+
+      const newStations = await admin.get(`/api/races/${newId}/stations`);
+      const newStation = newStations.body.data.find(s => s.name === 'Aid 1');
+
+      const personnel = await admin.get(`/api/races/${newId}/personnel`);
+      const jane = personnel.body.data.find(p => p.name === 'Jane Volunteer');
+      expect(jane).toBeTruthy();
+      expect(jane.phone).toBe('555-1234');
+      expect(jane.color).toBe('#00ff00');
+      expect(jane.shape).toBe('square');
+      expect(jane.station_id).toBe(newStation.id);
+      expect(jane.tracker_id).toBeFalsy();
+
+      const bob = personnel.body.data.find(p => p.name === 'Rover Bob');
+      expect(bob).toBeTruthy();
+      expect(bob.is_rover).toBe(1);
+    });
+
+    test('clone copies participants with heat/class mapped and tracker/status reset', async () => {
+      const heat = await admin.post(`/api/races/${sourceId}/heats`).send({ name: 'Elite', color: '#111111' });
+      const cls  = await admin.post(`/api/races/${sourceId}/classes`).send({ name: 'Open', color: '#222222' });
+      await admin.post(`/api/races/${sourceId}/participants`).send({
+        bib: '42', name: 'Runner McRunface', tracker_id: 'TRK1', heat_id: heat.body.data.id,
+        class_id: cls.body.data.id, age: 30, phone: '555-0000', emergency_contact: 'Mom 555-1111',
+        notes: 'gluten free', inreach_url: 'https://inreach.example/42',
+      });
+
+      const res = await admin.post(`/api/races/${sourceId}/clone`).send({
+        name: 'CloneParticipants', date: '2027-07-10',
+      });
+      const newId = res.body.data.id;
+
+      const newHeats = await admin.get(`/api/races/${newId}/heats`);
+      const newHeat = newHeats.body.data.find(h => h.name === 'Elite');
+      const newClasses = await admin.get(`/api/races/${newId}/classes`);
+      const newClass = newClasses.body.data.find(c => c.name === 'Open');
+
+      const participants = await admin.get(`/api/races/${newId}/participants`);
+      const runner = participants.body.data.find(p => p.bib === '42');
+      expect(runner).toBeTruthy();
+      expect(runner.name).toBe('Runner McRunface');
+      expect(runner.heat_id).toBe(newHeat.id);
+      expect(runner.class_id).toBe(newClass.id);
+      expect(runner.age).toBe(30);
+      expect(runner.phone).toBe('555-0000');
+      expect(runner.emergency_contact).toBe('Mom 555-1111');
+      expect(runner.notes).toBe('gluten free');
+      expect(runner.inreach_url).toBe('https://inreach.example/42');
+      expect(runner.tracker_id).toBeFalsy();
+      expect(runner.status).toBe('dns');
     });
   });
 

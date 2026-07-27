@@ -492,35 +492,82 @@ function cloneClasses(sourceRaceId, targetRaceId) {
  * Clones stations from source race to target race
  * @param {number} sourceRaceId - Source race ID
  * @param {number} targetRaceId - Target race ID
+ * @returns {Object} Mapping of old station IDs to new station IDs
  */
 function cloneStations(sourceRaceId, targetRaceId) {
+  const stationMap = {};
   const stations = db.prepare('SELECT * FROM stations WHERE race_id = ? ORDER BY course_order').all(sourceRaceId);
 
   for (const station of stations) {
-    db.prepare('INSERT INTO stations (race_id, name, lat, lon, type, cutoff_time, course_order) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    const result = db.prepare('INSERT INTO stations (race_id, name, lat, lon, type, cutoff_time, course_order) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
       targetRaceId, station.name, station.lat, station.lon, station.type, station.cutoff_time, station.course_order
     );
+    stationMap[station.id] = result.lastInsertRowid;
   }
+
+  return stationMap;
 }
 
 /**
  * Clones personnel from source race to target race (without tracker IDs)
  * @param {number} sourceRaceId - Source race ID
  * @param {number} targetRaceId - Target race ID
+ * @param {Object} stationMap - Mapping of old station IDs to new station IDs
  */
-function clonePersonnel(sourceRaceId, targetRaceId) {
+function clonePersonnel(sourceRaceId, targetRaceId, stationMap) {
   const personnel = db.prepare('SELECT * FROM personnel WHERE race_id = ?').all(sourceRaceId);
 
   for (const person of personnel) {
-    db.prepare('INSERT INTO personnel (race_id, name, phone) VALUES (?, ?, ?)').run(
-      targetRaceId, person.name, person.phone
+    db.prepare('INSERT INTO personnel (race_id, station_id, name, phone, color, shape, is_rover) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      targetRaceId, stationMap[person.station_id] ?? null, person.name, person.phone,
+      person.color, person.shape, person.is_rover
     );
   }
 }
 
 /**
- * POST /:id/clone - Clones a race with all settings, heats, classes, stations, and personnel
- * Requires admin role. Does NOT clone participants.
+ * Clones infrastructure nodes (digipeaters, iGates, repeaters, beacons) from source race to target race
+ * @param {number} sourceRaceId - Source race ID
+ * @param {number} targetRaceId - Target race ID
+ * @param {Object} stationMap - Mapping of old station IDs to new station IDs
+ */
+function cloneInfraNodes(sourceRaceId, targetRaceId, stationMap) {
+  const nodes = db.prepare('SELECT * FROM infra_nodes WHERE race_id = ?').all(sourceRaceId);
+
+  for (const node of nodes) {
+    db.prepare('INSERT INTO infra_nodes (race_id, name, node_type, node_id, station_id, notes) VALUES (?, ?, ?, ?, ?, ?)').run(
+      targetRaceId, node.name, node.node_type, node.node_id, stationMap[node.station_id] ?? null, node.notes
+    );
+  }
+}
+
+/**
+ * Clones participants from source race to target race (without tracker IDs, status, or timing)
+ * @param {number} sourceRaceId - Source race ID
+ * @param {number} targetRaceId - Target race ID
+ * @param {Object} heatMap - Mapping of old heat IDs to new heat IDs
+ * @param {Object} classMap - Mapping of old class IDs to new class IDs
+ */
+function cloneParticipants(sourceRaceId, targetRaceId, heatMap, classMap) {
+  const participants = db.prepare('SELECT * FROM participants WHERE race_id = ?').all(sourceRaceId);
+
+  for (const p of participants) {
+    db.prepare(`
+      INSERT INTO participants (
+        race_id, bib, name, heat_id, class_id, age, phone,
+        emergency_contact, notes, inreach_url, spot_feed_id, spot_feed_password
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      targetRaceId, p.bib, p.name, heatMap[p.heat_id] ?? null, classMap[p.class_id] ?? null,
+      p.age, p.phone, p.emergency_contact, p.notes, p.inreach_url, p.spot_feed_id, p.spot_feed_password
+    );
+  }
+}
+
+/**
+ * POST /:id/clone - Clones a race with all settings, heats, classes, stations, network
+ * infrastructure, personnel, and participants.
+ * Requires admin role.
  * @param {number} req.params.id - Source race ID
  * @param {string} req.body.name - New race name (required)
  * @param {string} req.body.date - New race date (required)
@@ -544,8 +591,9 @@ router.post('/:id/clone', requireRole('admin'), (req, res) => {
       stopped_time, missing_timer, alerts_enabled, messaging_enabled, viewer_map_enabled,
       leaderboard_enabled, weather_enabled, course_id, race_format,
       feat_missing, feat_auto_log, feat_auto_start, feat_off_course, feat_stopped,
-      start_clearance, cloned_from
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      start_clearance, mqtt_rf_tech, tactical_callsign, tnc_enabled, rf_path,
+      spot_feed_id, spot_feed_password, cloned_from
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name, date, 'upcoming',
     sourceRace.time_format, sourceRace.clock_seconds ?? 1, sourceRace.geofence_radius,
@@ -555,16 +603,20 @@ router.post('/:id/clone', requireRole('admin'), (req, res) => {
     sourceRace.course_id || null, sourceRace.race_format || 'point_to_point',
     sourceRace.feat_missing ?? 1, sourceRace.feat_auto_log ?? 1, sourceRace.feat_auto_start ?? 1,
     sourceRace.feat_off_course ?? 1, sourceRace.feat_stopped ?? 1,
-    sourceRace.start_clearance ?? 400, sourceRace.id
+    sourceRace.start_clearance ?? 400, sourceRace.mqtt_rf_tech || 'meshtastic',
+    sourceRace.tactical_callsign || 'NETCTL', sourceRace.tnc_enabled ?? 1, sourceRace.rf_path || 'WIDE1-1',
+    sourceRace.spot_feed_id || null, sourceRace.spot_feed_password || null, sourceRace.id
   );
 
   const newRaceId = result.lastInsertRowid;
 
   // Clone related entities
-  cloneHeats(req.params.id, newRaceId);
-  cloneClasses(req.params.id, newRaceId);
-  cloneStations(req.params.id, newRaceId);
-  clonePersonnel(req.params.id, newRaceId);
+  const heatMap = cloneHeats(req.params.id, newRaceId);
+  const classMap = cloneClasses(req.params.id, newRaceId);
+  const stationMap = cloneStations(req.params.id, newRaceId);
+  cloneInfraNodes(req.params.id, newRaceId, stationMap);
+  clonePersonnel(req.params.id, newRaceId, stationMap);
+  cloneParticipants(req.params.id, newRaceId, heatMap, classMap);
 
   const newRace = db.prepare('SELECT * FROM races WHERE id = ?').get(newRaceId);
   res.json({ ok: true, data: newRace });
