@@ -336,7 +336,73 @@ async function pollParticipantFeed(participant) {
 }
 
 /**
- * Poll all active-race SPOT feeds: per-race shared pages and per-participant feeds.
+ * Poll a single sweep/personnel member's own findmespot feed and publish position
+ * if updated. Mirrors pollParticipantFeed(); personnel have no bib/status and are
+ * never broadcast to the viewer.
+ */
+async function pollPersonnelFeed(person) {
+  const feedId = normalizeFeedId(person.spot_feed_id);
+  if (!feedId) return;
+
+  const url = buildFeedUrl(feedId, person.spot_feed_password);
+
+  try {
+    const devices = newestPerDevice(parseFeed(await fetchUrl(url)));
+    if (!devices.length) {
+      logger.log('spot', 'debug', `No messages in feed for ${person.name} (personnel)`);
+      return;
+    }
+
+    const dev = devices.reduce((a, b) => (b.timestamp > a.timestamp ? b : a));
+    // Keyed the same way as participant devices (by SPOT ESN) so a device seen via
+    // either path isn't double-processed; falls back to a personnel-specific ID.
+    const nodeId = dev.messengerId != null && String(dev.messengerId) !== ''
+      ? `spot-${dev.messengerId}` : `spot-per${person.id}`;
+
+    const prevTs = lastSeenTs.get(nodeId) || 0;
+    if (dev.timestamp <= prevTs) return;
+    lastSeenTs.set(nodeId, dev.timestamp);
+
+    if (dev.name) {
+      mqttClient.handleNodeInfo({ nodeId, longName: dev.name, timestamp: dev.timestamp });
+    }
+
+    if (person.tracker_id !== nodeId) {
+      db.prepare('UPDATE personnel SET tracker_id = ? WHERE id = ?').run(nodeId, person.id);
+      wsManager.broadcast({ type: 'personnel_update', data: { action: 'bulk_update' } });
+      logger.log('spot', 'info', `Auto-registered tracker=${nodeId} for ${person.name} (personnel)`);
+    }
+
+    logger.log('spot', 'info',
+      `Position — ${person.name} (personnel) ${dev.lat.toFixed(5)},${dev.lon.toFixed(5)} ts=${dev.timestamp}`);
+
+    mqttClient.handlePosition({
+      nodeId,
+      lat: dev.lat,
+      lon: dev.lon,
+      altitude: null,
+      speed: null,
+      heading: null,
+      battery: dev.battery,
+      timestamp: dev.timestamp,
+      rfSource: 'spot',
+    });
+
+    if (dev.battery != null) {
+      mqttClient.handleTelemetry({ nodeId, battery: dev.battery, timestamp: dev.timestamp });
+    }
+    if (dev.sosSeen) {
+      logger.log('spot', 'error', `SOS/HELP — ${person.name} (personnel)`);
+      mqttClient.handleSosAlert({ nodeId, timestamp: dev.timestamp });
+    }
+  } catch (e) {
+    logger.log('spot', 'warn', `Poll failed for ${person.name} (personnel): ${e.message}`);
+  }
+}
+
+/**
+ * Poll all active-race SPOT feeds: per-race shared pages, per-participant feeds,
+ * and per-personnel (sweep vehicle) feeds.
  */
 async function pollAll() {
   const races = db.prepare(`
@@ -351,6 +417,7 @@ async function pollAll() {
     .map(r => r.id);
 
   let participants = [];
+  let personnelRows = [];
   if (activeRaceIds.length) {
     const placeholders = activeRaceIds.map(() => '?').join(',');
     participants = db.prepare(`
@@ -359,16 +426,21 @@ async function pollAll() {
         AND spot_feed_id IS NOT NULL AND spot_feed_id != ''
         AND status NOT IN ('dnf', 'finished')
     `).all(...activeRaceIds);
+    personnelRows = db.prepare(`
+      SELECT * FROM personnel
+      WHERE race_id IN (${placeholders})
+        AND spot_feed_id IS NOT NULL AND spot_feed_id != ''
+    `).all(...activeRaceIds);
   }
 
   _lastPollTime  = Math.floor(Date.now() / 1000);
-  _lastFeedCount = races.length + participants.length;
+  _lastFeedCount = races.length + participants.length + personnelRows.length;
   wsManager.broadcast({ type: 'spot_status', data: getStatus() });
 
-  if (!races.length && !participants.length) return;
+  if (!races.length && !participants.length && !personnelRows.length) return;
 
   logger.log('spot', 'info',
-    `Polling ${races.length} race feed(s) + ${participants.length} participant feed(s)…`);
+    `Polling ${races.length} race feed(s) + ${participants.length} participant feed(s) + ${personnelRows.length} personnel feed(s)…`);
 
   for (const race of races) {
     await pollRaceFeed(race);
@@ -378,6 +450,11 @@ async function pollAll() {
 
   for (const p of participants) {
     await pollParticipantFeed(p);
+    await new Promise(r => setTimeout(r, FEED_STAGGER_MS));
+  }
+
+  for (const person of personnelRows) {
+    await pollPersonnelFeed(person);
     await new Promise(r => setTimeout(r, FEED_STAGGER_MS));
   }
 }

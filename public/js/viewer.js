@@ -182,12 +182,17 @@ function handleWS(msg) {
       const wasOfflineReady = race.offline_maps_status === 'ready';
       const prevNametags = race.viewer_nametags;
       const prevShowNames = race.viewer_show_names;
+      const prevStatus = race.status;
       race = data;
       applySpeedDisplayLabels();
       if (!wasOfflineReady && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
       updateBaseLayerSelector();
       document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
       if (race.viewer_nametags !== prevNametags || race.viewer_show_names !== prevShowNames) renderAllMarkers();
+      if (race.status !== prevStatus) {
+        updateRacePill();
+        updateClockDisplay();
+      }
     }
   }
 }
@@ -200,8 +205,7 @@ function handleInit(data) {
   race = data.race;
   fmt24 = race.time_format === '24h';
   applySpeedDisplayLabels();
-  document.getElementById('vw-race-pill').className = 'pill pill-ok';
-  document.getElementById('vw-race-pill').textContent = race.name.toUpperCase();
+  updateRacePill();
   document.getElementById('viewer-lb-wrap')?.classList.toggle('names-hidden', !(race.viewer_show_names ?? 1));
 
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
@@ -224,6 +228,30 @@ function handleInit(data) {
   // Restrict selector and switch to offline URLs if already ready
   updateBaseLayerSelector();
   if (race.offline_maps && race.offline_maps_status === 'ready') setViewerBaseLayer(currentViewerBaseLayerName);
+  updateClockDisplay();
+}
+
+function updateRacePill() {
+  const pillClass = race.status === 'active' ? 'pill-ok' : race.status === 'past' ? 'pill-warn' : 'pill-idle';
+  const pillSuffix = race.status === 'active' ? '' : race.status === 'past' ? ' · ENDED' : ' · UPCOMING';
+  document.getElementById('vw-race-pill').className = `pill ${pillClass}`;
+  document.getElementById('vw-race-pill').textContent = race.name.toUpperCase() + pillSuffix;
+}
+
+// Non-active races don't have a live clock — startClock()'s interval only
+// advances while race.status === 'active'. Set the one-time display here:
+// a computed final duration for a past race, or a static placeholder otherwise.
+function updateClockDisplay() {
+  const el = document.getElementById('vw-clock');
+  if (!el || !race || race.status === 'active') return;
+  if (race.status === 'past') {
+    const starts = Object.values(participants).map(p => p.start_time).filter(Boolean);
+    const finishes = Object.values(participants).map(p => p.finish_time).filter(Boolean);
+    const final = (starts.length && finishes.length) ? Math.max(...finishes) - Math.min(...starts) : null;
+    el.textContent = final != null && final > 0 ? RT.fmtElapsed(final, race?.clock_seconds !== 0) : '--:--:--';
+  } else {
+    el.textContent = '--:--:--';
+  }
 }
 
 function enrichParticipant(p, registry) {
@@ -366,7 +394,9 @@ function renderLeaderboard() {
     const dot = src ? `<span class="lb-shape">${RT.SHAPES[src.shape]?.(src.color, 13) || RT.SHAPES.circle(src.color, 13)}</span>` : '';
     const pct = p._pct != null ? `${p._pct.toFixed(0)}%` : '--';
     const finished = p.status === 'finished';
-    const lastAid = p._lastStation || '--';
+    // DNS never started, so any station check-in on record (auto or manual,
+    // logged before or after the DNS marking) is stale/misleading — always "--".
+    const lastAid = p.status !== 'dns' ? (p._lastStation || '--') : '--';
     const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const dispName = fmtParticipantName(p.name);
     return `<div class="v-lb-row v-lb-cols ${finished ? 'text-ok' : ''}">
@@ -436,7 +466,11 @@ function computePct(p) {
 
 // Returns pace/speed in m/s, or null. Rendered via RT.fmtSpeed with race units.
 function computePace(p) {
-  if (!p.start_time || !p._pct) return null;
+  // Guard against near-zero progress producing an absurd implied pace (e.g.
+  // a GPS ping a few meters from the start line after hours of elapsed time
+  // divides out to millions of minutes/mile). Anything that rounds to the
+  // displayed "0%" shouldn't carry a numeric pace either.
+  if (!p.start_time || p._pct == null || p._pct < 0.5) return null;
   const total = computeTotal();
   if (!total) return null;
   if (!p.last_lat && p.last_station_id && p.last_station_ts) {
@@ -532,7 +566,7 @@ function switchTab(name) {
 
 function startClock() {
   clockInterval = setInterval(() => {
-    if (!race) return;
+    if (!race || race.status !== 'active') return;
     const active = Object.values(participants).find(p => p.status === 'active' && p.start_time);
     if (!active) return;
     const elapsed = Math.floor(Date.now()/1000) - active.start_time;

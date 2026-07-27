@@ -475,6 +475,15 @@ try { db.prepare("ALTER TABLE classes ADD COLUMN shape TEXT NOT NULL DEFAULT 'ci
 // coverage scoping in the RF Analysis tool.
 try { db.prepare('ALTER TABLE tracker_positions ADD COLUMN heard_via TEXT').run(); } catch {}
 
+// Sweep vehicles/personnel — course-cleanup staff behind the runners, tracked the
+// same way as participants (APRS/Meshtastic via tracker_id, plus SPOT/Garmin) but
+// never broadcast to the public viewer. is_sweep mirrors is_rover: mutually
+// exclusive with a fixed station_id since a sweep moves along the course.
+try { db.prepare('ALTER TABLE personnel ADD COLUMN is_sweep INTEGER NOT NULL DEFAULT 0').run(); } catch {}
+try { db.prepare('ALTER TABLE personnel ADD COLUMN spot_feed_id TEXT').run(); } catch {}
+try { db.prepare('ALTER TABLE personnel ADD COLUMN spot_feed_password TEXT').run(); } catch {}
+try { db.prepare('ALTER TABLE personnel ADD COLUMN inreach_url TEXT').run(); } catch {}
+
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.
 db.prepare('UPDATE users SET active_session_token = NULL').run();

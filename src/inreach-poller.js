@@ -184,7 +184,62 @@ async function pollParticipant(participant) {
 }
 
 /**
- * Poll all participants with inReach URLs for active races.
+ * Poll a single sweep/personnel member's inReach feed and publish position if
+ * updated. Mirrors pollParticipant(), but personnel have no bib/status and are
+ * never broadcast to the viewer — position updates go through the same
+ * mqtt-client pipeline that already feeds operator/station maps.
+ */
+async function pollPersonnelMember(person) {
+  if (!person.inreach_url) return;
+
+  const base = normalizeFeedUrl(person.inreach_url);
+  const d1 = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19) + 'Z';
+  const sep = base.includes('?') ? '&' : '?';
+  const url = `${base}${sep}d1=${encodeURIComponent(d1)}`;
+
+  try {
+    const kml = await fetchUrl(url);
+    const pos = parseKml(kml);
+
+    if (!pos) {
+      logger.log('inreach', 'debug', `No position in feed for ${person.name} (personnel)`);
+      return;
+    }
+
+    // Keyed separately from participant IDs (which share the same numeric space)
+    const dedupKey = `personnel-${person.id}`;
+    const prevTs = lastSeenTs.get(dedupKey) || 0;
+    if (pos.timestamp <= prevTs) return;
+    lastSeenTs.set(dedupKey, pos.timestamp);
+
+    const nodeId = pos.imei ? `inreach-${pos.imei}` : `inreach-per${person.id}`;
+
+    if (person.tracker_id !== nodeId) {
+      db.prepare('UPDATE personnel SET tracker_id = ? WHERE id = ?').run(nodeId, person.id);
+      wsManager.broadcast({ type: 'personnel_update', data: { action: 'bulk_update' } });
+      logger.log('inreach', 'info', `Auto-registered tracker=${nodeId} for ${person.name} (personnel)`);
+    }
+
+    logger.log('inreach', 'info',
+      `Position — ${person.name} (personnel) ${pos.lat.toFixed(5)},${pos.lon.toFixed(5)} ts=${pos.timestamp}`);
+
+    mqttClient.handlePosition({
+      nodeId,
+      lat: pos.lat,
+      lon: pos.lon,
+      altitude: pos.altitude,
+      speed: pos.speed,
+      heading: pos.heading,
+      timestamp: pos.timestamp,
+      rfSource: 'inreach',
+    });
+  } catch (e) {
+    logger.log('inreach', 'warn', `Poll failed for ${person.name} (personnel): ${e.message}`);
+  }
+}
+
+/**
+ * Poll all participants and sweep/personnel members with inReach URLs for active races.
  */
 async function pollAll() {
   const activeRaceIds = db.prepare("SELECT id FROM races WHERE status = 'active'")
@@ -200,18 +255,28 @@ async function pollAll() {
       AND inreach_url IS NOT NULL AND inreach_url != ''
       AND status NOT IN ('dnf', 'finished')
   `).all(...activeRaceIds);
+  const personnelRows = db.prepare(`
+    SELECT * FROM personnel
+    WHERE race_id IN (${placeholders})
+      AND inreach_url IS NOT NULL AND inreach_url != ''
+  `).all(...activeRaceIds);
 
   _lastPollTime  = Math.floor(Date.now() / 1000);
-  _lastFeedCount = participants.length;
+  _lastFeedCount = participants.length + personnelRows.length;
   wsManager.broadcast({ type: 'inreach_status', data: getStatus() });
 
-  if (!participants.length) return;
+  if (!participants.length && !personnelRows.length) return;
 
-  logger.log('inreach', 'info', `Polling ${participants.length} inReach feed(s)…`);
+  logger.log('inreach', 'info',
+    `Polling ${participants.length} inReach feed(s) + ${personnelRows.length} personnel feed(s)…`);
 
   for (const p of participants) {
     await pollParticipant(p);
     // Stagger requests — be polite to Garmin's servers
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  for (const person of personnelRows) {
+    await pollPersonnelMember(person);
     await new Promise(r => setTimeout(r, 2000));
   }
 }

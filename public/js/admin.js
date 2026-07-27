@@ -1502,7 +1502,7 @@ function showPersonnelCsvPanel() {
 function exportPersonnelCsv() {
   const header = 'name,station_name,tracker_id,phone';
   const rows = personnel.map(p =>
-    [p.name, p.is_rover ? 'ROVER' : (p.station_name || ''), p.tracker_id || '', p.phone || '']
+    [p.name, p.is_rover ? 'ROVER' : p.is_sweep ? 'SWEEP' : (p.station_name || ''), p.tracker_id || '', p.phone || '']
       .map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   const csv = [header, ...rows].join('\n');
   const a = document.createElement('a');
@@ -1550,12 +1550,14 @@ function renderPersonnelList() {
   if (!el) return;
   if (!personnel.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No personnel yet.</div>'; return; }
   const filtered = RT.filterRows(personnel, personnelQuery,
-    [p => p.name, p => p.is_rover ? 'rover' : p.station_name, p => p.tracker_id, p => p.phone]);
+    [p => p.name, p => p.is_rover ? 'rover' : p.is_sweep ? 'sweep' : p.station_name, p => p.tracker_id, p => p.phone]);
   if (!filtered.length) { el.innerHTML = '<div class="text-dim" style="font-size:16px;padding:6px">No personnel match your search.</div>'; return; }
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>NAME</th><th>STATION</th><th>TRACKER ID</th><th>PHONE</th><th></th></tr></thead><tbody>
     ${filtered.map(p => `<tr>
       <td>${p.name}</td>
-      <td>${p.is_rover ? '<span style="color:var(--accent);font-size:12px;letter-spacing:1px">ROVER</span>' : (p.station_name || '<span class="text-dim">—</span>')}</td>
+      <td>${p.is_rover ? '<span style="color:var(--accent);font-size:12px;letter-spacing:1px">ROVER</span>'
+        : p.is_sweep ? '<span style="color:#f5a623;font-size:12px;letter-spacing:1px">SWEEP</span>'
+        : (p.station_name || '<span class="text-dim">—</span>')}</td>
       <td>${p.tracker_id || '<span class="text-dim">—</span>'}</td>
       <td>${p.phone || '<span class="text-dim">—</span>'}</td>
       <td style="text-align:right">
@@ -1571,6 +1573,7 @@ let editingPersonnelId = null;
 function pmBuildStationOptions() {
   return '<option value="">— Unassigned —</option>' +
     '<option value="rover">Rover (mobile, no fixed station)</option>' +
+    '<option value="sweep">Sweep (course cleanup, moves behind runners)</option>' +
     stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
 }
 
@@ -1639,12 +1642,16 @@ function openPersonnelModal(id) {
     document.getElementById('pm-name').value       = p?.name       || '';
     document.getElementById('pm-tracker-id').value = p?.tracker_id || '';
     document.getElementById('pm-phone').value      = p?.phone      || '';
+    document.getElementById('pm-inreach-url').value        = p?.inreach_url        || '';
+    document.getElementById('pm-spot-feed-id').value        = p?.spot_feed_id       || '';
+    document.getElementById('pm-spot-feed-password').value  = p?.spot_feed_password || '';
     document.getElementById('pm-color').value      = p?.color      || '#f5a623';
     document.getElementById('pm-shape').value      = p?.shape      || 'triangle';
     const sel = document.getElementById('pm-station-id');
     sel.innerHTML = '<option value="">— Unassigned —</option>' +
       '<option value="rover"' + (p?.is_rover ? ' selected' : '') + '>Rover (mobile, no fixed station)</option>' +
-      stations.map(s => `<option value="${s.id}"${!p?.is_rover && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
+      '<option value="sweep"' + (p?.is_sweep ? ' selected' : '') + '>Sweep (course cleanup, moves behind runners)</option>' +
+      stations.map(s => `<option value="${s.id}"${!p?.is_rover && !p?.is_sweep && s.id === p?.station_id ? ' selected' : ''}>${s.name}</option>`).join('');
     pmUpdatePreview();
     document.getElementById('personnel-modal').classList.remove('hidden');
     document.getElementById('pm-name').focus();
@@ -1664,11 +1671,18 @@ async function savePersonnel() {
     const station_id = document.getElementById('pm-station-id').value || null;
     const tracker_id = document.getElementById('pm-tracker-id').value.trim() || null;
     const phone      = document.getElementById('pm-phone').value.trim() || null;
+    const inreach_url          = document.getElementById('pm-inreach-url').value.trim() || null;
+    const spot_feed_id         = document.getElementById('pm-spot-feed-id').value.trim() || null;
+    const spot_feed_password   = document.getElementById('pm-spot-feed-password').value.trim() || null;
     const color      = document.getElementById('pm-color').value || '#f5a623';
     const shape      = document.getElementById('pm-shape').value || 'triangle';
     if (!name) { RT.toast('Name required', 'warn'); return; }
     const is_rover = station_id === 'rover';
-    const body = { name, station_id: is_rover || !station_id ? null : parseInt(station_id), is_rover, tracker_id, phone, color, shape };
+    const is_sweep = station_id === 'sweep';
+    const body = {
+      name, station_id: (is_rover || is_sweep || !station_id) ? null : parseInt(station_id),
+      is_rover, is_sweep, tracker_id, phone, color, shape, inreach_url, spot_feed_id, spot_feed_password,
+    };
     const res = await RT.put(`/api/races/${selectedRaceId}/personnel/${editingPersonnelId}`, body);
     if (res.ok) {
       closeModal('personnel-modal');
@@ -1690,14 +1704,16 @@ async function savePersonnel() {
   let saved = 0;
   for (const r of toSave) {
     const is_rover = r.station_id === 'rover';
+    const is_sweep = r.station_id === 'sweep';
     const body = {
       name:       r.name,
-      station_id: is_rover || !r.station_id ? null : parseInt(r.station_id),
+      station_id: (is_rover || is_sweep || !r.station_id) ? null : parseInt(r.station_id),
       is_rover,
+      is_sweep,
       tracker_id: r.tracker_id,
       phone:      r.phone,
       color:      '#f5a623',
-      shape:      'triangle',
+      shape:      is_sweep ? 'star' : 'triangle',
     };
     const res = await RT.post(`/api/races/${selectedRaceId}/personnel`, body);
     if (res.ok) saved++;
