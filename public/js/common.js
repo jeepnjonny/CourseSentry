@@ -92,11 +92,14 @@ const RT = (() => {
     return parts[0] + ' ' + parts[parts.length - 1][0].toUpperCase() + '.';
   }
 
-  function fmtTime(unixSec, fmt24) {
+  function fmtTime(unixSec, fmt24, showSecs = true) {
     if (!unixSec) return '--';
     const d = new Date(unixSec * 1000);
-    if (fmt24) return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    const opts = showSecs
+      ? { hour: fmt24 ? '2-digit' : 'numeric', minute: '2-digit', second: '2-digit' }
+      : { hour: fmt24 ? '2-digit' : 'numeric', minute: '2-digit' };
+    if (fmt24) return d.toLocaleTimeString('en-US', { ...opts, hour12: false });
+    return d.toLocaleTimeString('en-US', opts);
   }
 
   function fmtElapsed(seconds, showSecs = true) {
