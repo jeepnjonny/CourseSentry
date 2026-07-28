@@ -740,16 +740,25 @@ function sendMessage(toCallsign, text, messageId) {
 // ── State and utility functions ───────────────────────────────────────────────
 // Dynamic callsign filter updates, messaging context, filter preview
 
-// Called after participants/personnel roster changes to refresh callsign filter live
-function notifyRosterChange() {
+// Recomputes the filter for whatever mode is active (callsign or location) and
+// pushes it to the live session via APRS-IS's runtime `#filter` command — no
+// reconnect needed. Callers: race activate/deactivate/end and course/track
+// edits, since those all change buildLocationFilter()'s inputs; roster edits
+// go through notifyRosterChange() below instead.
+function refreshFilter() {
   if (!socket || !_connected || !currentConfig) return;
-  if (currentConfig.filterType !== 'callsign') return;
-  const filterStr = buildCallsignFilter();
+  const filterStr = buildFilter(currentConfig.filterType);
   currentConfig.filterStr = filterStr;
   if (filterStr) {
     logger.log('aprs', 'info', `Sending filter update: ${filterStr}`);
     try { socket.write(`#filter ${filterStr}\r\n`); } catch {}
   }
+}
+
+// Called after participants/personnel roster changes to refresh callsign filter live
+function notifyRosterChange() {
+  if (currentConfig?.filterType !== 'callsign') return;
+  refreshFilter();
 }
 
 function getActiveCallsign() {
@@ -782,4 +791,4 @@ function igate(rawLine) {
   }
 }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, igate, setWs, notifyRosterChange, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, getActiveCallsign, processAprsLine: processLine };
+module.exports = { connect, connectFromSettings, disconnect, getStatus, isConnected, igate, setWs, notifyRosterChange, refreshFilter, previewFilter, sendMessage, sendObjectBeacon, generatePasscode, getActiveCallsign, processAprsLine: processLine };
