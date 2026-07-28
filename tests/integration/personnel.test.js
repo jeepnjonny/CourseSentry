@@ -15,6 +15,7 @@ jest.mock('../../src/aprs-client', () => ({
   getStatus: jest.fn(() => ({ connected: false })),
   setWs: jest.fn(),
   notifyRosterChange: jest.fn(),
+  refreshFilter: jest.fn(),
   previewFilter: jest.fn(() => ''),
 }));
 

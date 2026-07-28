@@ -21,6 +21,7 @@ const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, requireRole } = require('../auth');
 const mqttClient = require('../mqtt-client');
+const aprsClient = require('../aprs-client');
 const wsManager = require('../websocket');
 const logger = require('../logger');
 const tileCache = require('../tile-cache');
@@ -268,9 +269,12 @@ router.put('/:id', requireRole('admin'), (req, res) => {
 
   applyDerivedFields(parseInt(req.params.id));
 
-  // Reconnect MQTT if race is active (settings may have changed)
+  // Reconnect MQTT / refresh the APRS-IS filter if race is active (settings,
+  // course, or track may have changed — the location filter otherwise stays
+  // frozen at whatever it was computed as during the last APRS-IS connect)
   if (race.status === 'active') {
     mqttClient.connectFromSettings(db);
+    aprsClient.refreshFilter();
   }
   mqttClient.invalidateRouteCache(parseInt(req.params.id));  // also clears course.js track cache
 
@@ -326,6 +330,7 @@ router.post('/:id/activate', requireRole('admin'), (req, res) => {
   db.prepare("UPDATE races SET status = 'active' WHERE id = ?").run(req.params.id);
   logger.log('race', 'info', `ACTIVATED — ${race.name} (${race.date})`);
   mqttClient.connectFromSettings(db);
+  aprsClient.refreshFilter();
 
   // Check whether any participant tracker types lack a corresponding enabled
   // datasource.  Warnings are advisory — the race is active regardless.
@@ -350,6 +355,7 @@ router.post('/:id/deactivate', requireRole('admin'), (req, res) => {
   if (race) {
     logger.log('race', 'info', `DEACTIVATED — ${race.name}`);
   }
+  aprsClient.refreshFilter();
 
   broadcastRaceUpdate(req.params.id);
   res.json({ ok: true });
@@ -443,6 +449,7 @@ router.post('/:id/end', requireRole('admin', 'operator'), (req, res) => {
 
   db.prepare("UPDATE races SET status = 'past' WHERE id = ?").run(req.params.id);
   logger.log('race', 'info', `ENDED by operator — ${race.name}`);
+  aprsClient.refreshFilter();
 
   const updated = broadcastRaceUpdate(req.params.id);
   res.json({ ok: true, data: updated });
