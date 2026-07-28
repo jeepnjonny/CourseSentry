@@ -178,6 +178,22 @@ router.get('/active', requireAuth, (req, res) => {
 });
 
 /**
+ * GET /public - Retrieves races an admin has opted into public viewing
+ * No authentication required — only returns races with a viewer link enabled,
+ * and only the fields needed to list/link them.
+ * @returns {Object} JSON response with a minimal races array
+ */
+router.get('/public', (req, res) => {
+  const races = db.prepare(`
+    SELECT name, date, status, viewer_token
+    FROM races
+    WHERE viewer_token IS NOT NULL
+    ORDER BY status = 'active' DESC, date DESC
+  `).all();
+  res.json({ ok: true, data: races });
+});
+
+/**
  * GET /:id - Retrieves a specific race by ID
  * Requires authentication
  * @param {number} req.params.id - Race ID
@@ -629,6 +645,25 @@ router.post('/:id/clone', requireRole('admin'), (req, res) => {
   res.json({ ok: true, data: newRace });
 });
 
+// Excludes visually/verbally ambiguous characters (0/O, 1/I/L) so codes read
+// back correctly over voice (radio, phone) or on a signup sheet.
+const VIEWER_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const VIEWER_CODE_LENGTH = 6;
+
+/**
+ * Generates a short, spoken-friendly viewer code, retrying on the
+ * astronomically unlikely chance of a collision with an existing token.
+ * @returns {string} A unique viewer code
+ */
+function generateViewerCode() {
+  let code;
+  do {
+    code = Array.from({ length: VIEWER_CODE_LENGTH },
+      () => VIEWER_CODE_ALPHABET[crypto.randomInt(VIEWER_CODE_ALPHABET.length)]).join('');
+  } while (db.prepare('SELECT 1 FROM races WHERE viewer_token = ?').get(code));
+  return code;
+}
+
 /**
  * POST /:id/viewer-token - Generates a viewer token for public access
  * Requires admin role
@@ -641,10 +676,7 @@ router.post('/:id/viewer-token', requireRole('admin'), (req, res) => {
     return res.status(404).json({ ok: false, error: 'Race not found' });
   }
 
-  const token = crypto.createHash('sha256')
-    .update(`${race.name}-${race.date}-${Date.now()}`)
-    .digest('hex')
-    .substring(0, 16);
+  const token = generateViewerCode();
 
   db.prepare('UPDATE races SET viewer_token = ? WHERE id = ?').run(token, req.params.id);
   res.json({ ok: true, data: { token } });
