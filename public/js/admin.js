@@ -281,10 +281,10 @@ async function deleteRace(id) {
   else RT.toast(res.error, 'warn');
 }
 
-function copyViewerLink(token) {
+function copyViewerLink(token, { open = true } = {}) {
   const url = `${location.origin}${RT.BASE}view/${token}`;
-  window.open(url, '_blank');
-  navigator.clipboard.writeText(url).then(() => RT.toast('Viewer URL opened and copied to clipboard', 'ok'));
+  if (open) window.open(url, '_blank');
+  navigator.clipboard.writeText(url).then(() => RT.toast(open ? 'Viewer URL opened and copied to clipboard' : 'Viewer URL copied to clipboard', 'ok'));
 }
 
 // Grays out the sub-options in "Viewer Page Options" while the master
@@ -457,7 +457,7 @@ async function saveRace() {
     const raceId = editingRaceId || res.data?.id;
     if (wantViewerEnabled && !wasViewerEnabled) {
       const tokenRes = await RT.post(`/api/races/${raceId}/viewer-token`);
-      if (tokenRes.ok) copyViewerLink(tokenRes.data.token);
+      if (tokenRes.ok) copyViewerLink(tokenRes.data.token, { open: false });
     } else if (!wantViewerEnabled && wasViewerEnabled) {
       await RT.del(`/api/races/${raceId}/viewer-token`);
     }
