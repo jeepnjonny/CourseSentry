@@ -172,8 +172,17 @@
     <span class="ds-light ds-light-idle" id="inreach-light" title="InReach: Inactive"></span>
     <span class="ds-light ds-light-off"  id="mesh-light"    title="Client Mesh: Not configured"></span>
   </div>
-  <!-- Live race clock display showing elapsed time -->
-  <div id="race-clock" style="font-size:24px;font-weight:bold;color:var(--accent2);letter-spacing:2px">--:--:--</div>
+  <!-- Live clock group: current time-of-day and race elapsed time, both following the race's time-format settings -->
+  <div id="clock-group" style="display:flex;align-items:center;gap:10px">
+    <div style="text-align:center;line-height:1.1">
+      <div style="font-size:9px;color:var(--text3);letter-spacing:1px">NOW</div>
+      <div id="current-time" style="font-size:15px;font-weight:bold;color:var(--text2);letter-spacing:1px">--:--:--</div>
+    </div>
+    <div style="text-align:center;line-height:1.1">
+      <div style="font-size:9px;color:var(--text3);letter-spacing:1px">ELAPSED</div>
+      <div id="race-clock" style="font-size:24px;font-weight:bold;color:var(--accent2);letter-spacing:2px">--:--:--</div>
+    </div>
+  </div>
   <!-- Race control buttons: Start (begins timing for next heat or whole race), End Race (finish) -->
   <button id="start-btn" class="hidden" onclick="OP.startNext()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(63,185,80,.18);border-color:#3fb950;color:#3fb950">START RACE</button>
   <button id="end-race-btn" class="hidden" onclick="OP.endRace()" style="font-size:14px;padding:4px 10px;white-space:nowrap;background:rgba(248,81,73,.18);border-color:#f85149;color:#f85149">END RACE</button>

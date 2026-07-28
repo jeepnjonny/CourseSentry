@@ -2741,6 +2741,10 @@ function tickClock() {
   if (!el) return;
   const countUp = race?.clock_seconds !== 0;
 
+  // Current time-of-day, following the race's 12h/24h and seconds-display settings
+  const nowEl = document.getElementById('current-time');
+  if (nowEl) nowEl.textContent = RT.fmtTime(Math.floor(Date.now() / 1000), fmt24, countUp);
+
   // Freeze conditions: race not active OR all participants accounted for
   const freeze = !race || race.status !== 'active' || allParticipantsAccountedFor();
 
@@ -2913,16 +2917,32 @@ function renderForecastStrip() {
     </div>`;
 }
 
+function escapeAttr(str) {
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
 function renderAlertsSection() {
   if (!wxAlerts?.length) return '';
   const SEVERITY_COLOR = { Extreme: '#ff4444', Severe: '#ff8c00', Moderate: '#d29922', Minor: '#58a6ff' };
   const items = wxAlerts.map(a => {
     const color = SEVERITY_COLOR[a.severity] || 'var(--accent3)';
-    const exp   = a.expires ? new Date(a.expires).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-    return `<div style="border:1px solid ${color};border-radius:4px;padding:6px 8px;margin-bottom:6px;background:${color}18">
+    const eff   = a.effective ? new Date(a.effective).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+    const exp   = a.expires   ? new Date(a.expires).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+    // Native hover tooltip with the full alert detail (severity/urgency/certainty + description),
+    // since the card itself only has room for the headline.
+    const tooltip = [
+      a.event,
+      [a.severity, a.urgency, a.certainty].filter(Boolean).join(' · '),
+      a.headline,
+      a.description,
+      eff ? `Effective: ${eff}` : '',
+      exp ? `Expires: ${exp}` : '',
+    ].filter(Boolean).join('\n\n');
+    return `<div title="${escapeAttr(tooltip)}" style="border:1px solid ${color};border-radius:4px;padding:6px 8px;margin-bottom:6px;background:${color}18;cursor:help">
       <div style="font-size:13px;font-weight:bold;color:${color};letter-spacing:.5px">${a.event}</div>
+      ${(a.urgency || a.certainty) ? `<div style="font-size:11px;color:var(--text3);margin-top:1px;text-transform:uppercase;letter-spacing:.5px">${[a.urgency, a.certainty].filter(Boolean).join(' · ')}</div>` : ''}
       <div style="font-size:13px;color:var(--text2);margin-top:2px">${a.headline || ''}</div>
-      ${exp ? `<div style="font-size:12px;color:var(--text3);margin-top:3px">Expires ${exp}</div>` : ''}
+      ${(eff || exp) ? `<div style="font-size:12px;color:var(--text3);margin-top:3px">${eff ? `Effective ${eff}` : ''}${eff && exp ? ' · ' : ''}${exp ? `Expires ${exp}` : ''}</div>` : ''}
     </div>`;
   }).join('');
   return `<div style="margin-bottom:8px">${items}</div>`;
