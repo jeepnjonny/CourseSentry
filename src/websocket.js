@@ -100,7 +100,7 @@ function init(server, sessionMiddleware) {
       // session on the same browser, since a token is only ever sent by the public
       // /view/:token page and unambiguously names the race it wants.
       if (token) {
-        const race = db.prepare('SELECT id, name FROM races WHERE viewer_token = ?').get(token);
+        const race = db.prepare('SELECT id, name FROM races WHERE UPPER(viewer_token) = UPPER(?)').get(token);
         if (race) {
           user = { role: 'viewer', raceId: race.id };
         }

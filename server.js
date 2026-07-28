@@ -70,7 +70,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 // ── Viewer page (token-gated, no login) ──────────────────────────────────────
 app.get('/view/:token', (req, res) => {
-  const race = db.prepare('SELECT id FROM races WHERE viewer_token=?').get(req.params.token);
+  const race = db.prepare('SELECT id FROM races WHERE UPPER(viewer_token) = UPPER(?)').get(req.params.token);
   if (!race) return res.status(404).send('Race not found or viewer link has been revoked.');
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'viewer.html'));

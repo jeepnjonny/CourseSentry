@@ -23,13 +23,31 @@
   <link rel="stylesheet" href="css/theme.css">
   <!-- Theme CSS is loaded from settings, allows user-selected theme -->
   <link id="rt-theme-css" rel="stylesheet">
+  <style>
+    /* Overrides the shared 100vh single-child centering so the live-races
+       section can sit below the login box without clipping when present. */
+    .login-wrap { flex-direction: column; height: auto; min-height: 100vh; gap: 24px; padding: 24px 16px; }
+    .lr-section { width: 100%; max-width: 480px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .lr-title { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--text2); }
+    .lr-cards { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+    .lr-card {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; cursor: pointer; text-decoration: none; transition: border-color 0.15s, background 0.15s;
+    }
+    .lr-card:hover { border-color: var(--accent); background: var(--surface3); }
+    .lr-card-name { font-weight: 700; color: var(--text); }
+    .lr-card-date { font-size: 13px; color: var(--text2); }
+    .lr-archive-link { color: var(--text2); font-size: 13px; text-decoration: none; }
+    .lr-archive-link:hover { color: var(--text); text-decoration: underline; }
+  </style>
 </head>
 <body style="overflow:auto">
   <div class="login-wrap">
     <div class="login-box">
       <h1><img class="logo-reversed" src="img/logo-reversed.svg" alt="CourseSentry" style="max-width:100%;height:auto"><img class="logo-color" src="img/logo-color.svg" alt="CourseSentry" style="max-width:100%;height:auto"></h1>
       <p>Race Safety &amp; Tracking System</p>
-      
+
       <!-- Login form with username and password inputs -->
       <div class="form-group">
         <label>USERNAME</label>
@@ -39,11 +57,20 @@
         <label>PASSWORD</label>
         <input type="password" id="password" autocomplete="current-password">
       </div>
-      
+
       <!-- Sign in button and error message display -->
       <button class="primary w100" onclick="login()" style="margin-top:4px">SIGN IN</button>
       <div class="login-error" id="login-error"></div>
     </div>
+
+    <!-- Public directory of races an admin has opted into a viewer link for.
+         Lets someone who's only been given the bare hostname find a race
+         without needing a link or a login. -->
+    <div class="lr-section hidden" id="lr-section">
+      <div class="lr-title">LIVE RACES</div>
+      <div class="lr-cards" id="lr-cards"></div>
+    </div>
+    <a class="lr-archive-link" id="lr-archive-link" href="past-races.html">View Past Races &rarr;</a>
   </div>
 
   <script>
@@ -123,6 +150,47 @@
       .catch(() => {
         // User is not authenticated, stay on login page
       });
+
+    document.getElementById('lr-archive-link').href = _base + 'past-races.html';
+
+    /**
+     * Loads the public race directory (races an admin has enabled a viewer
+     * link for) and renders active ones as clickable cards. No auth required.
+     */
+    async function loadLiveRaces() {
+      try {
+        const response = await fetch(_base + 'api/races/public');
+        const result = await response.json();
+        if (!result.ok) return;
+
+        const active = result.data.filter(r => r.status === 'active');
+        if (!active.length) return;
+
+        const cards = document.getElementById('lr-cards');
+        for (const race of active) {
+          const card = document.createElement('a');
+          card.className = 'lr-card';
+          card.href = _base + 'view/' + race.viewer_token;
+
+          const name = document.createElement('div');
+          name.className = 'lr-card-name';
+          name.textContent = race.name;
+
+          const date = document.createElement('div');
+          date.className = 'lr-card-date';
+          date.textContent = race.date;
+
+          card.appendChild(name);
+          card.appendChild(date);
+          cards.appendChild(card);
+        }
+        document.getElementById('lr-section').classList.remove('hidden');
+      } catch (error) {
+        // Directory is a convenience, not critical — fail silently and leave the section hidden.
+      }
+    }
+
+    loadLiveRaces();
   </script>
 </body>
 </html>

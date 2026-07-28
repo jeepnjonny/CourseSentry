@@ -223,9 +223,7 @@ function renderRaceList() {
         ${r.status==='active'?`<button onclick="event.stopPropagation();deactivateRace(${r.id})" class="danger" style="font-size:13px;padding:3px 8px">DEACTIVATE</button>`:''}
         <button onclick="event.stopPropagation();openRaceModal(${r.id})" style="font-size:13px;padding:3px 8px">EDIT</button>
         <button onclick="event.stopPropagation();cloneRace(${r.id})" style="font-size:13px;padding:3px 8px">CLONE</button>
-        ${r.viewer_token?`<button onclick="event.stopPropagation();copyViewerLink('${r.viewer_token}')" style="font-size:13px;padding:3px 8px;color:var(--accent4)">VIEWER LINK</button>
-         <button onclick="event.stopPropagation();revokeViewerToken(${r.id})" class="danger" style="font-size:13px;padding:3px 8px">REVOKE</button>`
-         :`<button onclick="event.stopPropagation();genViewerToken(${r.id})" style="font-size:13px;padding:3px 8px">GEN VIEWER</button>`}
+        ${r.viewer_token?`<button onclick="event.stopPropagation();copyViewerLink('${r.viewer_token}')" style="font-size:13px;padding:3px 8px;color:var(--accent4)">VIEWER LINK</button>`:''}
         ${r.status!=='active'?`<button onclick="event.stopPropagation();deleteRace(${r.id})" class="danger" style="font-size:13px;padding:3px 8px">DEL</button>`:''}
       </div>
     </div>
@@ -283,24 +281,18 @@ async function deleteRace(id) {
   else RT.toast(res.error, 'warn');
 }
 
-async function genViewerToken(id) {
-  const res = await RT.post(`/api/races/${id}/viewer-token`);
-  if (res.ok) {
-    await loadRaces(); renderTab();
-    copyViewerLink(res.data.token);
-  }
-}
-
 function copyViewerLink(token) {
   const url = `${location.origin}${RT.BASE}view/${token}`;
   window.open(url, '_blank');
   navigator.clipboard.writeText(url).then(() => RT.toast('Viewer URL opened and copied to clipboard', 'ok'));
 }
 
-async function revokeViewerToken(id) {
-  if (!confirm('Revoke viewer link? Existing users will lose access.')) return;
-  await RT.del(`/api/races/${id}/viewer-token`);
-  await loadRaces(); renderTab();
+// Grays out the sub-options in "Viewer Page Options" while the master
+// "Enable Public Viewer Link" checkbox is off, since they have no effect.
+function toggleViewerOptions() {
+  const enabled = document.getElementById('rm-viewer-enabled').checked;
+  ['rm-viewer-map', 'rm-leaderboard', 'rm-weather', 'rm-show-names', 'rm-viewer-nametags']
+    .forEach(id => { document.getElementById(id).disabled = !enabled; });
 }
 
 async function cloneRace(id) {
@@ -378,6 +370,8 @@ async function openRaceModal(id) {
   document.getElementById('rm-weather').checked          = !!(race?.weather_enabled);
   document.getElementById('rm-show-names').checked       = !!(race?.viewer_show_names ?? 1);
   document.getElementById('rm-viewer-nametags').checked  = !!(race?.viewer_nametags);
+  document.getElementById('rm-viewer-enabled').checked   = !!(race?.viewer_token);
+  toggleViewerOptions();
   document.getElementById('rm-race-format').value    = race?.race_format || 'point_to_point';
   document.getElementById('rm-start-time').value      = unixToTimeStr(race?.start_time);
   document.getElementById('rm-start-clearance').value  = _mToDisplay(race?.start_clearance ?? 400, modalUnits);
@@ -453,10 +447,21 @@ async function saveRace() {
     spot_feed_id:        document.getElementById('rm-spot-feed-id').value.trim() || null,
     spot_feed_password:  document.getElementById('rm-spot-feed-password').value.trim() || null,
   };
+  const wasViewerEnabled  = !!(editingRaceId && races.find(r => r.id === editingRaceId)?.viewer_token);
+  const wantViewerEnabled = document.getElementById('rm-viewer-enabled').checked;
+
   const res = editingRaceId
     ? await RT.put(`/api/races/${editingRaceId}`, body)
     : await RT.post('/api/races', body);
   if (res.ok) {
+    const raceId = editingRaceId || res.data?.id;
+    if (wantViewerEnabled && !wasViewerEnabled) {
+      const tokenRes = await RT.post(`/api/races/${raceId}/viewer-token`);
+      if (tokenRes.ok) copyViewerLink(tokenRes.data.token);
+    } else if (!wantViewerEnabled && wasViewerEnabled) {
+      await RT.del(`/api/races/${raceId}/viewer-token`);
+    }
+
     closeModal('race-modal');
     if (!editingRaceId && res.data?.id) {
       await loadRaces();

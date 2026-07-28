@@ -491,10 +491,10 @@ describe('Races API', () => {
       raceId = r.body.data.id;
     });
 
-    test('generates a 16-character hex token', async () => {
+    test('generates a 6-character spoken-friendly code', async () => {
       const res = await admin.post(`/api/races/${raceId}/viewer-token`);
       expect(res.status).toBe(200);
-      expect(res.body.data.token).toMatch(/^[0-9a-f]{16}$/);
+      expect(res.body.data.token).toMatch(/^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
     });
 
     test('generating again changes the token', async () => {

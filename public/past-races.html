@@ -1,0 +1,122 @@
+<!--
+  CourseSentry Past Races Archive
+
+  Public, unauthenticated page listing finished races that an admin has
+  opted into a public viewer link for. Linked from the "View Past Races"
+  link on the login page (index.html) so someone with just the bare
+  hostname can find a race that already ended.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CourseSentry — Past Races</title>
+<base href="/">
+<link rel="icon" href="img/logo-icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/theme.css">
+<link id="rt-theme-css" rel="stylesheet">
+<style>
+  .pr-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    gap: 24px;
+  }
+  .pr-title { font-size: 22px; font-weight: 700; letter-spacing: 1px; color: var(--text); }
+  .pr-subtitle { color: var(--text2); font-size: 14px; margin-top: -16px; }
+  .pr-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 480px;
+    width: 100%;
+  }
+  .pr-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .pr-card:hover { border-color: var(--accent); background: var(--surface3); }
+  .pr-card-name { font-weight: 700; color: var(--text); }
+  .pr-card-date { font-size: 13px; color: var(--text2); }
+  .pr-none { color: var(--text2); font-size: 15px; }
+  .pr-back { color: var(--text2); font-size: 13px; text-decoration: none; }
+  .pr-back:hover { color: var(--text); text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="pr-wrap">
+  <div><img class="logo-reversed" src="img/logo-reversed.svg" alt="CourseSentry" height="40"><img class="logo-color" src="img/logo-color.svg" alt="CourseSentry" height="40"></div>
+  <div class="pr-title">PAST RACES</div>
+  <div class="pr-subtitle" id="pr-subtitle">Loading past races&hellip;</div>
+  <div class="pr-cards" id="pr-cards"></div>
+  <a class="pr-back" id="pr-back">&larr; Back to login</a>
+</div>
+<script>
+  const _base = (() => {
+    const segment = location.pathname.split('/')[1];
+    return segment && !segment.includes('.') ? '/' + segment + '/' : '/';
+  })();
+
+  document.getElementById('pr-back').href = _base;
+
+  async function init() {
+    const subtitle = document.getElementById('pr-subtitle');
+    const cards = document.getElementById('pr-cards');
+
+    let result;
+    try {
+      const response = await fetch(_base + 'api/races/public');
+      result = await response.json();
+    } catch (error) {
+      subtitle.textContent = 'Failed to load races.';
+      return;
+    }
+
+    if (!result.ok) {
+      subtitle.textContent = 'Failed to load races.';
+      return;
+    }
+
+    const past = result.data.filter(r => r.status === 'past');
+    if (!past.length) {
+      subtitle.textContent = 'No past races available.';
+      return;
+    }
+
+    subtitle.textContent = 'Choose a race to open its viewer page.';
+    for (const race of past) {
+      const card = document.createElement('a');
+      card.className = 'pr-card';
+      card.href = _base + 'view/' + race.viewer_token;
+
+      const name = document.createElement('div');
+      name.className = 'pr-card-name';
+      name.textContent = race.name;
+
+      const date = document.createElement('div');
+      date.className = 'pr-card-date';
+      date.textContent = race.date;
+
+      card.appendChild(name);
+      card.appendChild(date);
+      cards.appendChild(card);
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
