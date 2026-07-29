@@ -22,6 +22,11 @@ function _tnc() { if (!_localTnc) _localTnc = require('./local-tnc'); return _lo
 // raceId → Set of ws objects for non-viewer authenticated users
 const raceOnlineUsers = new Map();
 
+// raceId → Set of every ws bound to that race (admin/operator/station/viewer),
+// kept in sync with `clients` at connect/cleanup so broadcastToRace can target
+// just that race's sockets instead of scanning every connected client.
+const raceClients = new Map();
+
 function _resolveConnRaceId(user, reqUrl) {
   if (user.role === 'viewer') return user.raceId || null;
   const rParam = parseInt(new URL(reqUrl, 'http://localhost').searchParams.get('race') || '0') || null;
@@ -61,15 +66,17 @@ function redactParticipantForViewer(p) {
 }
 
 function broadcastToRace(raceId, msg) {
+  const set = raceClients.get(raceId);
+  if (!set || !set.size) return;
   const isParticipantMsg = msg.type === 'participant_update' && msg.data && msg.data.participant;
   const str = JSON.stringify(msg);
   const viewerStr = isParticipantMsg
     ? JSON.stringify({ ...msg, data: { ...msg.data, participant: redactParticipantForViewer(msg.data.participant) } })
     : str;
-  for (const ws of clients) {
-    if (ws.readyState === 1 && ws.raceId === raceId) {
+  for (const ws of set) {
+    if (ws.readyState === 1) {
       const payload = ws.user?.role === 'viewer' ? viewerStr : str;
-      try { ws.send(payload); } catch (e) { clients.delete(ws); }
+      try { ws.send(payload); } catch (e) { clients.delete(ws); set.delete(ws); }
     }
   }
 }
@@ -127,6 +134,11 @@ function init(server, sessionMiddleware) {
       ws.raceId = _resolveConnRaceId(user, req.url);
       ws.tncActive = false;
       clients.add(ws);
+
+      if (ws.raceId) {
+        if (!raceClients.has(ws.raceId)) raceClients.set(ws.raceId, new Set());
+        raceClients.get(ws.raceId).add(ws);
+      }
 
       // Track online presence for authenticated (non-viewer) users
       if (user.role !== 'viewer' && ws.raceId) {
@@ -209,6 +221,10 @@ function init(server, sessionMiddleware) {
       function cleanup() {
         if (ws.tncActive) { try { _tnc().unregister(ws.id); } catch {} }
         clients.delete(ws);
+        if (ws.raceId) {
+          const rc = raceClients.get(ws.raceId);
+          if (rc) { rc.delete(ws); if (!rc.size) raceClients.delete(ws.raceId); }
+        }
         if (user.role !== 'viewer' && ws.raceId) {
           const set = raceOnlineUsers.get(ws.raceId);
           if (set) { set.delete(ws); if (!set.size) raceOnlineUsers.delete(ws.raceId); }
@@ -311,6 +327,11 @@ function sendInit(ws, user, reqUrl) {
       weatherKey:  weatherVisible ? (wxRow?.value || null) : null,
       lightning:   weatherVisible ? lightningMod.getRecentStrikes(race) : [],
       onlineUsers: (user.role !== 'viewer' && raceId) ? getOnlineUsers(raceId) : [],
+      // Ongoing missing/stopped alerts, so a client connecting after one
+      // already tripped sees it immediately rather than only future ones.
+      alerts:      (user.role !== 'viewer' && raceId)
+                     ? require('./alert-monitor').getActiveAlerts().filter(a => a.raceId === raceId)
+                     : [],
     });
   } catch (e) {
     require('./logger').log('system', 'error', `WebSocket sendInit error: ${e.message}`);

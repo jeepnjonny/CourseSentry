@@ -229,24 +229,28 @@ router.post('/import', requireRole('admin', 'operator'), (req, res) => {
     const rows = parseCsv(csv);
     const raceId = req.params.raceId;
     const insert = db.prepare('INSERT INTO personnel (race_id, station_id, name, tracker_id, phone) VALUES (?, ?, ?, ?, ?)');
+    const errors = [];
 
     const tx = db.transaction(() => {
       for (const row of rows) {
-        if (!row.name) continue;
+        if (!row.name) { errors.push('Row skipped: name required'); continue; }
 
-        let stationId = null;
-        if (row.station_name) {
-          const station = db.prepare('SELECT id FROM stations WHERE race_id = ? AND name = ?').get(raceId, row.station_name.trim());
-          if (station) stationId = station.id;
-        }
+        try {
+          let stationId = null;
+          if (row.station_name) {
+            const station = db.prepare('SELECT id FROM stations WHERE race_id = ? AND name = ?').get(raceId, row.station_name.trim());
+            if (station) stationId = station.id;
+            else errors.push(`${row.name}: station "${row.station_name}" not found — left unassigned`);
+          }
 
-        insert.run(raceId, stationId, row.name, row.tracker_id || null, row.phone || null);
+          insert.run(raceId, stationId, row.name, row.tracker_id || null, row.phone || null);
+        } catch (e) { errors.push(`${row.name}: ${e.message}`); }
       }
     });
 
     tx();
     aprsClient.notifyRosterChange();
-    res.json({ ok: true, data: fetchPersonnel(raceId) });
+    res.json({ ok: true, data: fetchPersonnel(raceId), errors });
   } catch (error) {
     res.status(400).json({ ok: false, error: error.message });
   }

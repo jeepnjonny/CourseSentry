@@ -16,7 +16,8 @@ let checkedInIds = new Set(); // participant IDs with any event at the current e
 let expandedPendingId = null; // which pending row is currently expanded
 let stationEvents = []; // latest events for current station (for buildCheckedInSet)
 let activeRaces = [];
-let map, markersLayer, personnelLayer = null, stationMarkers = {}, routeLayer = null, trackPoints = null;
+let map, markersLayer, personnelLayer = null, stationMarkers = {}, trackPoints = null;
+const _routeLayerRef = { layer: null }; // see MapShared.renderRoute
 let showParticipantNametags = false, showPersonnelNametags = false;
 let infraNodes = [], infraLayer = null, showInfraMarkers = true;
 let fmt24 = false;
@@ -24,9 +25,11 @@ let baseTiles = {}, currentBaseLayer = null, currentBaseLayerName = 'Street';
 let clockInterval = null;
 let sortBy = 'position';
 
-// Course distance cache — cleared whenever trackPoints or stations change
-let _total = null, _cachedDists = null, _stationAlongCache = null;
-const MAX_RACE_SPEED = 8, BACK_MARGIN = 100;
+// Course-progress math (percent/pace/station-distance) is shared with
+// operator.js — see public/js/map-shared.js. _distCache is this page's cache
+// object, reset whenever trackPoints or stations change.
+let _distCache = {};
+function _mapCtx() { return { race, trackPoints, stations }; }
 
 const BASE_LAYERS = {
   'Topo':      { url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',        opts: { maxZoom: 16, maxNativeZoom: 16, attribution: 'USGS' } },
@@ -290,39 +293,14 @@ function setBaseLayer(name) {
 }
 
 function renderRoute() {
-  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
-  if (!trackPoints || trackPoints.length < 2) return;
-  routeLayer = L.polyline(trackPoints, { color: '#f5a623', weight: 5, opacity: 0.85 }).addTo(map);
-  map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+  MapShared.renderRoute(trackPoints, map, _routeLayerRef);
 }
 
 function renderStationMarkers() {
-  Object.values(stationMarkers).forEach(m => map.removeLayer(m));
-  stationMarkers = {};
-  for (const s of stations) {
-    const color = s.type === 'start' ? '#3fb950' : s.type === 'finish' ? '#f78166' :
-                  s.type === 'start_finish' ? '#a371f7' : s.type === 'turnaround' ? '#58a6ff' :
-                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' :
-                  s.type === 'rover' ? '#c084fc' : '#d2a679';
-    const letter = s.type === 'start' ? 'S' : s.type === 'finish' ? 'F' :
-                   s.type === 'start_finish' ? '⇌' : s.type === 'turnaround' ? 'T' :
-                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' :
-                   s.type === 'rover' ? '⟳' : s.name[0]?.toUpperCase() || 'A';
-    const icon = L.divIcon({
-      html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};border:2px solid #fff4;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:#000">${letter}</div>`,
-      className: '', iconAnchor: [10, 10],
-    });
-    const marker = L.marker([s.lat, s.lon], { icon }).bindTooltip(s.name);
-    marker._stnType = s.type;
-    // Repeater / net-control stations follow the Infrastructure toggle; all
-    // other station types are always shown.
-    if (!isInfraStationType(s.type) || showInfraMarkers) marker.addTo(map);
-    stationMarkers[s.id] = marker;
-  }
-  if (stations.length && !trackPoints) {
-    const bounds = L.latLngBounds(stations.map(s => [s.lat, s.lon]));
-    map.fitBounds(bounds, { padding: [30, 30] });
-  }
+  MapShared.renderStationMarkers(stations, map, stationMarkers, {
+    iconSize: 20, fontSize: 10, courierFont: false, tooltipOptions: {},
+    showInfraMarkers, fitBoundsIfNoRoute: true, trackPoints,
+  });
 }
 
 function initMap() {
@@ -365,37 +343,12 @@ function updateMarker(nodeId, pos) {
 }
 
 function updatePersonnelMarkers() {
-  if (!personnelLayer) return;
-  for (const p of personnel) {
-    if (!p.tracker_id || !p.last_lat || !p.last_lon) {
-      const ex = personnelLayer.getLayers().find(m => m._perId === p.id);
-      if (ex) personnelLayer.removeLayer(ex);
-      continue;
-    }
-    const color = p.color || '#f5a623';
-    const shape = p.shape || 'triangle';
-    const svg = RT.SHAPES[shape]?.(color, 20) || RT.SHAPES.triangle(color, 20);
-    const label = RT.fmtLabel(p.name);
-    const icon = L.divIcon({
-      html: `<div title="${label}">${svg}</div>`,
-      className: 'leaflet-div-icon', iconAnchor: [10, 10],
-    });
-    const existing = personnelLayer.getLayers().find(m => m._perId === p.id);
-    if (existing) {
-      existing.setLatLng([p.last_lat, p.last_lon]);
-      existing.setIcon(icon);
-      existing.unbindTooltip();
-      existing.bindTooltip(label, { permanent: showPersonnelNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
-    } else {
-      const m = L.marker([p.last_lat, p.last_lon], { icon });
-      m._perId = p.id;
-      m.bindTooltip(label, { permanent: showPersonnelNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
-      m.addTo(personnelLayer);
-    }
-  }
-  for (const m of [...personnelLayer.getLayers()]) {
-    if (!personnel.some(p => p.id === m._perId)) personnelLayer.removeLayer(m);
-  }
+  // geofenceRadius hides personnel within range of a station (matches
+  // operator.js — they're presumed to be "at" the station, not in the field).
+  MapShared.updatePersonnelMarkers(personnel, stations, personnelLayer, {
+    geofenceRadius: race?.geofence_radius || 50,
+    showNametags: showPersonnelNametags,
+  });
 }
 
 function toggleParticipantNametags(on) {
@@ -414,66 +367,17 @@ function togglePersonnelNametags(on) {
 }
 
 // ── Infrastructure markers ────────────────────────────────────────────────────
-// Same colors/letters and dimming convention as operator.js's updateInfraMarkers,
-// duplicated here rather than shared since this file already duplicates similar
-// per-marker rendering for participants/personnel (no shared module between pages).
-const INFRA_COLORS  = { digipeater: '#a371f7', igate: '#58a6ff', repeater: '#6e7681', beacon: '#3fb950', other: '#d2a679' };
-const INFRA_LETTERS = { digipeater: 'D', igate: 'I', repeater: 'R', beacon: 'B', other: '?' };
-
 // Course station types that count as "infrastructure" for the Infrastructure
 // toggle, alongside the registered network nodes (see toggleInfra).
-function isInfraStationType(type) {
-  return type === 'repeater' || type === 'netcontrol';
-}
+function isInfraStationType(type) { return MapShared.isInfraStationType(type); }
 
 function updateInfraMarkers() {
-  if (!infraLayer) return;
-  for (const n of infraNodes) {
-    if (n.resolved_lat == null || n.resolved_lon == null) {
-      const ex = infraLayer.getLayers().find(m => m._infraId === n.id);
-      if (ex) infraLayer.removeLayer(ex);
-      continue;
-    }
-    const color = INFRA_COLORS[n.node_type] || INFRA_COLORS.other;
-    const dim = n.health !== 'ok';
-    const icon = L.divIcon({
-      html: `<div style="width:20px;height:20px;border-radius:4px;background:${color};opacity:${dim ? 0.45 : 1};
-              border:2px solid #fff4;display:flex;align-items:center;justify-content:center;
-              font-size:11px;font-weight:bold;color:#000">${INFRA_LETTERS[n.node_type] || '?'}</div>`,
-      className: '', iconAnchor: [10, 10],
-    });
-    const healthNote = n.health !== 'ok' ? ` — ${n.health.replace('_', ' ')}` : '';
-    const tooltip = `${n.name} (${n.node_type})${healthNote}`;
-    const existing = infraLayer.getLayers().find(m => m._infraId === n.id);
-    if (existing) {
-      existing.setLatLng([n.resolved_lat, n.resolved_lon]);
-      existing.setIcon(icon);
-      existing.unbindTooltip();
-      existing.bindTooltip(tooltip);
-    } else {
-      const m = L.marker([n.resolved_lat, n.resolved_lon], { icon });
-      m._infraId = n.id;
-      m.bindTooltip(tooltip);
-      m.addTo(infraLayer);
-    }
-  }
-  for (const m of [...infraLayer.getLayers()]) {
-    if (!infraNodes.some(n => n.id === m._infraId)) infraLayer.removeLayer(m);
-  }
+  MapShared.updateInfraMarkers(infraNodes, infraLayer, { courierFont: false, tooltipOptions: {} });
 }
 
 function toggleInfra(on) {
-  showInfraMarkers = !!on;
-  if (!map) return;
-  if (showInfraMarkers) { if (!map.hasLayer(infraLayer)) infraLayer.addTo(map); }
-  else { if (map.hasLayer(infraLayer)) map.removeLayer(infraLayer); }
-  // Course stations of type repeater / net control are infrastructure too, but
-  // are plotted directly on the map — show/hide them alongside the network nodes.
-  for (const m of Object.values(stationMarkers)) {
-    if (!isInfraStationType(m._stnType)) continue;
-    if (showInfraMarkers) { if (!map.hasLayer(m)) m.addTo(map); }
-    else { if (map.hasLayer(m)) map.removeLayer(m); }
-  }
+  if (!map) { showInfraMarkers = !!on; return; }
+  showInfraMarkers = MapShared.toggleInfra(on, map, infraLayer, stationMarkers);
 }
 
 // ── Infrastructure list (LOG tab) ─────────────────────────────────────────────
@@ -515,12 +419,12 @@ function handleWS(msg) {
     participants.forEach(p => { p._lastStation = p.last_station_name || null; });
     if (msg.data.stations?.length) {
       stations = msg.data.stations;
-      _stationAlongCache = null;
+      _distCache.stationAlong = null;
       renderStationMarkers();
     }
     if (msg.data.trackPoints?.length) {
       trackPoints = msg.data.trackPoints;
-      _cachedDists = null; _total = null; _stationAlongCache = null;
+      _distCache = {};
       renderRoute();
     }
     renderLeaderboard();
@@ -562,7 +466,7 @@ function handleWS(msg) {
       if (ev.event_type === 'dnf')      p.status = 'dnf';
       if (ev.has_turnaround && !p.has_turnaround) {
         p.has_turnaround = true;
-        const td = _total || computeTotal();
+        const td = _distCache.totalDist || computeTotal();
         if (td) { p._lastAlong = td; p._lastAlongTs = ev.timestamp; }
       }
       if (ev.station_id && !p.has_turnaround) {
@@ -654,7 +558,7 @@ function renderLeaderboard() {
   const el = document.getElementById('mo-lb-body');
   if (!el) return;
   const list = [...participants];
-  list.forEach(p => { p._pct = computePct(p); });
+  list.forEach(p => { p._pct = computePct(p); p._pace = computePace(p); });
 
   list.sort((a, b) => {
     if (sortBy === 'position') return (b._pct || 0) - (a._pct || 0);
@@ -696,11 +600,7 @@ function setSort(key) {
 
 // ── Course progress computation (mirrors viewer.js exactly) ──────────────────
 
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+function haversine(lat1, lon1, lat2, lon2) { return MapShared.haversine(lat1, lon1, lat2, lon2); }
 
 // ── Phone GPS reporting ───────────────────────────────────────────────────────
 
@@ -772,112 +672,11 @@ function _setGps(enable) {
   );
 }
 
-function ensureDistCache() {
-  if (_cachedDists || !trackPoints || trackPoints.length < 2) return;
-  _cachedDists = [0];
-  for (let i = 1; i < trackPoints.length; i++)
-    _cachedDists.push(_cachedDists[i - 1] + haversine(
-      trackPoints[i - 1][0], trackPoints[i - 1][1], trackPoints[i][0], trackPoints[i][1]));
-  _total = _cachedDists[_cachedDists.length - 1];
-}
-
-function computeTotal() {
-  ensureDistCache();
-  return _total || 0;
-}
-
-function getStationAlongMap() {
-  if (_stationAlongCache) return _stationAlongCache;
-  if (!trackPoints || trackPoints.length < 2) return new Map();
-  ensureDistCache();
-  _stationAlongCache = new Map();
-  for (const s of stations) {
-    if (!s.lat || !s.lon) continue;
-    let minD = Infinity, best = 0;
-    for (let i = 0; i < trackPoints.length - 1; i++) {
-      const [lat1, lon1] = trackPoints[i], [lat2, lon2] = trackPoints[i + 1];
-      const ax = s.lat - lat1, ay = s.lon - lon1, bx = lat2 - lat1, by = lon2 - lon1;
-      const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / Math.max(1e-10, bx * bx + by * by)));
-      const d = haversine(s.lat, s.lon, lat1 + t * bx, lon1 + t * by);
-      if (d < minD) { minD = d; best = _cachedDists[i] + t * (_cachedDists[i + 1] - _cachedDists[i]); }
-    }
-    _stationAlongCache.set(s.id, best);
-  }
-  return _stationAlongCache;
-}
-
-function computePct(p) {
-  if (p.status === 'finished') return 100;
-  if (p.status === 'dns') return null;
-  if (!p.last_lat || !trackPoints || !trackPoints.length) {
-    if (p.last_station_id && trackPoints?.length) {
-      ensureDistCache();
-      if (!_total) return null;
-      const along = getStationAlongMap().get(p.last_station_id);
-      if (along == null) return null;
-      if (race?.race_format === 'out_and_back') {
-        if (p.has_turnaround) return Math.min(100, (2 * _total - along) / (2 * _total) * 100);
-        return Math.min(50, along / (2 * _total) * 100);
-      }
-      return Math.min(100, along / _total * 100);
-    }
-    return null;
-  }
-  ensureDistCache();
-  const totalDist = _total;
-  if (!totalDist) return 0;
-
-  const now = Math.floor(Date.now() / 1000);
-  const lastAlong = p._lastAlong ?? 0;
-  const lastTs = p._lastAlongTs ?? (p.start_time || now);
-  const travelDist = Math.max(0, now - lastTs) * MAX_RACE_SPEED + BACK_MARGIN;
-  const windowMin = Math.max(0, lastAlong - travelDist);
-  const windowMax = Math.min(totalDist, lastAlong + travelDist);
-
-  let minD = Infinity, bestAlong = lastAlong;
-  for (let i = 0; i < trackPoints.length - 1; i++) {
-    if (_cachedDists[i + 1] < windowMin || _cachedDists[i] > windowMax) continue;
-    const [lat1, lon1] = trackPoints[i], [lat2, lon2] = trackPoints[i + 1];
-    const segLen = _cachedDists[i + 1] - _cachedDists[i];
-    const ax = p.last_lat - lat1, ay = p.last_lon - lon1, bx = lat2 - lat1, by = lon2 - lon1;
-    const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / Math.max(1e-10, bx * bx + by * by)));
-    const d = haversine(p.last_lat, p.last_lon, lat1 + t * bx, lon1 + t * by);
-    if (d < minD) { minD = d; bestAlong = _cachedDists[i] + t * segLen; }
-  }
-
-  if (!(race?.race_format === 'out_and_back' && p.has_turnaround))
-    bestAlong = Math.max(bestAlong, p._stationFloor ?? 0);
-
-  p._lastAlong = bestAlong;
-  p._lastAlongTs = now;
-
-  if (race?.race_format === 'out_and_back') {
-    if (p.has_turnaround) return Math.min(100, (2 * totalDist - bestAlong) / (2 * totalDist) * 100);
-    return Math.min(50, bestAlong / (2 * totalDist) * 100);
-  }
-  return Math.min(100, bestAlong / totalDist * 100);
-}
-
-function fmtPace(p) {
-  if (!p.start_time || !p._pct) return '--';
-  const total = computeTotal();
-  if (!total) return '--';
-  if (!p.last_lat && p.last_station_id && p.last_station_ts) {
-    const along = getStationAlongMap().get(p.last_station_id);
-    if (along == null || along <= 0) return '--';
-    const stationElapsed = p.last_station_ts - p.start_time;
-    if (stationElapsed <= 0) return '--';
-    const distCovered = (race?.race_format === 'out_and_back' && p.has_turnaround)
-      ? 2 * total - along : along;
-    return RT.fmtPace(distCovered / stationElapsed);
-  }
-  const dist = race?.race_format === 'out_and_back' ? total * 2 : total;
-  const elapsed = (p.status === 'finished' && p.finish_time)
-    ? p.finish_time - p.start_time
-    : Math.floor(Date.now() / 1000) - p.start_time;
-  if (elapsed <= 0) return '--';
-  return RT.fmtPace(dist / elapsed);
-}
+function ensureDistCache() { MapShared.ensureDistCache(_mapCtx(), _distCache); }
+function computeTotal() { return MapShared.computeTotalDist(_mapCtx(), _distCache); }
+function getStationAlongMap() { return MapShared.getStationAlongMap(_mapCtx(), _distCache); }
+function computePct(p) { return MapShared.computePercent(p, _mapCtx(), _distCache); }
+function computePace(p) { return MapShared.computePace(p, _mapCtx(), _distCache); }
 
 // ── LOG ───────────────────────────────────────────────────────────────────────
 

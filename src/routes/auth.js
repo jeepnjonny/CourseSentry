@@ -7,12 +7,27 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const logger = require('../logger');
 
 const router = express.Router();
 
-router.post('/login', async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  // Jest's integration suite exercises /login dozens of times per run from a
+  // single IP within seconds — keep the real limit for every other environment.
+  max: process.env.NODE_ENV === 'test' ? 10000 : 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many login attempts — try again later' },
+  handler: (req, res, next, options) => {
+    logger.log('system', 'warn', `Login rate limit hit for "${req.body?.username || 'unknown'}" from ${req.ip}`);
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+router.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ ok: false, error: 'username and password are required' });

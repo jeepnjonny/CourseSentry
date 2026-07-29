@@ -49,8 +49,20 @@ const RT = (() => {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(BASE + url.replace(/^\//, ''), opts);
-    return res.json();
+    let res;
+    try {
+      res = await fetch(BASE + url.replace(/^\//, ''), opts);
+    } catch (e) {
+      return { ok: false, error: 'Network error — check your connection' };
+    }
+    if (!(res.headers.get('content-type') || '').includes('application/json')) {
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+    try {
+      return await res.json();
+    } catch (e) {
+      return { ok: false, error: `HTTP ${res.status} — invalid response` };
+    }
   }
 
   const get  = url        => api('GET',  url);
@@ -258,6 +270,50 @@ const RT = (() => {
     setTimeout(() => el.remove(), duration);
   }
 
+  // ── Background-tab alerts (Notification + audio beep) ────────────────────
+  // A toast alone is easy to miss if the operator has alt-tabbed or is on a
+  // second monitor — this fires only while the tab is hidden, so a focused
+  // operator just sees the normal toast without a redundant popup/sound.
+  let _notifyPermRequested = false;
+  let _audioCtx;
+  function _beep(freq, duration, delay = 0) {
+    try {
+      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+      const osc = _audioCtx.createOscillator();
+      const gain = _audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.3;
+      osc.connect(gain).connect(_audioCtx.destination);
+      const t0 = _audioCtx.currentTime + delay;
+      osc.start(t0);
+      osc.stop(t0 + duration);
+    } catch {}
+  }
+
+  /**
+   * @param {string} title
+   * @param {string} body
+   * @param {Object} opts
+   * @param {boolean} opts.sos     Distinct, longer/louder tone for SOS-severity alerts.
+   * @param {string}  opts.tag     Notification tag (collapses repeats of the same alert).
+   */
+  function notifyAlert(title, body, opts = {}) {
+    if (!document.hidden) return;
+    if ('Notification' in window) {
+      if (Notification.permission === 'default' && !_notifyPermRequested) {
+        _notifyPermRequested = true;
+        Notification.requestPermission();
+      }
+      if (Notification.permission === 'granted') {
+        try { new Notification(title, { body, tag: opts.tag }); } catch {}
+      }
+    }
+    if (opts.sos) { _beep(880, 0.25); _beep(880, 0.25, 0.35); _beep(880, 0.25, 0.7); }
+    else _beep(660, 0.2);
+  }
+
   /**
    * Make `panel` horizontally resizable by dragging a grip inserted as a sibling
    * flex-item next to it (the panel's parent must be a horizontal flex container).
@@ -327,6 +383,6 @@ const RT = (() => {
 
   return { BASE, getMe, logout, requireLogin, api, get, post, put, del, connectWS,
            fmtTime, fmtElapsed, fmtDist, fmtPace, fmtSpeed, fmtBattery, timeAgo, fmtLabel,
-           trackerIcon, iconSource, SHAPES, statusBadge, toast, STATUS_COLORS, applyTheme, THEMES,
+           trackerIcon, iconSource, SHAPES, statusBadge, toast, notifyAlert, STATUS_COLORS, applyTheme, THEMES,
            initPanelResizer, filterRows };
 })();

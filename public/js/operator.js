@@ -4,7 +4,8 @@ const OP = (() => {
 let race = null, participants = {}, stations = [], heats = {}, classes = {};
 let personnel = [], messages = [], onlineUsers = [];
 let me = null; // current logged-in user, set in init()
-let markerLayer = null, personnelLayer = null, routeLayer = null, stationMarkers = {}, trackPoints = null;
+let markerLayer = null, personnelLayer = null, stationMarkers = {}, trackPoints = null;
+const _routeLayerRef = { layer: null }; // see MapShared.renderRoute
 let selectedTrailLayer = null; // recent-position breadcrumb for the currently-selected participant
 let showNametags = false, showPersonnelMarkers = true;
 let infraNodes = [], infraLayer = null, showInfraMarkers = true;
@@ -36,7 +37,7 @@ const LAYER_LEGENDS = {
   'Hotspots':        { label:'FIRE RADIATIVE POWER', grad:'#ffff00,#ff8800,#ff0000',    ticks:['Low FRP','Med','High'] },
   'Fire Incidents':  { label:'ACTIVE FIRE INCIDENTS', grad:'#ffcc00,#ff6600',            ticks:['Reported','Sizing up'] },
 };
-let clockInterval = null, missingCheckInterval = null, stoppedCheckInterval = null, lastSeenInterval = null;
+let clockInterval = null, lastSeenInterval = null;
 let fmt24 = false;
 let editingPId = null;
 
@@ -70,8 +71,8 @@ async function init() {
   activeRaces = racesRes.ok ? racesRes.data.filter(r => r.status === 'active') : [];
   updateRaceSwitcher();
   startClock();
-  missingCheckInterval = setInterval(checkMissing, 30000);
-  stoppedCheckInterval = setInterval(checkStopped, 60000);
+  // Missing/stopped detection runs server-side (src/alert-monitor.js) so every
+  // connected session sees the same alert at the same time.
   setInterval(pruneLightningStrikes, 60000);
   startWxPoller();
 }
@@ -83,6 +84,7 @@ function handleWS(msg) {
   else if (type === 'position') handlePosition(data);
   else if (type === 'event') handleEvent(data);
   else if (type === 'alert') handleAlert(data);
+  else if (type === 'alert_resolved') handleAlertResolved(data);
   else if (type === 'message') handleMessage(data);
   else if (type === 'message_status') handleMessageStatus(data);
   else if (type === 'participant_update') handleParticipantUpdate(data);
@@ -245,6 +247,10 @@ function handleInit(data) {
   updateEndRaceBtn();
 
   onlineUsers = data.onlineUsers || [];
+  // Ongoing missing/stopped alerts that tripped before this connection opened
+  // (see src/alert-monitor.js) — everything else in `alerts` is ephemeral and
+  // only ever arrives via a live 'alert' broadcast.
+  alerts = (data.alerts || []).map(a => ({ ...a, id: Date.now() + Math.random() }));
   heats = {}; (data.heats || []).forEach(h => heats[h.id] = h);
   classes = {}; (data.classes || []).forEach(c => classes[c.id] = c);
   stations = data.stations || [];
@@ -255,13 +261,15 @@ function handleInit(data) {
   });
   updateStartBtn();
 
-  if (data.trackPoints?.length) { trackPoints = data.trackPoints; _cachedDists = null; _cachedTotalDist = null; _stationAlongCache = null; }
+  if (data.trackPoints?.length) { trackPoints = data.trackPoints; _distCache = {}; }
   renderRoute();
   renderStationMarkers();
   renderStationList();
   renderAllMarkers();
   renderLeaderboard();
   renderPersonnelRecipients();
+  renderAlertsList();
+  updateAlertCount();
   updateStats();
   checkStationWarnings();
   if (!trackPoints) loadTrackData(); // fallback API fetch if WS didn't include track
@@ -421,7 +429,7 @@ async function loadTrackData() {
   const res = await RT.get(`/api/races/${race.id}/tracks/parse`);
   if (res.ok && res.data?.trackPoints) {
     trackPoints = res.data.trackPoints;
-    _cachedDists = null; _cachedTotalDist = null; _stationAlongCache = null;
+    _distCache = {};
     document.getElementById('stat-dist').textContent = RT.fmtDist(res.data.totalDistance, race?.units);
     renderRoute();
   }
@@ -738,37 +746,14 @@ function onMapClick(e) {
 }
 
 function renderRoute() {
-  if (routeLayer) { leafletMap.removeLayer(routeLayer); routeLayer = null; }
-  if (!trackPoints || trackPoints.length < 2) return;
-  routeLayer = L.polyline(trackPoints, { color: '#f5a623', weight: 5, opacity: 0.85 }).addTo(leafletMap);
-  if (!selectedPId) leafletMap.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+  MapShared.renderRoute(trackPoints, leafletMap, _routeLayerRef, { skipFitIfSelected: !!selectedPId });
 }
 
 function renderStationMarkers() {
-  Object.values(stationMarkers).forEach(m => leafletMap.removeLayer(m));
-  stationMarkers = {};
-  for (const s of stations) {
-    const color = s.type === 'start' ? '#3fb950' : s.type === 'finish' ? '#f78166' :
-                  s.type === 'start_finish' ? '#a371f7' : s.type === 'turnaround' ? '#58a6ff' :
-                  s.type === 'netcontrol' ? '#d2993a' : s.type === 'repeater' ? '#6e7681' :
-                  s.type === 'rover' ? '#c084fc' : '#d2a679';
-    const letter = s.type === 'start' ? 'S' : s.type === 'finish' ? 'F' :
-                   s.type === 'start_finish' ? '⇌' : s.type === 'turnaround' ? 'T' :
-                   s.type === 'netcontrol' ? 'N' : s.type === 'repeater' ? 'R' :
-                   s.type === 'rover' ? '⟳' : s.name[0]?.toUpperCase() || 'A';
-    const icon = L.divIcon({
-      html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:2px solid #fff4;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:#000;font-family:'Courier New'">${letter}</div>`,
-      className: '', iconAnchor: [11, 11],
-    });
-    const marker = L.marker([s.lat, s.lon], { icon })
-      .bindTooltip(s.name, { permanent: false, direction: 'top' });
-    marker._stnType = s.type;
-    marker.on('click', () => selectStation(s.id));
-    // Repeater / net-control stations follow the Infrastructure toggle; all
-    // other station types are always shown.
-    if (!isInfraStationType(s.type) || showInfraMarkers) marker.addTo(leafletMap);
-    stationMarkers[s.id] = marker;
-  }
+  MapShared.renderStationMarkers(stations, leafletMap, stationMarkers, {
+    onClick: selectStation,
+    showInfraMarkers,
+  });
 }
 
 // ── Participants / Markers ────────────────────────────────────────────────────
@@ -869,120 +854,25 @@ async function loadSelectedTrail(id) {
 
 // ── Personnel markers ─────────────────────────────────────────────────────────
 function updatePersonnelMarkers() {
-  if (!personnelLayer) return;
-  const geofence = race?.geofence_radius || 50;
-  for (const p of personnel) {
-    if (!p.tracker_id || !p.last_lat || !p.last_lon) {
-      // No position — remove any existing marker
-      const ex = personnelLayer.getLayers().find(m => m._perId === p.id);
-      if (ex) personnelLayer.removeLayer(ex);
-      continue;
-    }
-    // Hide if within geofence of any station
-    const nearStation = stations.some(s => s.lat && s.lon &&
-      haversine(p.last_lat, p.last_lon, s.lat, s.lon) <= geofence);
-    if (nearStation) {
-      const ex = personnelLayer.getLayers().find(m => m._perId === p.id);
-      if (ex) personnelLayer.removeLayer(ex);
-      continue;
-    }
-    const color = p.color || '#f5a623';
-    const shape = p.shape || 'triangle';
-    const svg = RT.SHAPES[shape]?.(color, 20) || RT.SHAPES.triangle(color, 20);
-    const perLabel = RT.fmtLabel(p.name);
-    const icon = L.divIcon({
-      html: `<div title="${perLabel}">${svg}</div>`,
-      className: 'leaflet-div-icon', iconAnchor: [10, 10],
-    });
-    const existing = personnelLayer.getLayers().find(m => m._perId === p.id);
-    if (existing) {
-      existing.setLatLng([p.last_lat, p.last_lon]);
-      existing.setIcon(icon);
-      existing.unbindTooltip();
-      existing.bindTooltip(perLabel, { permanent: showNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag' });
-    } else {
-      const m = L.marker([p.last_lat, p.last_lon], { icon });
-      m._perId = p.id;
-      m.bindTooltip(perLabel, {
-        permanent: showNametags, direction: 'bottom', offset: [0, 6], className: 'map-nametag',
-      });
-      m.addTo(personnelLayer);
-    }
-  }
-  // Remove markers for personnel no longer in the list
-  for (const m of [...personnelLayer.getLayers()]) {
-    if (!personnel.some(p => p.id === m._perId)) personnelLayer.removeLayer(m);
-  }
+  MapShared.updatePersonnelMarkers(personnel, stations, personnelLayer, {
+    geofenceRadius: race?.geofence_radius || 50,
+    showNametags,
+  });
 }
 
 // ── Infrastructure markers ────────────────────────────────────────────────────
-// Colors/letters per node_type, following the same per-type convention already
-// used for station markers (see STN_COLORS/stnColor below).
-const INFRA_COLORS  = { digipeater: '#a371f7', igate: '#58a6ff', repeater: '#6e7681', beacon: '#3fb950', other: '#d2a679' };
-const INFRA_LETTERS = { digipeater: 'D', igate: 'I', repeater: 'R', beacon: 'B', other: '?' };
-
-// Course station types that count as "infrastructure" for the map's Infrastructure
-// toggle, alongside the registered network nodes (see toggleInfra).
-function isInfraStationType(type) {
-  return type === 'repeater' || type === 'netcontrol';
-}
+// Course station types that count as "infrastructure" for the map's
+// Infrastructure toggle, alongside the registered network nodes (see
+// toggleInfra) — MapShared.isInfraStationType, aliased locally since it's
+// referenced throughout this file.
+function isInfraStationType(type) { return MapShared.isInfraStationType(type); }
 
 function updateInfraMarkers() {
-  if (!infraLayer) return;
-  for (const n of infraNodes) {
-    if (n.resolved_lat == null || n.resolved_lon == null) {
-      // No GPS fix yet and no station assigned — nothing to plot.
-      const ex = infraLayer.getLayers().find(m => m._infraId === n.id);
-      if (ex) infraLayer.removeLayer(ex);
-      continue;
-    }
-    const color = INFRA_COLORS[n.node_type] || INFRA_COLORS.other;
-    const dim = n.health !== 'ok'; // stale or never_seen — same dimming convention used elsewhere
-    const icon = L.divIcon({
-      html: `<div style="width:20px;height:20px;border-radius:4px;background:${color};opacity:${dim ? 0.45 : 1};
-              border:2px solid #fff4;display:flex;align-items:center;justify-content:center;
-              font-size:11px;font-weight:bold;color:#000;font-family:'Courier New'">${INFRA_LETTERS[n.node_type] || '?'}</div>`,
-      className: '', iconAnchor: [10, 10],
-    });
-    const healthNote = n.health !== 'ok' ? ` — ${n.health.replace('_', ' ')}` : '';
-    const tooltip = `${n.name} (${n.node_type})${healthNote}`;
-    const existing = infraLayer.getLayers().find(m => m._infraId === n.id);
-    if (existing) {
-      existing.setLatLng([n.resolved_lat, n.resolved_lon]);
-      existing.setIcon(icon);
-      existing.unbindTooltip();
-      existing.bindTooltip(tooltip, { permanent: false, direction: 'top' });
-    } else {
-      const m = L.marker([n.resolved_lat, n.resolved_lon], { icon });
-      m._infraId = n.id;
-      m.bindTooltip(tooltip, { permanent: false, direction: 'top' });
-      m.on('click', () => { if (n.station_id) selectStation(n.station_id); });
-      m.addTo(infraLayer);
-    }
-  }
-  for (const m of [...infraLayer.getLayers()]) {
-    if (!infraNodes.some(n => n.id === m._infraId)) infraLayer.removeLayer(m);
-  }
+  MapShared.updateInfraMarkers(infraNodes, infraLayer, { onClick: selectStation });
 }
 
 function toggleInfra(on) {
-  showInfraMarkers = !!on;
-  // Registered network nodes (digipeaters, iGates, etc.) live on infraLayer.
-  if (showInfraMarkers) {
-    if (!leafletMap.hasLayer(infraLayer)) infraLayer.addTo(leafletMap);
-  } else {
-    if (leafletMap.hasLayer(infraLayer)) leafletMap.removeLayer(infraLayer);
-  }
-  // Course stations of type repeater / net control are infrastructure too, but
-  // are plotted directly on the map — show/hide them alongside the network nodes.
-  for (const m of Object.values(stationMarkers)) {
-    if (!isInfraStationType(m._stnType)) continue;
-    if (showInfraMarkers) {
-      if (!leafletMap.hasLayer(m)) m.addTo(leafletMap);
-    } else {
-      if (leafletMap.hasLayer(m)) leafletMap.removeLayer(m);
-    }
-  }
+  showInfraMarkers = MapShared.toggleInfra(on, leafletMap, infraLayer, stationMarkers);
 }
 
 // ── Leaderboard ───────────────────────────────────────────────────────────────
@@ -1043,133 +933,21 @@ function renderLeaderboard() {
 
 const STATUS_COLORS = { dns: '#8b949e', active: '#58a6ff', dnf: '#f78166', finished: '#3fb950' };
 
-function computePercent(p) {
-  if (p.status === 'finished') return 100;
-  if (p.status === 'dns') return null;
+// Course-progress math (percent/pace/station-distance) is shared with
+// mobileop.js — see public/js/map-shared.js. These are thin wrappers binding
+// the shared functions to this page's race/trackPoints/stations/cache so
+// every other call site in this file (getStationElevation, etc.) keeps
+// working unchanged.
+let _distCache = {};
+function _mapCtx() { return { race, trackPoints, stations }; }
 
-  // Manual-entry fallback: no GPS but last station known
-  if (!p.last_lat || !p.last_lon) {
-    if (!trackPoints || !trackPoints.length) return null;
-    const fix = getManualFix(p);
-    if (!fix) return null;
-    ensureDistCache();
-    const totalDist = _cachedTotalDist;
-    if (!totalDist) return null;
-    const isOAB = race?.race_format === 'out_and_back';
-    // Set _lastAlong so computeETAs can use it
-    p._lastAlong    = fix.along;
-    p._lastAlongTs  = fix.ts;
-    if (isOAB) {
-      if (p.has_turnaround) return Math.min(100, (2 * totalDist - fix.along) / (2 * totalDist) * 100);
-      return Math.min(50, fix.along / (2 * totalDist) * 100);
-    }
-    return Math.min(100, fix.along / totalDist * 100);
-  }
-
-  if (!trackPoints || !trackPoints.length) return null;
-  ensureDistCache();
-  const totalDist = _cachedTotalDist;
-  if (totalDist === 0) return 0;
-
-  // Option B: constrain search to reachable window given max race speed
-  const now = Math.floor(Date.now() / 1000);
-  const lastAlong = p._lastAlong ?? 0;
-  const lastTs = p._lastAlongTs ?? (p.start_time || now);
-  const travelDist = Math.max(0, now - lastTs) * MAX_RACE_SPEED + BACK_MARGIN;
-  const windowMin = Math.max(0, lastAlong - travelDist);
-  const windowMax = Math.min(totalDist, lastAlong + travelDist);
-
-  let minD = Infinity, bestAlong = lastAlong;
-  for (let i = 0; i < trackPoints.length - 1; i++) {
-    if (_cachedDists[i+1] < windowMin || _cachedDists[i] > windowMax) continue;
-    const [lat1, lon1] = trackPoints[i], [lat2, lon2] = trackPoints[i+1];
-    const segLen = _cachedDists[i+1] - _cachedDists[i];
-    const ax = p.last_lat - lat1, ay = p.last_lon - lon1, bx = lat2-lat1, by = lon2-lon1;
-    const t = clamp01((ax*bx+ay*by)/Math.max(1e-10, bx*bx+by*by));
-    const d = haversine(p.last_lat, p.last_lon, lat1+t*bx, lon1+t*by);
-    if (d < minD) { minD = d; bestAlong = _cachedDists[i] + t * segLen; }
-  }
-
-  // Option C: checkpoint floor prevents backwards jump (outbound leg only)
-  if (!(race?.race_format === 'out_and_back' && p.has_turnaround))
-    bestAlong = Math.max(bestAlong, p._stationFloor ?? 0);
-
-  p._lastAlong = bestAlong;
-  p._lastAlongTs = p.registry?.last_seen || now;
-
-  if (race?.race_format === 'out_and_back') {
-    if (p.has_turnaround) return Math.min(100, (2 * totalDist - bestAlong) / (2 * totalDist) * 100);
-    return Math.min(50, bestAlong / (2 * totalDist) * 100);
-  }
-  return Math.min(100, bestAlong / totalDist * 100);
-}
-
-// Returns the last manually-confirmed station fix for a participant, or null.
-// Resolves station → {along, lat, lon, ts} lazily (needs trackPoints + stations ready).
-function getManualFix(p) {
-  if (!p.last_station_id || !p.last_station_ts) return null;
-  const along = getStationAlongMap().get(p.last_station_id);
-  if (along == null) return null;
-  const stn = stations.find(s => s.id === p.last_station_id);
-  return { along, ts: p.last_station_ts, lat: stn?.lat, lon: stn?.lon, station: stn };
-}
-
-function computePace(p) {
-  if (!p.start_time) return null;
-
-  // Finished: use actual elapsed time over full course distance
-  if (p.status === 'finished' && p.finish_time) {
-    const totalDist = computeTotalDist();
-    if (!totalDist) return null;
-    const elapsed = p.finish_time - p.start_time;
-    if (elapsed <= 0) return null;
-    const dist = race?.race_format === 'out_and_back' ? totalDist * 2 : totalDist;
-    return dist / elapsed; // m/s
-  }
-
-  if (p.last_lat) {
-    // GPS path
-    const pct = p._pct;
-    if (pct == null || !trackPoints) return null;
-    const elapsed = Math.floor(Date.now() / 1000) - p.start_time;
-    if (elapsed <= 0) return null;
-    let totalDist = computeTotalDist();
-    if (!totalDist) return null;
-    if (race?.race_format === 'out_and_back') totalDist *= 2;
-    return (pct / 100 * totalDist) / elapsed; // m/s
-  }
-
-  // Manual-entry fallback: pace from start_time to last confirmed station
-  const fix = getManualFix(p);
-  if (!fix || fix.along <= 0) return null;
-  const elapsed = fix.ts - p.start_time;
-  if (elapsed <= 0) return null;
-  const isOAB = race?.race_format === 'out_and_back';
-  const totalDist = computeTotalDist();
-  if (!totalDist) return null;
-  // Distance covered: on return leg account for the turnaround leg too
-  const distCovered = (isOAB && p.has_turnaround)
-    ? 2 * totalDist - fix.along
-    : fix.along;
-  return distCovered / elapsed; // m/s
-}
-
-let _cachedTotalDist = null, _cachedDists = null, _stationAlongCache = null;
-const MAX_RACE_SPEED = 8, BACK_MARGIN = 100;
-
-function computeTotalDist() {
-  ensureDistCache();
-  return _cachedTotalDist || 0;
-}
-
-function ensureDistCache() {
-  if (_cachedDists || !trackPoints || trackPoints.length < 2) return;
-  _cachedDists = [0];
-  for (let i = 1; i < trackPoints.length; i++)
-    _cachedDists.push(_cachedDists[i-1] + haversine(
-      trackPoints[i-1][0], trackPoints[i-1][1], trackPoints[i][0], trackPoints[i][1]));
-  _cachedTotalDist = _cachedDists[_cachedDists.length - 1];
-}
+function haversine(lat1, lon1, lat2, lon2) { return MapShared.haversine(lat1, lon1, lat2, lon2); }
+function ensureDistCache() { MapShared.ensureDistCache(_mapCtx(), _distCache); }
+function computeTotalDist() { return MapShared.computeTotalDist(_mapCtx(), _distCache); }
+function getStationAlongMap() { return MapShared.getStationAlongMap(_mapCtx(), _distCache); }
+function getManualFix(p) { return MapShared.getManualFix(p, _mapCtx(), _distCache); }
+function computePercent(p) { return MapShared.computePercent(p, _mapCtx(), _distCache); }
+function computePace(p) { return MapShared.computePace(p, _mapCtx(), _distCache); }
 
 function getStationElevation(station) {
   if (!trackPoints || !station.lat || !station.lon) return null;
@@ -1188,35 +966,6 @@ function fmtElevation(meters) {
     ? `${Math.round(meters)} m`
     : `${Math.round(meters * 3.28084).toLocaleString()} ft`;
 }
-
-function getStationAlongMap() {
-  if (_stationAlongCache) return _stationAlongCache;
-  if (!trackPoints || trackPoints.length < 2) return new Map();
-  ensureDistCache();
-  _stationAlongCache = new Map();
-  for (const s of stations) {
-    if (!s.lat || !s.lon) continue;
-    let minD = Infinity, best = 0;
-    for (let i = 0; i < trackPoints.length - 1; i++) {
-      const [lat1, lon1] = trackPoints[i], [lat2, lon2] = trackPoints[i+1];
-      const ax = s.lat - lat1, ay = s.lon - lon1, bx = lat2-lat1, by = lon2-lon1;
-      const t = clamp01((ax*bx+ay*by)/Math.max(1e-10, bx*bx+by*by));
-      const d = haversine(s.lat, s.lon, lat1+t*bx, lon1+t*by);
-      if (d < minD) { minD = d; best = _cachedDists[i] + t*(_cachedDists[i+1]-_cachedDists[i]); }
-    }
-    _stationAlongCache.set(s.id, best);
-  }
-  return _stationAlongCache;
-}
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function dot2(ax, ay, bx, by) { return ax*bx + ay*by; }
-function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
 function updateStats(list) {
   const ps = list || Object.values(participants);
@@ -2091,7 +1840,7 @@ function handleEvent(data) {
     if (data.has_turnaround && !p.has_turnaround) {
       p.has_turnaround = true;
       // Seed return-leg tracking at turnaround distance so window starts correctly
-      const td = _cachedTotalDist || computeTotalDist();
+      const td = _distCache.totalDist || computeTotalDist();
       if (td) { p._lastAlong = td; p._lastAlongTs = data.timestamp; }
     }
     if (data.station_id) {
@@ -2118,7 +1867,9 @@ function handleAlert(data) {
   renderAlertsList();
   updateAlertCount();
   const isSos = data.type === 'sos';
-  RT.toast(`${isSos ? '🆘 SOS' : 'ALERT: ' + data.type.replace('_',' ').toUpperCase()} — Bib ${data.bib} ${data.name}`, 'alert', isSos ? 20000 : 8000);
+  const title = isSos ? '🆘 SOS' : 'ALERT: ' + data.type.replace('_',' ').toUpperCase();
+  RT.toast(`${title} — Bib ${data.bib} ${data.name}`, 'alert', isSos ? 20000 : 8000);
+  RT.notifyAlert(title, `Bib ${data.bib} ${data.name}`, { sos: isSos, tag: data.key || `${data.type}_${data.participantId}` });
   // Update marker
   const p = participants[data.participantId];
   if (p) updateOrCreateMarker(p);
@@ -2654,65 +2405,18 @@ function appendEventLog(event) {
 }
 
 // ── Missing / Stopped checks ──────────────────────────────────────────────────
+// The actual missing/stopped detection runs server-side (src/alert-monitor.js),
+// which broadcasts 'alert' (type missing/stopped, with a matching `key`) and
+// 'alert_resolved' messages handled by handleAlert/handleAlertResolved below.
 function shouldSuppressAlerts(p) {
   // Don't alert for participants who are no longer racing or have finished
   return p.status === 'finished' || p.status === 'dnf' || p.status === 'dns' || (p._pct != null && p._pct >= 100);
 }
 
-function checkMissing() {
-  if (!race || !race.feat_missing) return;
-  const now = Math.floor(Date.now() / 1000);
-  const missingTimer = race.missing_timer || 3600;
-  let changed = false;
-  for (const p of Object.values(participants)) {
-    const key = `missing_${p.id}`;
-    if (shouldSuppressAlerts(p)) {
-      // Auto-dismiss any lingering alert if the participant finished or was marked DNF/DNS
-      if (alerts.find(a => a.key === key)) { alerts = alerts.filter(a => a.key !== key); changed = true; }
-      continue;
-    }
-    if (p.status !== 'active') continue;
-    if (!p.tracker_id) continue; // tracker-less participants have no GPS signal to go missing
-    const lastSeen = p.registry?.last_seen || 0;
-    if (lastSeen && (now - lastSeen) > missingTimer) {
-      if (!alerts.find(a => a.key === key)) {
-        alerts.push({ key, type: 'missing', participantId: p.id, bib: p.bib, name: p.name, timestamp: now, id: Date.now() });
-        changed = true;
-        RT.toast(`MISSING: Bib ${p.bib} ${p.name} — no signal for ${Math.floor((now-lastSeen)/60)} min`, 'alert', 8000);
-      }
-    }
-  }
-  if (changed) { renderAlertsList(); updateAlertCount(); }
-  renderLeaderboard();
-  renderAllMarkers();
-}
-
-function checkStopped() {
-  if (!race || !race.feat_stopped) return;
-  const now = Math.floor(Date.now() / 1000);
-  const stoppedTime = race.stopped_time || 600;
-  for (const p of Object.values(participants)) {
-    const key = `stopped_${p.id}`;
-    if (shouldSuppressAlerts(p)) {
-      if (alerts.find(a => a.key === key)) { alerts = alerts.filter(a => a.key !== key); renderAlertsList(); updateAlertCount(); }
-      continue;
-    }
-    if (p.status !== 'active') continue;
-    const lastSeen = p.registry?.last_seen || 0;
-    const lastSpeed = p.registry?.last_speed ?? null;
-    // Only alert if we have recent signal but speed is 0 (or near 0) for stopped_time
-    if (!lastSeen || (now - lastSeen) > stoppedTime * 3) continue; // signal too old — missing alert handles it
-    if (lastSpeed !== null && lastSpeed < 0.5 && (now - lastSeen) > stoppedTime) {
-      if (!alerts.find(a => a.key === key)) {
-        alerts.push({ key, type: 'stopped', participantId: p.id, bib: p.bib, name: p.name, timestamp: now, id: Date.now() });
-        renderAlertsList();
-        updateAlertCount();
-        RT.toast(`STOPPED: Bib ${p.bib} ${p.name} — stationary for ${Math.floor((now-lastSeen)/60)} min`, 'alert', 8000);
-      }
-    } else {
-      alerts = alerts.filter(a => a.key !== key);
-    }
-  }
+function handleAlertResolved(data) {
+  const before = alerts.length;
+  alerts = alerts.filter(a => a.key !== data.key);
+  if (alerts.length !== before) { renderAlertsList(); updateAlertCount(); }
 }
 
 // ── Clock ─────────────────────────────────────────────────────────────────────

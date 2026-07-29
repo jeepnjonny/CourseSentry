@@ -1125,7 +1125,7 @@ function renderParticipantsTab() {
         <span id="pt-csv-label" style="font-size:14px">&#8593; Select CSV file</span>
         <input type="file" id="pt-csv-input" accept=".csv" style="display:none" onchange="ptCsvSelected(this)">
       </div>
-      <div id="pt-csv-error" style="font-size:14px;color:var(--accent3);margin-top:6px;display:none"></div>
+      <div id="pt-csv-error" style="font-size:14px;color:var(--accent3);margin-top:6px;display:none;white-space:pre-line"></div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="primary" id="pt-csv-btn" onclick="importParticipantsCsv()" disabled>IMPORT</button>
         <button onclick="togglePtCsvPanel()">CANCEL</button>
@@ -1438,12 +1438,19 @@ async function importParticipantsCsv() {
   const res = await RT.post(`/api/races/${selectedRaceId}/participants/import`, { csv: participantsCsvContent });
   if (res.ok) {
     const errors = res.errors || [];
-    document.getElementById('pt-csv-panel').classList.add('hidden');
     participants = res.data || [];
     renderParticipantSummary();
     renderParticipantsList();
     RT.toast(`Imported ${participants.length} participants${errors.length ? ` (${errors.length} skipped)` : ''}`, errors.length ? 'warn' : 'ok');
-    if (errors.length) console.warn('Import errors:', errors);
+    const errEl = document.getElementById('pt-csv-error');
+    if (errors.length) {
+      // Leave the panel open so the admin can see exactly which rows failed
+      // (textContent + pre-line, not innerHTML — error text embeds raw CSV values).
+      errEl.textContent = errors.join('\n');
+      errEl.style.display = 'block';
+    } else {
+      document.getElementById('pt-csv-panel').classList.add('hidden');
+    }
   } else RT.toast(res.error, 'warn');
 }
 
@@ -1483,6 +1490,7 @@ function renderPersonnelTab() {
         <div id="pers-csv-label">&#8593; Select CSV file</div>
         <input type="file" id="pers-csv-input" accept=".csv" style="display:none" onchange="personnelCsvSelected(this)">
       </div>
+      <div id="pers-csv-error" style="font-size:14px;color:var(--accent3);margin-top:6px;display:none;white-space:pre-line"></div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="primary" id="pers-csv-btn" disabled onclick="importPersonnelCsv()">IMPORT</button>
         <button onclick="document.getElementById('pers-csv-panel').classList.add('hidden')">CANCEL</button>
@@ -1496,6 +1504,8 @@ function showPersonnelCsvPanel() {
   personnelCsvContent = '';
   document.getElementById('pers-csv-label').textContent = '↑ Select CSV file';
   document.getElementById('pers-csv-btn').disabled = true;
+  const errEl = document.getElementById('pers-csv-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
   document.getElementById('pers-csv-panel').classList.remove('hidden');
 }
 
@@ -1526,9 +1536,18 @@ async function importPersonnelCsv() {
   if (!personnelCsvContent) return;
   const res = await RT.post(`/api/races/${selectedRaceId}/personnel/import`, { csv: personnelCsvContent });
   if (res.ok) {
-    RT.toast('Personnel imported', 'ok');
-    document.getElementById('pers-csv-panel').classList.add('hidden');
+    const errors = res.errors || [];
+    RT.toast(`Personnel imported${errors.length ? ` (${errors.length} issue${errors.length === 1 ? '' : 's'})` : ''}`, errors.length ? 'warn' : 'ok');
     await loadPersonnel();
+    const errEl = document.getElementById('pers-csv-error');
+    if (errors.length) {
+      // Leave the panel open so the admin can see exactly which rows had issues
+      // (textContent + pre-line, not innerHTML — error text embeds raw CSV values).
+      errEl.textContent = errors.join('\n');
+      errEl.style.display = 'block';
+    } else {
+      document.getElementById('pers-csv-panel').classList.add('hidden');
+    }
   } else RT.toast(res.error, 'warn');
 }
 
