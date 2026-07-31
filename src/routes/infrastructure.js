@@ -35,12 +35,20 @@ function fetchInfra(raceId, onlyStationId) {
            COALESCE(r.last_lon, s.lon) AS resolved_lon,
            CASE WHEN r.last_lat IS NOT NULL THEN 'gps'
                 WHEN s.lat IS NOT NULL THEN 'station'
-                ELSE NULL END AS location_source
+                ELSE NULL END AS location_source,
+           t.timestamp AS telem_ts, t.battery_pct AS telem_battery_pct, t.uptime_sec AS telem_uptime_sec,
+           t.is_state AS telem_is_state, t.rpt_count AS telem_rpt_count, t.gate_count AS telem_gate_count
     FROM infra_nodes n
     LEFT JOIN stations s ON n.station_id = s.id
     LEFT JOIN tracker_registry r ON n.node_id IS NOT NULL AND (
       r.node_id = n.node_id OR r.long_name = n.node_id OR r.short_name = n.node_id
     )
+    LEFT JOIN (
+      SELECT * FROM (
+        SELECT it.*, ROW_NUMBER() OVER (PARTITION BY infra_node_id ORDER BY timestamp DESC) AS rn
+        FROM infra_telemetry it
+      ) WHERE rn = 1
+    ) t ON t.infra_node_id = n.id
     WHERE n.race_id = ?`;
   const params = [raceId];
   if (onlyStationId) {
@@ -51,8 +59,33 @@ function fetchInfra(raceId, onlyStationId) {
 
   return db.prepare(sql).all(...params).map(row => ({
     ...row,
-    health: !row.last_seen ? 'never_seen' : (now - row.last_seen > missingTimer ? 'stale' : 'ok'),
+    health: computeHealth(row, now, missingTimer),
   }));
+}
+
+// Layers the ?TELEM? protocol's reported condition on top of plain reachability:
+// never_seen/stale still win outright (can't be "ok" if we haven't heard from
+// the device recently, regardless of what it last reported). Otherwise, take
+// the worse of a battery tier and a node-type-specific tier — RPT/GATE/IS are
+// only consulted for the node types they're actually meaningful for.
+function computeHealth(row, now, missingTimer) {
+  if (!row.last_seen) return 'never_seen';
+  if (now - row.last_seen > missingTimer) return 'stale';
+
+  const battPct = row.telem_battery_pct;
+  const battTier = battPct == null ? 'ok' : battPct < 15 ? 'error' : battPct < 30 ? 'warn' : 'ok';
+
+  let typeTier = 'ok';
+  if (row.node_type === 'igate') {
+    if (row.telem_is_state === 'DOWN') typeTier = 'error';
+    else if (row.telem_gate_count === 0) typeTier = 'warn';
+  } else if (row.node_type === 'digipeater') {
+    if (row.telem_rpt_count === 0) typeTier = 'warn';
+  }
+  // repeater/beacon/other: RPT/GATE/IS ignored entirely — typeTier stays 'ok'.
+
+  const rank = { ok: 0, warn: 1, error: 2 };
+  return rank[battTier] >= rank[typeTier] ? battTier : typeTier;
 }
 
 router.get('/', requireAuth, (req, res) => {
@@ -121,4 +154,32 @@ router.delete('/:id', requireRole('admin', 'operator'), (req, res) => {
   res.json({ ok: true });
 });
 
+// Last 24h of parsed telemetry (?TELEM? replies and passive voltage beacons)
+// for one infra node — backs the health-column popup.
+router.get('/:id/telemetry', requireAuth, (req, res) => {
+  const { role, id: userId } = req.session.user;
+  const node = db.prepare('SELECT * FROM infra_nodes WHERE id = ? AND race_id = ?').get(req.params.id, req.params.raceId);
+  if (!node) {
+    return res.status(404).json({ ok: false, error: 'infrastructure node not found' });
+  }
+
+  if (role === 'station') {
+    const access = getStationRoleAccess(userId, req.params.raceId);
+    if (!access.full && access.stationId !== node.station_id) {
+      return res.status(403).json({ ok: false, error: 'Insufficient permissions' });
+    }
+  } else if (role !== 'admin' && role !== 'operator') {
+    return res.status(403).json({ ok: false, error: 'Insufficient permissions' });
+  }
+
+  const cutoff = Math.floor(Date.now() / 1000) - 24 * 3600;
+  const rows = db.prepare(`
+    SELECT timestamp, source, battery_pct, voltage, uptime_sec, is_state, rpt_count, gate_count
+    FROM infra_telemetry WHERE infra_node_id = ? AND timestamp >= ?
+    ORDER BY timestamp DESC
+  `).all(req.params.id, cutoff);
+  res.json({ ok: true, data: rows });
+});
+
 module.exports = router;
+module.exports.fetchInfra = fetchInfra;

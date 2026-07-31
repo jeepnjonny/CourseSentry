@@ -338,6 +338,39 @@ function handleInboundMessage(fromCall, text) {
   broadcast('message', msg);
 }
 
+// ── Infrastructure ?TELEM? reply parsing ──────────────────────────────────────
+// Wire format: "TELEM BATT=<pct%|NA> UP=<[Nh]Nm> IS=<RW|R|DOWN> RPT=<n> GATE=<n>"
+// IS/RPT/GATE are always present regardless of node type — routes/infrastructure.js's
+// health computation decides which fields actually matter per node_type.
+const TELEM_RE = /^TELEM\s+BATT=(\d{1,3}%?|NA)\s+UP=(?:(\d+)h)?(\d+)m\s+IS=(RW|R|DOWN)\s+RPT=(\d+)\s+GATE=(\d+)\s*$/i;
+
+function parseTelemReply(text) {
+  const m = TELEM_RE.exec((text || '').trim());
+  if (!m) return null;
+  const battTok = m[1].toUpperCase();
+  return {
+    batteryPct: battTok === 'NA' ? null : parseInt(battTok, 10),
+    uptimeSec: (m[2] ? parseInt(m[2], 10) * 3600 : 0) + parseInt(m[3], 10) * 60,
+    isState: m[4].toUpperCase(),
+    rptCount: parseInt(m[5], 10),
+    gateCount: parseInt(m[6], 10),
+  };
+}
+
+function handleTelemReply(fromCall, rawText, telem) {
+  try {
+    const mqttClient = require('./mqtt-client'); // lazy require, matches processLine()'s existing pattern
+    const node = mqttClient.handleInfraTelem({
+      nodeId: fromCall, timestamp: Math.floor(Date.now() / 1000), rawText, ...telem,
+    });
+    logger.log('aprs', 'info',
+      node ? `TELEM reply from ${fromCall} (${node.name}): ${rawText}`
+           : `TELEM reply from unregistered node ${fromCall}: ${rawText}`);
+  } catch (e) {
+    logger.log('aprs', 'error', `handleTelemReply: ${e.message}`);
+  }
+}
+
 // Extracts which digipeaters/igate actually relayed this packet from the header's
 // path + q-construct, e.g. "W1AW-9>APRS,WIDE1-1*,WIDE2-1,qAR,N0CALL" — WIDE1-1 was
 // used (marked with a trailing '*') and N0CALL is the igate that gated it to
@@ -403,6 +436,8 @@ function processLine(line) {
         }
       } else {
         handleInboundMessage(fromCall, msgTextNorm);
+        const telem = parseTelemReply(msgTextNorm);
+        if (telem) handleTelemReply(fromCall, msgTextNorm, telem);
         if (aprsMsg.seq) sendAck(fromCall, aprsMsg.seq);
       }
     }

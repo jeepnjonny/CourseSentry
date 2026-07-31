@@ -491,11 +491,36 @@ try { db.prepare('ALTER TABLE personnel ADD COLUMN spot_feed_id TEXT').run(); } 
 try { db.prepare('ALTER TABLE personnel ADD COLUMN spot_feed_password TEXT').run(); } catch {}
 try { db.prepare('ALTER TABLE personnel ADD COLUMN inreach_url TEXT').run(); } catch {}
 
+// Infrastructure ?TELEM? protocol: per-race auto-query toggle/interval, plus a
+// history log of parsed telemetry (explicit ?TELEM? replies and passive
+// voltage-bearing status beacons) backing the health tiers and 24h popup in
+// routes/infrastructure.js.
+try { db.prepare('ALTER TABLE races ADD COLUMN telem_query_enabled INTEGER NOT NULL DEFAULT 0').run(); } catch {}
+try { db.prepare('ALTER TABLE races ADD COLUMN telem_query_interval INTEGER NOT NULL DEFAULT 3600').run(); } catch {}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS infra_telemetry (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  infra_node_id INTEGER NOT NULL REFERENCES infra_nodes(id) ON DELETE CASCADE,
+  race_id       INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
+  timestamp     INTEGER NOT NULL,
+  source        TEXT    NOT NULL CHECK(source IN ('telem_reply','status_beacon')),
+  battery_pct   INTEGER,
+  voltage       REAL,
+  uptime_sec    INTEGER,
+  is_state      TEXT    CHECK(is_state IN ('RW','R','DOWN')),
+  rpt_count     INTEGER,
+  gate_count    INTEGER,
+  raw_text      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_infra_telemetry_node ON infra_telemetry(infra_node_id, timestamp DESC);
+`);
+
 // Schema generation marker — purely a debugging aid (nothing in the app reads
 // it back). Bump by 1 whenever a new migration block is appended above this
 // line, so `sqlite3 data/db.sqlite 'PRAGMA user_version'` tells support which
 // schema generation a deployed DB is on without eyeballing every ALTER block.
-db.pragma('user_version = 1');
+db.pragma('user_version = 2');
 
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.

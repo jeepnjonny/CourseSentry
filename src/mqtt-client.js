@@ -114,6 +114,20 @@ const _stmt = {
     AND station_id IN (SELECT id FROM stations WHERE race_id=? AND type='turnaround')
     LIMIT 1
   `),
+  // Infrastructure ?TELEM? protocol: resolve a callsign/node_id to its
+  // registered infra_nodes row (if any) in a currently-active race.
+  findInfraNodeByNodeId: db.prepare(`
+    SELECT n.id, n.name, n.race_id, n.node_type, n.node_id
+    FROM infra_nodes n
+    WHERE UPPER(n.node_id) = UPPER(?)
+      AND n.race_id IN (SELECT id FROM races WHERE status='active')
+    LIMIT 1
+  `),
+  insertInfraTelemetry: db.prepare(`
+    INSERT INTO infra_telemetry
+      (infra_node_id, race_id, timestamp, source, battery_pct, voltage, uptime_sec, is_state, rpt_count, gate_count, raw_text)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+  `),
 };
 
 // ── Active-races cache ────────────────────────────────────────────────────────
@@ -406,6 +420,23 @@ function handleTelemetry({ nodeId, battery, voltage, timestamp }) {
     }
   } else if (batteryPct != null && batteryPct >= 20) {
     lastLowBatteryAlert.delete(nodeId + '_lowbatt');
+  }
+
+  // Passive status-beacon voltage readings (aprs-client.js's voltage regex) also
+  // feed the infra-node pipeline when nodeId is a registered infra_nodes.node_id
+  // in some active race. TELEM-reply readings are written directly by
+  // handleInfraTelem() (below) and call this function with voltage=null, so each
+  // telemetry point is written to infra_telemetry exactly once.
+  if (voltage != null) {
+    const infraNode = _stmt.findInfraNodeByNodeId.get(nodeId);
+    if (infraNode) {
+      _stmt.insertInfraTelemetry.run(
+        infraNode.id, infraNode.race_id, timestamp, 'status_beacon',
+        batteryPct ?? null, voltage, null, null, null, null, null
+      );
+      _checkInfraBattery(infraNode, batteryPct, timestamp);
+      _broadcastInfraNodeRefresh(infraNode.race_id, infraNode.id);
+    }
   }
 }
 
@@ -932,9 +963,75 @@ function handleSosAlert({ nodeId, timestamp }) {
 
 function voltageToPct(voltage) {
   if (voltage == null) return null;
-  // 2S LiPo: 6.0–8.4V; 1S LiPo: 3.0–4.2V
+  // 12V system (SLA/LiFePO4 fixed-site packs): 11.0–13.6V. LiFePO4's discharge
+  // curve is much flatter than Li-ion, so this linear mapping is a rough
+  // approximation — easy to retune once real-world packs are observed.
+  if (voltage > 9.0) return Math.round(Math.max(0, Math.min(100, (voltage - 11.0) / 2.6 * 100)));
+  // 2S LiPo (e.g. tbeam 1W): 6.0–8.4V; 1S LiPo: 3.0–4.2V
   if (voltage > 4.5) return Math.round(Math.max(0, Math.min(100, (voltage - 6.0) / 2.4 * 100)));
   return Math.round(Math.max(0, Math.min(100, (voltage - 3.0) / 1.2 * 100)));
+}
+
+const lastInfraWarnAlert = new Map(); // key: infra_nodes.id → timestamp
+const lastInfraCritAlert = new Map();
+const INFRA_WARN_PCT = 30;
+const INFRA_CRIT_PCT = 15;
+
+// Single choke point for both the TELEM-reply path (handleInfraTelem) and the
+// passive status-beacon voltage path (handleTelemetry, above) — each telemetry
+// point flows through here once, so the two independently-debounced alert
+// tiers live in exactly one place.
+function _checkInfraBattery(node, batteryPct, timestamp) {
+  if (batteryPct == null) return; // NA / unknown voltage — neutral, never alerts
+  const fire = (tierMap, thresholdPct, type) => {
+    if (batteryPct < thresholdPct) {
+      const last = tierMap.get(node.id) || 0;
+      if (timestamp - last > 600) {
+        tierMap.set(node.id, timestamp);
+        logger.log('race', 'warn', `${type.toUpperCase()} — infra node "${node.name}" (${node.node_type}) at ${batteryPct}%`);
+        broadcast('alert', { type, infraNodeId: node.id, name: node.name, nodeId: node.node_id, battery: batteryPct, timestamp });
+      }
+    } else {
+      tierMap.delete(node.id);
+    }
+  };
+  fire(lastInfraWarnAlert, INFRA_WARN_PCT, 'infra_low_battery');
+  fire(lastInfraCritAlert, INFRA_CRIT_PCT, 'infra_battery_critical');
+}
+
+// Re-fetches the fully computed row (with health tier) and reuses the existing
+// broadcastInfra wire format, so admin.js's NETWORK tab and operator.js's infra
+// list/map pick up new health/telemetry fields with no new client WS handler.
+function _broadcastInfraNodeRefresh(raceId, infraNodeId) {
+  if (!wsRef) return;
+  try {
+    const { fetchInfra } = require('./routes/infrastructure'); // lazy require, mirrors the ./routes/courses & ./routes/tracks pattern used elsewhere
+    const node = fetchInfra(raceId).find(n => n.id === infraNodeId);
+    if (node) wsRef.broadcastInfra(raceId, { action: 'update', node });
+  } catch (e) {
+    logger.log('system', 'warn', `infra telemetry refresh broadcast failed: ${e.message}`);
+  }
+}
+
+// Called by aprs-client.js's ?TELEM? reply parser. Writes the history row
+// directly (source='telem_reply'), then reuses handleTelemetry() for the
+// tracker_registry bump + 'tracker_info' broadcast — this is what fixes the
+// original bug where message-type replies never touched last_seen/battery_level.
+function handleInfraTelem({ nodeId, batteryPct, uptimeSec, isState, rptCount, gateCount, timestamp, rawText }) {
+  if (!nodeId) return null;
+  const node = _stmt.findInfraNodeByNodeId.get(nodeId);
+  if (!node) return null; // TELEM reply from a callsign that isn't a registered infra node in any active race
+
+  _stmt.insertInfraTelemetry.run(
+    node.id, node.race_id, timestamp, 'telem_reply',
+    batteryPct ?? null, null, uptimeSec ?? null, isState ?? null,
+    rptCount ?? null, gateCount ?? null, rawText ?? null
+  );
+
+  handleTelemetry({ nodeId, battery: batteryPct, voltage: null, timestamp });
+  _checkInfraBattery(node, batteryPct, timestamp);
+  _broadcastInfraNodeRefresh(node.race_id, node.id);
+  return node;
 }
 
 // Receives pre-computed distanceFromRoute from checkRouteAlerts so we avoid
@@ -1295,4 +1392,4 @@ function invalidateRouteCache(raceId) {
   participantPrevEff.clear();
 }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, publishMessage, sendNodeInfo, sendPositionBeacon, callsignToNodeId, setGatewayNodeId, invalidateRouteCache, handlePosition, handleNodeInfo, handleTelemetry, handleSosAlert, auditMissedStations };
+module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, publishMessage, sendNodeInfo, sendPositionBeacon, callsignToNodeId, setGatewayNodeId, invalidateRouteCache, handlePosition, handleNodeInfo, handleTelemetry, handleSosAlert, handleInfraTelem, auditMissedStations };

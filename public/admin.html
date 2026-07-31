@@ -257,6 +257,12 @@
         <input id="rm-stopped" type="number" min="1" value="10" style="width:64px;text-align:right">
         <span style="font-size:14px;color:var(--text3);min-width:24px">min</span>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 2px">
+        <input type="checkbox" id="rm-telem-query-enabled">
+        <label for="rm-telem-query-enabled" style="flex:1;font-size:16px;cursor:pointer">Auto-query infrastructure (?TELEM?)</label>
+        <input id="rm-telem-query-interval" type="number" min="1" value="60" style="width:64px;text-align:right">
+        <span style="font-size:14px;color:var(--text3);min-width:24px">min</span>
+      </div>
     </div>
     <div class="section-header">DATASOURCES</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:6px">
@@ -613,6 +619,16 @@
       <button onclick="closeModal('infra-node-modal')">CANCEL</button>
       <button class="primary" onclick="saveInfraNode()">SAVE</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg hidden" id="infra-telem-modal">
+  <div class="modal">
+    <h2 id="infra-telem-modal-title">NODE TELEMETRY</h2>
+    <div id="infra-telem-current" style="margin-bottom:10px"></div>
+    <div class="section-header">LAST 24 HOURS</div>
+    <div id="infra-telem-history" class="table-scroll" style="max-height:300px"></div>
+    <div class="modal-footer"><button onclick="closeModal('infra-telem-modal')">CLOSE</button></div>
   </div>
 </div>
 
