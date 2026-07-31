@@ -504,7 +504,7 @@ CREATE TABLE IF NOT EXISTS infra_telemetry (
   infra_node_id INTEGER NOT NULL REFERENCES infra_nodes(id) ON DELETE CASCADE,
   race_id       INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
   timestamp     INTEGER NOT NULL,
-  source        TEXT    NOT NULL CHECK(source IN ('telem_reply','status_beacon')),
+  source        TEXT    NOT NULL CHECK(source IN ('telem_reply','status_beacon','poll_missed')),
   battery_pct   INTEGER,
   voltage       REAL,
   uptime_sec    INTEGER,
@@ -516,11 +516,41 @@ CREATE TABLE IF NOT EXISTS infra_telemetry (
 CREATE INDEX IF NOT EXISTS idx_infra_telemetry_node ON infra_telemetry(infra_node_id, timestamp DESC);
 `);
 
+// Add 'poll_missed' to infra_telemetry.source (table rebuild required for CHECK
+// constraint change) — logged when a ?TELEM? query goes unacknowledged after
+// retries, so the network tab can show a MISSING health tier distinct from a
+// stale/never-seen node that we simply haven't tried to reach recently.
+{
+  const infraTelemetryDDL = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='infra_telemetry'").get();
+  if (infraTelemetryDDL && !infraTelemetryDDL.sql.includes('poll_missed')) {
+    db.exec(`
+      CREATE TABLE infra_telemetry_new (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        infra_node_id INTEGER NOT NULL REFERENCES infra_nodes(id) ON DELETE CASCADE,
+        race_id       INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
+        timestamp     INTEGER NOT NULL,
+        source        TEXT    NOT NULL CHECK(source IN ('telem_reply','status_beacon','poll_missed')),
+        battery_pct   INTEGER,
+        voltage       REAL,
+        uptime_sec    INTEGER,
+        is_state      TEXT    CHECK(is_state IN ('RW','R','DOWN')),
+        rpt_count     INTEGER,
+        gate_count    INTEGER,
+        raw_text      TEXT
+      );
+      INSERT INTO infra_telemetry_new SELECT * FROM infra_telemetry;
+      DROP TABLE infra_telemetry;
+      ALTER TABLE infra_telemetry_new RENAME TO infra_telemetry;
+      CREATE INDEX IF NOT EXISTS idx_infra_telemetry_node ON infra_telemetry(infra_node_id, timestamp DESC);
+    `);
+  }
+}
+
 // Schema generation marker — purely a debugging aid (nothing in the app reads
 // it back). Bump by 1 whenever a new migration block is appended above this
 // line, so `sqlite3 data/db.sqlite 'PRAGMA user_version'` tells support which
 // schema generation a deployed DB is on without eyeballing every ALTER block.
-db.pragma('user_version = 2');
+db.pragma('user_version = 3');
 
 // Clear all session tokens on startup — in-memory session store is wiped on restart
 // so any stored tokens are orphaned and would wrongly block re-login.

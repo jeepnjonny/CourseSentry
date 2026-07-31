@@ -37,7 +37,8 @@ function fetchInfra(raceId, onlyStationId) {
                 WHEN s.lat IS NOT NULL THEN 'station'
                 ELSE NULL END AS location_source,
            t.timestamp AS telem_ts, t.battery_pct AS telem_battery_pct, t.uptime_sec AS telem_uptime_sec,
-           t.is_state AS telem_is_state, t.rpt_count AS telem_rpt_count, t.gate_count AS telem_gate_count
+           t.is_state AS telem_is_state, t.rpt_count AS telem_rpt_count, t.gate_count AS telem_gate_count,
+           pm.timestamp AS poll_missed_ts
     FROM infra_nodes n
     LEFT JOIN stations s ON n.station_id = s.id
     LEFT JOIN tracker_registry r ON n.node_id IS NOT NULL AND (
@@ -46,9 +47,15 @@ function fetchInfra(raceId, onlyStationId) {
     LEFT JOIN (
       SELECT * FROM (
         SELECT it.*, ROW_NUMBER() OVER (PARTITION BY infra_node_id ORDER BY timestamp DESC) AS rn
-        FROM infra_telemetry it
+        FROM infra_telemetry it WHERE source != 'poll_missed'
       ) WHERE rn = 1
     ) t ON t.infra_node_id = n.id
+    LEFT JOIN (
+      SELECT * FROM (
+        SELECT it.*, ROW_NUMBER() OVER (PARTITION BY infra_node_id ORDER BY timestamp DESC) AS rn
+        FROM infra_telemetry it WHERE source = 'poll_missed'
+      ) WHERE rn = 1
+    ) pm ON pm.infra_node_id = n.id
     WHERE n.race_id = ?`;
   const params = [raceId];
   if (onlyStationId) {
@@ -65,12 +72,21 @@ function fetchInfra(raceId, onlyStationId) {
 
 // Layers the ?TELEM? protocol's reported condition on top of plain reachability:
 // never_seen/stale still win outright (can't be "ok" if we haven't heard from
-// the device recently, regardless of what it last reported). Otherwise, take
-// the worse of a battery tier and a node-type-specific tier — RPT/GATE/IS are
-// only consulted for the node types they're actually meaningful for.
+// the device recently, regardless of what it last reported). Next, 'missing'
+// covers a node that's still heard from (via other traffic) but whose most
+// recent ?TELEM? query went unacknowledged — a stronger, more specific signal
+// than trusting a stale reply's battery/type data. Otherwise, take the worse
+// of a battery tier and a node-type-specific tier — RPT/GATE/IS are only
+// consulted for the node types they're actually meaningful for.
 function computeHealth(row, now, missingTimer) {
   if (!row.last_seen) return 'never_seen';
   if (now - row.last_seen > missingTimer) return 'stale';
+
+  // A missed poll only "sticks" until a fresher successful reply/beacon
+  // supersedes it — comparing timestamps means it clears itself automatically.
+  if (row.poll_missed_ts != null && (row.telem_ts == null || row.poll_missed_ts > row.telem_ts)) {
+    return 'missing';
+  }
 
   const battPct = row.telem_battery_pct;
   const battTier = battPct == null ? 'ok' : battPct < 15 ? 'error' : battPct < 30 ? 'warn' : 'ok';
