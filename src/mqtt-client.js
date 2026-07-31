@@ -1034,6 +1034,22 @@ function handleInfraTelem({ nodeId, batteryPct, uptimeSec, isState, rptCount, ga
   return node;
 }
 
+// Called by aprs-client.js's updateMessageStatus() when a ?TELEM? query goes
+// unacknowledged after all retries. Doesn't touch tracker_registry/last_seen —
+// the node may still be beaconing fine via other traffic — but logs a distinct
+// 'poll_missed' history row so routes/infrastructure.js's health computation
+// can surface a 'missing' tier even while last_seen still looks recent.
+function handleInfraPollMissed({ nodeId, timestamp }) {
+  if (!nodeId) return null;
+  const node = _stmt.findInfraNodeByNodeId.get(nodeId);
+  if (!node) return null; // failed message wasn't a ?TELEM? query to a registered infra node
+
+  _stmt.insertInfraTelemetry.run(node.id, node.race_id, timestamp, 'poll_missed', null, null, null, null, null, null, null);
+  logger.log('race', 'warn', `MISSED POLL — infra node "${node.name}" (${node.node_type}) did not respond to ?TELEM?`);
+  _broadcastInfraNodeRefresh(node.race_id, node.id);
+  return node;
+}
+
 // Receives pre-computed distanceFromRoute from checkRouteAlerts so we avoid
 // a redundant findPositionOnRoute call.
 function _checkOffCourse(participant, race, distanceFromRoute, timestamp) {
@@ -1392,4 +1408,4 @@ function invalidateRouteCache(raceId) {
   participantPrevEff.clear();
 }
 
-module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, publishMessage, sendNodeInfo, sendPositionBeacon, callsignToNodeId, setGatewayNodeId, invalidateRouteCache, handlePosition, handleNodeInfo, handleTelemetry, handleSosAlert, handleInfraTelem, auditMissedStations };
+module.exports = { connect, connectFromSettings, disconnect, getStatus, setWs, publishMessage, sendNodeInfo, sendPositionBeacon, callsignToNodeId, setGatewayNodeId, invalidateRouteCache, handlePosition, handleNodeInfo, handleTelemetry, handleSosAlert, handleInfraTelem, handleInfraPollMissed, auditMissedStations };

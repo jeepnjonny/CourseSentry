@@ -1050,7 +1050,7 @@ function renderInfraList() {
   }
   el.innerHTML = infraNodes.map(n => {
     const color = INFRA_COLORS[n.node_type] || INFRA_COLORS.other;
-    const healthColor = n.health === 'stale' ? 'var(--accent3)' : n.health === 'never_seen' ? 'var(--text3)' : 'var(--accent2)';
+    const healthColor = { stale: 'var(--accent3)', never_seen: 'var(--text3)', warn: 'var(--accent4)', error: 'var(--accent3)', missing: '#e53935' }[n.health] || 'var(--accent2)';
     return `<div class="stn-list-row" onclick="OP.selectStation(${n.station_id || 'null'})" style="${n.station_id ? '' : 'cursor:default'}">
       <span class="stn-type-dot" style="background:${color}"></span>
       <div style="flex:1;min-width:0">

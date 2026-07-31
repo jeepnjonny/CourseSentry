@@ -397,7 +397,7 @@ function renderInfraList() {
   if (head) head.textContent = isRover ? 'NETWORK' : `NETWORK @ ${currentStation?.name || ''}`;
 
   list.innerHTML = infraNodes.map(n => {
-    const healthColor = n.health === 'stale' ? 'var(--accent3)' : n.health === 'never_seen' ? 'var(--text3)' : 'var(--accent2)';
+    const healthColor = { stale: 'var(--accent3)', never_seen: 'var(--text3)', warn: 'var(--accent4)', error: 'var(--accent3)', missing: '#e53935' }[n.health] || 'var(--accent2)';
     return `<div class="mo-event-row">
       <span class="mo-event-type" style="color:${INFRA_COLORS[n.node_type] || INFRA_COLORS.other}">${n.node_type}</span>
       <span class="mo-event-who">${n.name}${n.battery_level != null ? ` · ${RT.fmtBattery(n.battery_level)}` : ''}</span>

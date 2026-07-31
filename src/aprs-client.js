@@ -281,6 +281,19 @@ function updateMessageStatus(messageId, status) {
       : 'UPDATE messages SET status = ? WHERE id = ?';
     const changed = db.prepare(sql).run(status, messageId).changes;
     if (changed) broadcast('message_status', { id: messageId, status });
+
+    // A ?TELEM? query (manual PING or the auto-scheduler) that never got
+    // acknowledged is a distinct "missing" signal for infra health — the node
+    // might still be beaconing fine via other traffic, but it didn't answer
+    // when specifically asked. Scoped by exact query text + registered node_id
+    // so ordinary failed chat messages don't get mistaken for a missed poll.
+    if (changed && status === 'error') {
+      const msg = db.prepare('SELECT to_node_id, text FROM messages WHERE id=?').get(messageId);
+      if (msg && msg.text === '?TELEM?' && msg.to_node_id) {
+        const mqttClient = require('./mqtt-client'); // lazy require, matches processLine()'s existing pattern
+        mqttClient.handleInfraPollMissed({ nodeId: msg.to_node_id, timestamp: Math.floor(Date.now() / 1000) });
+      }
+    }
   } catch (e) {
     logger.log('aprs', 'error', `updateMessageStatus failed: ${e.message}`);
   }

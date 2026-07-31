@@ -1799,7 +1799,7 @@ async function loadStationsForNetwork() {
   if (sr.ok) stations = sr.data;
 }
 
-const INFRA_HEALTH_LABEL = { ok: 'OK', stale: 'STALE', never_seen: 'NEVER SEEN', warn: 'WARN', error: 'ERROR' };
+const INFRA_HEALTH_LABEL = { ok: 'OK', stale: 'STALE', never_seen: 'NEVER SEEN', warn: 'WARN', error: 'ERROR', missing: 'MISSING' };
 
 async function loadInfraNodes() {
   if (!selectedRaceId) return;
@@ -1825,8 +1825,8 @@ function renderNetworkList() {
       <td class="text-accent">${n.node_id || '<span class="text-dim">—</span>'}</td>
       <td>${n.battery_level != null ? RT.fmtBattery(n.battery_level) : '—'}</td>
       <td>${n.last_seen ? RT.timeAgo(n.last_seen) : '—'}</td>
-      <td class="${{stale:'text-warn', never_seen:'text-dim', ok:'text-ok', warn:'', error:''}[n.health]}"
-          style="cursor:pointer${n.health==='warn'?';color:var(--accent4)':''}${n.health==='error'?';color:var(--accent3)':''}"
+      <td class="${{stale:'text-warn', never_seen:'text-dim', ok:'text-ok', warn:'', error:'', missing:''}[n.health]}"
+          style="cursor:pointer;font-weight:${n.health==='missing'?'bold':'normal'}${n.health==='warn'?';color:var(--accent4)':''}${n.health==='error'?';color:var(--accent3)':''}${n.health==='missing'?';color:#e53935':''}"
           onclick="openInfraTelemModal(${n.id})">${INFRA_HEALTH_LABEL[n.health]}</td>
       <td style="text-align:right">
         ${n.node_id ? `<button style="font-size:13px;padding:2px 8px" onclick="pingInfraNode(${n.id})">PING</button>` : ''}
@@ -1913,24 +1913,47 @@ function fmtUptime(sec) {
 }
 
 function renderTelemCurrent(n) {
+  // Mirrors routes/infrastructure.js's computeHealth(): a poll_missed row newer
+  // than the last successful reply/beacon means the most recent ?TELEM? query
+  // went unanswered, even though BATT/UP/etc below still show the last known
+  // good values (a missed poll doesn't erase what we previously learned).
+  const missed = n.poll_missed_ts != null && (n.telem_ts == null || n.poll_missed_ts > n.telem_ts);
   const rows = [
+    ['REPORTED', n.telem_ts != null ? _fmtLogStyleTimestamp(n.telem_ts) : '—'],
     ['BATT', n.telem_battery_pct != null ? n.telem_battery_pct + '%' : 'NA'],
     ['UP',   n.telem_uptime_sec  != null ? fmtUptime(n.telem_uptime_sec) : '—'],
   ];
   if (n.node_type === 'igate') rows.push(['IS', n.telem_is_state || '—']);
   if (n.node_type === 'digipeater' || n.node_type === 'igate') rows.push(['RPT', n.telem_rpt_count ?? '—']);
   if (n.node_type === 'igate') rows.push(['GATE', n.telem_gate_count ?? '—']);
-  return rows.map(([k, v]) => `<div style="display:flex;justify-content:space-between;padding:2px 0"><span class="text-dim">${k}</span><span>${v}</span></div>`).join('');
+  const missedBanner = missed
+    ? `<div style="color:#e53935;font-weight:bold;padding:2px 0 6px">MISSED POLL — no reply since ${_fmtLogStyleTimestamp(n.poll_missed_ts)}</div>`
+    : '';
+  return missedBanner + rows.map(([k, v]) => `<div style="display:flex;justify-content:space-between;padding:2px 0"><span class="text-dim">${k}</span><span>${v}</span></div>`).join('');
 }
+
+// Same absolute date+time format as the SYSTEM LOG tab's buildLogRow() — the
+// history table is a diagnostic record, so exact timestamps matter more here
+// than the relative "N minutes ago" style used for the network table's LAST SEEN.
+function _fmtLogStyleTimestamp(unixSec) {
+  const d = new Date(unixSec * 1000);
+  const clock = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${clock}`;
+}
+
+const _TELEM_SRC_LABEL = { telem_reply: 'TELEM', status_beacon: 'BEACON', poll_missed: 'MISSED' };
 
 function renderTelemHistory(rows, nodeType) {
   if (!rows.length) return '<div class="text-dim" style="padding:6px">No telemetry in the last 24 hours.</div>';
   const showIgate = nodeType === 'igate', showRpt = nodeType === 'digipeater' || nodeType === 'igate';
   return `<table class="data-table"><thead><tr><th>TIME</th><th>SRC</th><th>BATT</th>${showIgate ? '<th>IS</th>' : ''}${showRpt ? '<th>RPT</th>' : ''}${showIgate ? '<th>GATE</th>' : ''}</tr></thead><tbody>
-    ${rows.map(r => `<tr><td>${RT.timeAgo(r.timestamp)}</td><td class="text-dim">${r.source === 'telem_reply' ? 'TELEM' : 'BEACON'}</td>
-      <td>${r.battery_pct != null ? r.battery_pct + '%' : 'NA'}</td>
-      ${showIgate ? `<td>${r.is_state || '—'}</td>` : ''}${showRpt ? `<td>${r.rpt_count ?? '—'}</td>` : ''}${showIgate ? `<td>${r.gate_count ?? '—'}</td>` : ''}
-    </tr>`).join('')}</tbody></table>`;
+    ${rows.map(r => {
+      const missed = r.source === 'poll_missed';
+      return `<tr${missed ? ' style="color:#e53935"' : ''}><td>${_fmtLogStyleTimestamp(r.timestamp)}</td><td${missed ? '' : ' class="text-dim"'}>${_TELEM_SRC_LABEL[r.source] || r.source}</td>
+      <td>${missed ? '—' : (r.battery_pct != null ? r.battery_pct + '%' : 'NA')}</td>
+      ${showIgate ? `<td>${missed ? '—' : (r.is_state || '—')}</td>` : ''}${showRpt ? `<td>${missed ? '—' : (r.rpt_count ?? '—')}</td>` : ''}${showIgate ? `<td>${missed ? '—' : (r.gate_count ?? '—')}</td>` : ''}
+    </tr>`;
+    }).join('')}</tbody></table>`;
 }
 
 // ── Infrastructure ────────────────────────────────────────────────────────────
