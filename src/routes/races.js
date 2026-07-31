@@ -52,7 +52,7 @@ const RACE_FIELDS = [
   'feat_missing', 'feat_auto_log', 'feat_auto_start', 'feat_off_course', 'feat_stopped',
   'start_time', 'start_clearance', 'mqtt_rf_tech', 'units', 'speed_display', 'tactical_callsign',
   'offline_maps', 'rf_path', 'viewer_show_names', 'viewer_nametags', 'tnc_enabled',
-  'spot_feed_id', 'spot_feed_password',
+  'spot_feed_id', 'spot_feed_password', 'telem_query_enabled', 'telem_query_interval',
 ];
 
 const SPEED_UNITS = {
@@ -599,8 +599,8 @@ router.post('/:id/clone', requireRole('admin'), (req, res) => {
       leaderboard_enabled, weather_enabled, course_id, race_format,
       feat_missing, feat_auto_log, feat_auto_start, feat_off_course, feat_stopped,
       start_clearance, mqtt_rf_tech, tactical_callsign, tnc_enabled, rf_path,
-      spot_feed_id, spot_feed_password, cloned_from
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      spot_feed_id, spot_feed_password, telem_query_enabled, telem_query_interval, cloned_from
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name, date, 'upcoming',
     sourceRace.time_format, sourceRace.clock_seconds ?? 1, sourceRace.geofence_radius,
@@ -612,7 +612,8 @@ router.post('/:id/clone', requireRole('admin'), (req, res) => {
     sourceRace.feat_off_course ?? 1, sourceRace.feat_stopped ?? 1,
     sourceRace.start_clearance ?? 400, sourceRace.mqtt_rf_tech || 'meshtastic',
     sourceRace.tactical_callsign || 'NETCTL', sourceRace.tnc_enabled ?? 1, sourceRace.rf_path || 'WIDE1-1',
-    sourceRace.spot_feed_id || null, sourceRace.spot_feed_password || null, sourceRace.id
+    sourceRace.spot_feed_id || null, sourceRace.spot_feed_password || null,
+    sourceRace.telem_query_enabled ?? 0, sourceRace.telem_query_interval ?? 3600, sourceRace.id
   );
 
   const newRaceId = result.lastInsertRowid;

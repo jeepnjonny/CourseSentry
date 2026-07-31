@@ -371,6 +371,8 @@ async function openRaceModal(id) {
   document.getElementById('rm-feat-auto-log').checked   = !!(race?.feat_auto_log  ?? 1);
   document.getElementById('rm-feat-off-course').checked = !!(race?.feat_off_course ?? 1);
   document.getElementById('rm-feat-stopped').checked    = !!(race?.feat_stopped    ?? 1);
+  document.getElementById('rm-telem-query-enabled').checked = !!(race?.telem_query_enabled);
+  document.getElementById('rm-telem-query-interval').value  = Math.round((race?.telem_query_interval || 3600) / 60);
   document.getElementById('rm-messaging').checked    = !!(race?.messaging_enabled);
   document.getElementById('rm-offline-maps').checked = !!(race?.offline_maps);
   document.getElementById('rm-viewer-map').checked       = !!(race?.viewer_map_enabled ?? 1);
@@ -437,6 +439,8 @@ async function saveRace() {
     feat_auto_log:       document.getElementById('rm-feat-auto-log').checked   ? 1 : 0,
     feat_off_course:     document.getElementById('rm-feat-off-course').checked ? 1 : 0,
     feat_stopped:        document.getElementById('rm-feat-stopped').checked    ? 1 : 0,
+    telem_query_enabled:  document.getElementById('rm-telem-query-enabled').checked ? 1 : 0,
+    telem_query_interval: parseInt(document.getElementById('rm-telem-query-interval').value) * 60,
     messaging_enabled:   document.getElementById('rm-messaging').checked ? 1 : 0,
     offline_maps:        document.getElementById('rm-offline-maps').checked ? 1 : 0,
     viewer_map_enabled:  document.getElementById('rm-viewer-map').checked ? 1 : 0,
@@ -1790,7 +1794,7 @@ async function loadStationsForNetwork() {
   if (sr.ok) stations = sr.data;
 }
 
-const INFRA_HEALTH_LABEL = { ok: 'OK', stale: 'STALE', never_seen: 'NEVER SEEN' };
+const INFRA_HEALTH_LABEL = { ok: 'OK', stale: 'STALE', never_seen: 'NEVER SEEN', warn: 'WARN', error: 'ERROR' };
 
 async function loadInfraNodes() {
   if (!selectedRaceId) return;
@@ -1809,14 +1813,16 @@ function renderNetworkList() {
   el.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>
     <th>NAME</th><th>TYPE</th><th>STATION</th><th>NODE ID</th><th>BATTERY</th><th>LAST SEEN</th><th>HEALTH</th><th></th>
   </tr></thead><tbody>
-    ${filtered.map(n => `<tr style="${n.health !== 'ok' ? 'opacity:0.6' : ''}">
+    ${filtered.map(n => `<tr style="${n.health === 'stale' || n.health === 'never_seen' ? 'opacity:0.6' : ''}">
       <td>${n.name}</td>
       <td class="text-dim">${n.node_type}</td>
       <td>${n.station_name || '<span class="text-dim">— Unassigned —</span>'}</td>
       <td class="text-accent">${n.node_id || '<span class="text-dim">—</span>'}</td>
       <td>${n.battery_level != null ? RT.fmtBattery(n.battery_level) : '—'}</td>
       <td>${n.last_seen ? RT.timeAgo(n.last_seen) : '—'}</td>
-      <td class="${n.health === 'stale' ? 'text-warn' : n.health === 'never_seen' ? 'text-dim' : 'text-accent2'}">${INFRA_HEALTH_LABEL[n.health]}</td>
+      <td class="${{stale:'text-warn', never_seen:'text-dim', ok:'text-ok', warn:'', error:''}[n.health]}"
+          style="cursor:pointer${n.health==='warn'?';color:var(--accent4)':''}${n.health==='error'?';color:var(--accent3)':''}"
+          onclick="openInfraTelemModal(${n.id})">${INFRA_HEALTH_LABEL[n.health]}</td>
       <td style="text-align:right">
         ${n.node_id ? `<button style="font-size:13px;padding:2px 8px" onclick="pingInfraNode(${n.id})">PING</button>` : ''}
         <button style="font-size:13px;padding:2px 8px" onclick="openInfraNodeModal(${n.id})">EDIT</button>
@@ -1835,7 +1841,7 @@ async function pingInfraNode(id) {
   const n = infraNodes.find(x => x.id === id);
   if (!n?.node_id) return;
   const target = n.node_id.trim();
-  const text = NETWORK_APRS_CALL_RE.test(target) ? '?PING?' : 'ping';
+  const text = NETWORK_APRS_CALL_RE.test(target) ? '?TELEM?' : 'ping';
   const res = await RT.post(`/api/races/${selectedRaceId}/messages`, { to_node_id: target, to_name: n.name, text });
   if (res.ok) RT.toast(`Ping sent to ${n.name}`, 'ok');
   else RT.toast(res.error || 'Ping failed', 'warn');
@@ -1882,6 +1888,44 @@ async function deleteInfraNode(id) {
   const res = await RT.del(`/api/races/${selectedRaceId}/infrastructure/${id}`);
   if (res.ok) await loadInfraNodes();
   else RT.toast(res.error || 'Failed', 'warn');
+}
+
+function openInfraTelemModal(id) {
+  const n = infraNodes.find(x => x.id === id);
+  if (!n) return;
+  document.getElementById('infra-telem-modal-title').textContent = `TELEMETRY — ${n.name}`;
+  document.getElementById('infra-telem-current').innerHTML = renderTelemCurrent(n);
+  document.getElementById('infra-telem-history').innerHTML = '<div class="text-dim" style="padding:6px">Loading…</div>';
+  document.getElementById('infra-telem-modal').classList.remove('hidden');
+  RT.get(`/api/races/${selectedRaceId}/infrastructure/${id}/telemetry`).then(res => {
+    document.getElementById('infra-telem-history').innerHTML = renderTelemHistory(res.ok ? res.data : [], n.node_type);
+  });
+}
+
+function fmtUptime(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h ? `${h}h${m}m` : `${m}m`;
+}
+
+function renderTelemCurrent(n) {
+  const rows = [
+    ['BATT', n.telem_battery_pct != null ? n.telem_battery_pct + '%' : 'NA'],
+    ['UP',   n.telem_uptime_sec  != null ? fmtUptime(n.telem_uptime_sec) : '—'],
+  ];
+  if (n.node_type === 'igate') rows.push(['IS', n.telem_is_state || '—']);
+  if (n.node_type === 'digipeater' || n.node_type === 'igate') rows.push(['RPT', n.telem_rpt_count ?? '—']);
+  if (n.node_type === 'igate') rows.push(['GATE', n.telem_gate_count ?? '—']);
+  return rows.map(([k, v]) => `<div style="display:flex;justify-content:space-between;padding:2px 0"><span class="text-dim">${k}</span><span>${v}</span></div>`).join('');
+}
+
+function renderTelemHistory(rows, nodeType) {
+  if (!rows.length) return '<div class="text-dim" style="padding:6px">No telemetry in the last 24 hours.</div>';
+  const showIgate = nodeType === 'igate', showRpt = nodeType === 'digipeater' || nodeType === 'igate';
+  return `<table class="data-table"><thead><tr><th>TIME</th><th>SRC</th><th>BATT</th>${showIgate ? '<th>IS</th>' : ''}${showRpt ? '<th>RPT</th>' : ''}${showIgate ? '<th>GATE</th>' : ''}</tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${RT.timeAgo(r.timestamp)}</td><td class="text-dim">${r.source === 'telem_reply' ? 'TELEM' : 'BEACON'}</td>
+      <td>${r.battery_pct != null ? r.battery_pct + '%' : 'NA'}</td>
+      ${showIgate ? `<td>${r.is_state || '—'}</td>` : ''}${showRpt ? `<td>${r.rpt_count ?? '—'}</td>` : ''}${showIgate ? `<td>${r.gate_count ?? '—'}</td>` : ''}
+    </tr>`).join('')}</tbody></table>`;
 }
 
 // ── Infrastructure ────────────────────────────────────────────────────────────

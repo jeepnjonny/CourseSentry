@@ -1867,12 +1867,17 @@ function handleAlert(data) {
   renderAlertsList();
   updateAlertCount();
   const isSos = data.type === 'sos';
+  const isInfra = data.type === 'infra_low_battery' || data.type === 'infra_battery_critical';
+  const urgent = isSos || data.type === 'infra_battery_critical';
   const title = isSos ? '🆘 SOS' : 'ALERT: ' + data.type.replace('_',' ').toUpperCase();
-  RT.toast(`${title} — Bib ${data.bib} ${data.name}`, 'alert', isSos ? 20000 : 8000);
-  RT.notifyAlert(title, `Bib ${data.bib} ${data.name}`, { sos: isSos, tag: data.key || `${data.type}_${data.participantId}` });
+  const body = isInfra ? `${data.name} (${data.battery}%)` : `Bib ${data.bib} ${data.name}`;
+  RT.toast(`${title} — ${body}`, 'alert', urgent ? 20000 : 8000);
+  RT.notifyAlert(title, body, { sos: urgent, tag: data.key || `${data.type}_${data.participantId ?? data.infraNodeId}` });
   // Update marker
-  const p = participants[data.participantId];
-  if (p) updateOrCreateMarker(p);
+  if (!isInfra) {
+    const p = participants[data.participantId];
+    if (p) updateOrCreateMarker(p);
+  }
 }
 
 const _MSG_CLOUD = `<circle cx="4.5" cy="9" r="3" fill="currentColor"/><circle cx="8.5" cy="7" r="3.5" fill="currentColor"/><circle cx="12" cy="9" r="2.5" fill="currentColor"/><rect x="1.5" y="9" width="13" height="5" rx="2.5" fill="currentColor"/>`;
@@ -2236,6 +2241,18 @@ function renderAlertsList() {
         </div>
         <button style="margin-left:auto;font-size:13px;padding:2px 8px;white-space:nowrap" onclick="OP.jumpToMsg('${a._fromNodeId}', ${a.id})">View</button>
         <button style="font-size:13px;padding:2px 6px" onclick="OP.dismissAlert(${a.id})">✕</button>
+      </div>`;
+    }
+    if (a.type === 'infra_low_battery' || a.type === 'infra_battery_critical') {
+      const critical = a.type === 'infra_battery_critical';
+      return `<div class="alert-badge"${critical ? ' style="border-color:#e5393566;background:#e5393518"' : ''}>
+        <span style="font-size:22px">${critical ? '🪫' : '🔋'}</span>
+        <div>
+          <div style="font-weight:bold${critical ? ';color:#e53935' : ''}">${critical ? 'INFRA BATTERY CRITICAL' : 'INFRA LOW BATTERY'}</div>
+          <div class="text-dim" style="font-size:13px">${a.name} · ${RT.fmtTime(a.timestamp, fmt24)}</div>
+          <div style="font-size:13px">${a.battery}% battery remaining</div>
+        </div>
+        <button style="margin-left:auto;font-size:13px;padding:2px 6px" onclick="OP.dismissAlert(${a.id})">✕</button>
       </div>`;
     }
     const isSos = a.type === 'sos';

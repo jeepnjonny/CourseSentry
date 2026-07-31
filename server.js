@@ -16,6 +16,7 @@ const aprsClient = require('./src/aprs-client');
 const localTnc = require('./src/local-tnc');
 const lightning = require('./src/lightning');
 const beacon        = require('./src/beacon');
+const telemScheduler = require('./src/telem-scheduler');
 const inreachPoller = require('./src/inreach-poller');
 const spotPoller    = require('./src/spot-poller');
 const alertMonitor  = require('./src/alert-monitor');
@@ -327,6 +328,7 @@ lightning.connect();
 console.log('[server] Connecting to Blitzortung lightning feed');
 
 beacon.start();
+telemScheduler.start();
 inreachPoller.start();
 spotPoller.start();
 alertMonitor.start();
